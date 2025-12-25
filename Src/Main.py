@@ -14,7 +14,7 @@ from Src.Helper import *
 from PySide6.QtCore import Signal, QThread, Qt
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFileDialog, QProgressBar, QMessageBox, QSizePolicy
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox, QSizePolicy, QListWidgetItem, QInputDialog
 
 # -------------------------
 # Live Capture Thread
@@ -60,10 +60,23 @@ class Dashboard(QWidget):
 
         # Left panel
         left_panel = QVBoxLayout()
-        self.left_panel_label = QLabel("Left Panel Label")
-        self.left_panel_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        left_panel.addWidget(self.left_panel_label)
-        left_panel.addStretch()
+        # Add/Del buttons layout
+        event_btn_layout = QHBoxLayout()
+        self.add_event_btn = QPushButton("+")
+        self.add_event_btn.setFixedWidth(28)
+        self.add_event_btn.setToolTip("Add Event")
+        self.add_event_btn.clicked.connect(self.handle_add_event)
+        self.del_event_btn = QPushButton("-")
+        self.del_event_btn.setFixedWidth(28)
+        self.del_event_btn.setToolTip("Delete Selected Event")
+        self.del_event_btn.clicked.connect(self.handle_del_event)
+        event_btn_layout.addWidget(self.add_event_btn)
+        event_btn_layout.addWidget(self.del_event_btn)
+        event_btn_layout.addStretch()
+        left_panel.addLayout(event_btn_layout)
+        # Add event list widget
+        self.event_list = QListWidget()
+        left_panel.addWidget(self.event_list)
 
         # Center panel
         center_panel = QVBoxLayout()
@@ -211,6 +224,48 @@ class Dashboard(QWidget):
             self.hwnd_label.setText("HWND: -")
             self.current_hwnd = None
             QMessageBox.warning(self, "Not found", "Window not found.")
+
+    def add_event(self, name):
+        item = QListWidgetItem(name)
+        item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+        item.setCheckState(Qt.Unchecked)
+        self.event_list.addItem(item)
+
+    def handle_add_event(self):
+        # Add event with default name
+        self.add_event("New Event")
+        # Example: alert the newly added event (for demonstration)
+        row = self.event_list.count() - 1
+        if row >= 0:
+            self.alert_event(row)
+
+    def handle_del_event(self):
+        row = self.event_list.currentRow()
+        if row >= 0:
+            self.event_list.takeItem(row)
+
+    def set_event_color(self, row, color):
+        """Set the background color of the event at the given row."""
+        item = self.event_list.item(row)
+        if item:
+            item.setBackground(color)
+
+    def alert_event(self, row):
+        """Temporarily alert by changing background to red, then revert."""
+        from PySide6.QtGui import QColor
+        from PySide6.QtCore import QTimer
+        item = self.event_list.item(row)
+        if not item:
+            return
+        original_brush = item.background()
+        self.set_event_color(row, QColor('#ff0000'))  # Light red
+        
+        def revert_color():
+            item.setBackground(original_brush)
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(revert_color)
+        timer.start(200)  # 1000 ms = 1 second
 
 if __name__ == "__main__": 
     app = QApplication(sys.argv)
