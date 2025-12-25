@@ -1,3 +1,6 @@
 PySide6
-Pillow
-pywinauto
+opencv-python
+pyautogui
+pywin32
+pillow
+EasyOCR 
