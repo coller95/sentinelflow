@@ -147,56 +147,7 @@ if __name__ == "__main__":
 
             self.current_hwnd = None
             self.live_thread = None
-            self.roi_start = None
-            self.roi_end = None
-            self.selected_roi = None
-            self.live_image_label.installEventFilter(self)
 
-        # ---- ROI / Mouse Handling ----
-        def eventFilter(self, obj, event):
-            from PySide6.QtCore import QEvent
-            if obj is self.live_image_label:
-                if event.type() == QEvent.Type.MouseButtonPress:
-                    if self.last_live_img is not None:
-                        self.roi_start = event.position().toPoint()
-                        self.roi_end = self.roi_start
-                        self.selected_roi = None
-                        self.update_live_image(draw_roi=True)
-                elif event.type() == QEvent.Type.MouseMove and self.roi_start is not None:
-                    self.roi_end = event.position().toPoint()
-                    self.update_live_image(draw_roi=True)
-                elif event.type() == QEvent.Type.MouseButtonRelease and self.roi_start is not None:
-                    self.roi_end = event.position().toPoint()
-                    self.selected_roi = self.get_roi_from_live_label()
-                    self.roi_start = None
-                    self.roi_end = None
-                    self.update_live_image(draw_roi=True)
-            return super().eventFilter(obj, event)
-
-        def get_roi_from_live_label(self):
-            if self.last_live_img is None or self.roi_start is None or self.roi_end is None:
-                return None
-            x1, y1 = self.roi_start.x(), self.roi_start.y()
-            x2, y2 = self.roi_end.x(), self.roi_end.y()
-            x, y = min(x1, x2), min(y1, y2)
-            w, h = abs(x2 - x1), abs(y2 - y1)
-            if w < 5 or h < 5:
-                return None
-            label_w = self.live_image_label.width()
-            label_h = self.live_image_label.height()
-            img = self.last_live_img
-            img_h, img_w, _ = img.shape
-            scale_x = img_w / label_w
-            scale_y = img_h / label_h
-            roi_x = int(x * scale_x)
-            roi_y = int(y * scale_y)
-            roi_w = int(w * scale_x)
-            roi_h = int(h * scale_y)
-            roi_x = max(0, min(roi_x, img_w-1))
-            roi_y = max(0, min(roi_y, img_h-1))
-            roi_w = max(1, min(roi_w, img_w - roi_x))
-            roi_h = max(1, min(roi_h, img_h - roi_y))
-            return (roi_x, roi_y, roi_w, roi_h)
 
         # ---- Live Capture Controls ----
         def toggle_live_capture(self, checked):
@@ -226,8 +177,8 @@ if __name__ == "__main__":
         def on_live_image_captured(self, img):
             self.update_live_image(img=img)
 
-        # ---- Image Rendering & ROI drawing ----
-        def update_live_image(self, draw_roi=False, img=None):
+        # ---- Image Rendering ----
+        def update_live_image(self, img=None):
             if img is None:
                 if not self.current_hwnd:
                     self.live_image_label.clear()
@@ -241,22 +192,12 @@ if __name__ == "__main__":
                     return
             self.last_live_img = img
             if img is not None and hasattr(img, 'size') and img.size > 0:
-                from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QPen
+                from PySide6.QtGui import QImage, QPixmap
                 h, w, ch = img.shape
                 bytes_per_line = ch * w
                 qimg = QImage(img.data, w, h, bytes_per_line, QImage.Format_BGR888)
                 pixmap = QPixmap.fromImage(qimg).scaled(
                     self.live_image_label.width(), self.live_image_label.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                if (draw_roi or (self.roi_start and self.roi_end)) and self.roi_start and self.roi_end:
-                    painter = QPainter(pixmap)
-                    pen = QPen(QColor(255, 0, 0), 2, Qt.DashLine)
-                    painter.setPen(pen)
-                    rect_x = min(self.roi_start.x(), self.roi_end.x())
-                    rect_y = min(self.roi_start.y(), self.roi_end.y())
-                    rect_w = abs(self.roi_end.x() - self.roi_start.x())
-                    rect_h = abs(self.roi_end.y() - self.roi_start.y())
-                    painter.drawRect(rect_x, rect_y, rect_w, rect_h)
-                    painter.end()
                 self.live_image_label.setPixmap(pixmap)
             else:
                 self.live_image_label.clear()
