@@ -4,18 +4,22 @@ import ctypes
 import time
 import win32gui
 import win32ui
-from pywinauto import findwindows  # pyright: ignore[reportMissingTypeStubs]
-from pywinauto.win32functions import GetWindowRect
+import win32con
+import win32api
 
 def find_hwnd_by_title(window_title: str) -> int:
     """
-    Find the first window handle (hwnd) matching the given window title.
+    Find the window handle (HWND) using the exact window title.
+    Returns 0 if no window is found.
     """
-    hwnds = findwindows.find_windows(title=window_title)
-    if hwnds:
-        return hwnds[0]
-    else:
+    # FindWindow(ClassName, WindowName)
+    # Passing None to ClassName searches by Title only
+    Hwnd = win32gui.FindWindow(None, window_title)
+    
+    if Hwnd == 0:
         return None
+        
+    return Hwnd
 
 
 def launch_hwnd_by_executable(executable_path: str) -> int:
@@ -37,9 +41,7 @@ def capture_window_by_hwnd(hwnd: int) -> np.ndarray:
     Capture the window of a process by PID and return as OpenCV image (BGR).
     Uses Windows GDI for direct window capture.
     """
-    rect = ctypes.wintypes.RECT()
-    GetWindowRect(hwnd, ctypes.byref(rect))
-    left, top, right, bottom = rect.left, rect.top, rect.right, rect.bottom
+    (left, top, right, bottom) = win32gui.GetWindowRect(hwnd)
     width, height = right - left, bottom - top
 
     hwndDC = win32gui.GetWindowDC(hwnd)
@@ -152,3 +154,53 @@ def estimate_progress_bar_percentage(bar_img: np.ndarray) -> float:
     percent = (fill_end + 1) / w * 100.0
 
     return float(np.clip(percent, 0.0, 100.0))
+
+def vk_from_keyname(key_name: str) -> int:
+    """
+    Convert a key name (like 'a', 'ENTER', 'F5') to its virtual key code.
+    """
+    vk = win32api.VkKeyScan(key_name)
+    if vk == -1:
+        raise ValueError(f"Invalid key name: {key_name}")
+    return vk & 0xff  # Return only the low byte (virtual key code)
+
+def send_keystroke_to_window(hwnd: int, vk: int) -> None:
+    """
+    Send a keystroke to the window with the given hwnd.
+    Keystroke should be a string like 'a', 'ENTER', 'F5', etc.
+    """
+    if not hwnd:
+        return
+    
+    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    win32gui.SetForegroundWindow(hwnd)
+    win32api.keybd_event(vk, 0, 0, 0)
+    win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
+
+def send_mouseclick_to_window(hwnd: int, x_n: float, y_n: float) -> None:
+    """
+    Send a mouse click to the window with the given hwnd at (x, y) coordinates.
+    Coordinates are relative to the window's client area.
+    """
+    if not hwnd:
+        return
+        
+
+    # Calculate absolute screen coordinates   
+    (left, top, right, bottom) = win32gui.GetWindowRect(hwnd)
+    x = float(x_n * (right - left))
+    y = float(y_n * (bottom - top))
+
+    click_x = left + int(x)
+    click_y = top + int(y)
+
+    # Restore and focus the window
+    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    win32gui.SetForegroundWindow(hwnd)
+    time.sleep(0.03)
+
+    win32api.SetCursorPos((click_x, click_y))
+    time.sleep(0.02)
+    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, click_x, click_y, 0, 0)
+    time.sleep(0.1) # A short delay is often needed
+    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, click_x, click_y, 0, 0)
