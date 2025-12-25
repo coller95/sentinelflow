@@ -234,38 +234,11 @@ class Dashboard(QWidget):
     def handle_add_event(self):
         # Add event with default name
         self.add_event("New Event")
-        # Example: alert the newly added event (for demonstration)
-        row = self.event_list.count() - 1
-        if row >= 0:
-            self.alert_event(row)
 
     def handle_del_event(self):
         row = self.event_list.currentRow()
         if row >= 0:
             self.event_list.takeItem(row)
-
-    def set_event_color(self, row, color):
-        """Set the background color of the event at the given row."""
-        item = self.event_list.item(row)
-        if item:
-            item.setBackground(color)
-
-    def alert_event(self, row):
-        """Temporarily alert by changing background to red, then revert."""
-        from PySide6.QtGui import QColor
-        from PySide6.QtCore import QTimer
-        item = self.event_list.item(row)
-        if not item:
-            return
-        original_brush = item.background()
-        self.set_event_color(row, QColor('#ff0000'))  # Light red
-        
-        def revert_color():
-            item.setBackground(original_brush)
-        timer = QTimer(self)
-        timer.setSingleShot(True)
-        timer.timeout.connect(revert_color)
-        timer.start(200)  # 1000 ms = 1 second
 
 if __name__ == "__main__": 
     app = QApplication(sys.argv)
