@@ -204,6 +204,21 @@ class Dashboard(QWidget):
         hwndLayout.addWidget(self.findHwndBtn)
         hwndLayout.addWidget(self.hwndLabel)
 
+        resizeWindowLayout = QHBoxLayout()
+        self.resizeWidthEdit = QLineEdit()
+        self.resizeHeightEdit = QLineEdit()
+        self.resizeWidthEdit.setFixedWidth(100)
+        self.resizeHeightEdit.setFixedWidth(100)
+        self.resizeWidthEdit.setText("800")
+        self.resizeHeightEdit.setText("600")
+        self.resizeBtn = QPushButton("Resize Window")
+        self.resizeBtn.clicked.connect(self.handleResizeWindow)
+        resizeWindowLayout.addWidget(QLabel("Width:"))
+        resizeWindowLayout.addWidget(self.resizeWidthEdit)
+        resizeWindowLayout.addWidget(QLabel("Height:"))
+        resizeWindowLayout.addWidget(self.resizeHeightEdit)
+        resizeWindowLayout.addWidget(self.resizeBtn)
+
         # Row 3: Live Capture Start/Stop
         self.liveCaptureBtn = QPushButton("Start Live Capture")
         self.liveCaptureBtn.setCheckable(True)
@@ -242,6 +257,7 @@ class Dashboard(QWidget):
 
         centerPanel.addLayout(exeLayout)
         centerPanel.addLayout(hwndLayout)
+        centerPanel.addLayout(resizeWindowLayout)
         centerPanel.addWidget(self.liveCaptureBtn)
         centerPanel.addWidget(self.liveImageLabel)
         centerPanel.addLayout(keystrokeLayout)
@@ -345,6 +361,17 @@ class Dashboard(QWidget):
         if path:
             pid = launchHwndByExecutable(path)
             QMessageBox.information(self, "Success", f"Launched PID: {pid}")
+
+    def handleResizeWindow(self):
+        if not self.currentHwnd:
+            QMessageBox.warning(self, "Error", "Please find a window first.")
+            return
+        try:
+            width = int(self.resizeWidthEdit.text())
+            height = int(self.resizeHeightEdit.text())
+            ResizeWindow(self.currentHwnd, width, height)
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid width or height.")            
 
     # --- Capture Logic ---
     def toggleLiveCapture(self, checked):

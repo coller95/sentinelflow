@@ -70,6 +70,34 @@ def captureWindowByHwnd(hwnd: int) -> np.ndarray:
         raise Exception("Failed to capture window image using PrintWindow.")
     return imgCv
 
+def ResizeWindow(hwnd: int, width: int, height: int) -> None:
+    """
+    Resizes the window identified by the handle to the specified width and height.
+
+    :param hwnd: The handle to the window to be resized.
+    :param width: The new width of the window.
+    :param height: The new height of the window.
+    """
+    # Get current position to maintain the window's top-left coordinates.
+    # Microsoft style emphasizes clarity in variable naming and comments.
+    windowRect = win32gui.GetWindowRect(hwnd)
+    currentX = windowRect[0]
+    currentY = windowRect[1]
+
+    # SetWindowPos is often preferred in Windows development for fine-grained control,
+    # but MoveWindow is used here as a direct refactor of your logic.
+    success = win32gui.MoveWindow(
+        hwnd, 
+        currentX, 
+        currentY, 
+        width, 
+        height, 
+        True
+    )
+
+    if not success:
+        # Microsoft coding standards favor explicit handling of Win32 API failures.
+        raise Exception(f"Failed to resize window with HWND: {hwnd}")
 
 def cropImage(img: np.ndarray, roi: tuple[int, int, int, int]) -> np.ndarray:
     """
