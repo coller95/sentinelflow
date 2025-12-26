@@ -9,14 +9,60 @@ Description: PySide6 GUI for live capture, launcher, and window management.
 import os
 import sys
 import time
+from enum import Enum, auto
 from Src.Helper import *
 
-from PySide6.QtCore import Signal, QThread, Qt, QPoint 
+from PySide6.QtCore import Signal, QThread, Qt, QPoint, QTimer
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox, QSizePolicy, QListWidgetItem
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox, QSizePolicy, QListWidgetItem, QComboBox
+from PySide6.QtGui import QPainter, QPen, QColor
 
+class EventItem:
+    class ActivationType(Enum):
+        NotSet = auto()  # Avoids 'None' keyword conflict
+        ImageMatch = auto()
+        ImageMatchRoi = auto()
+        ImagePercent = auto()
+        Interval = auto()
+        SetTime = auto()
+        Hotkey = auto()
+        Manual = auto()
+        Script = auto()
+
+    def __init__(self, name: str, enabled: bool = False, activationType: ActivationType = ActivationType.NotSet):
+        self._name = name
+        self._enabled = enabled
+        self._activationType = activationType
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @name.setter
+    def name(self, value: str):
+        if not value:
+            raise ValueError("Name cannot be empty")
+        self._name = value
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, value: bool):
+        self._enabled = value
+
+    @property
+    def activationType(self) -> ActivationType:
+        return self._activationType
+
+    @activationType.setter
+    def activationType(self, value: ActivationType):
+        self._activationType = value
+
+
+    
 # -------------------------
 # Live Capture Thread
 # -------------------------
@@ -126,6 +172,7 @@ class Dashboard(QWidget):
         # ---- UI Setup ----
         self.setWindowTitle("SentinelFlow Dashboard")
         self.setGeometry(100, 100, 720, 480)
+        self.eventItems = []
 
         # Root layout
         root_layout = QHBoxLayout()
@@ -149,6 +196,7 @@ class Dashboard(QWidget):
         # Add event list widget
         self.event_list = QListWidget()
         self.event_list.setFixedWidth(200)
+        self.event_list.currentItemChanged.connect(self.on_event_selected)
         left_panel.addWidget(self.event_list)
 
         # Center panel
@@ -236,9 +284,18 @@ class Dashboard(QWidget):
         self.event_name_edit.editingFinished.connect(self.handle_event_name_edit)
         right_panel.addWidget(QLabel("Selected Event Name:"))
         right_panel.addWidget(self.event_name_edit)
+        # Activation type
+        self.event_activation_type_dropdown = QComboBox()
+        self.event_activation_type_dropdown.setFixedWidth(200)
+        self.event_activation_type_dropdown.clear()
+        self.event_activation_type_dropdown.addItems([at.name for at in EventItem.ActivationType])
+        self.event_activation_type_dropdown.setEnabled(False)
+        self.event_activation_type_dropdown.currentIndexChanged.connect(self.handleActivationTypeChange)
+        right_panel.addWidget(QLabel("Activation Type:"))
+        right_panel.addWidget(self.event_activation_type_dropdown)
+        
         right_panel.addStretch()
-        # Connect event selection to update name edit
-        self.event_list.currentItemChanged.connect(self.on_event_selected)
+
 
         # Assemble root layout
         root_layout.addLayout(left_panel, stretch=1)
@@ -339,15 +396,24 @@ class Dashboard(QWidget):
             self.current_hwnd = None
             QMessageBox.warning(self, "Not found", "Window not found.")
 
-    def add_event(self, name):
-        item = QListWidgetItem(name)
+    def add_event(self, eventObj: EventItem):
+        item = QListWidgetItem(eventObj.name)
+        # Store the actual Python object in the item
+        item.setData(Qt.UserRole, eventObj) 
+        
         item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-        item.setCheckState(Qt.Unchecked)
+        state = Qt.Checked if eventObj.enabled else Qt.Unchecked
+        item.setCheckState(state)
+        
         self.event_list.addItem(item)
+        self.eventItems.append(eventObj)
 
     def handle_add_event(self):
-        # Add event with default name
-        self.add_event("New Event")
+        # 1. Create the data object first
+        newEvent = EventItem(name="New Event", enabled=False)
+        
+        # 2. Pass the object to the UI adder
+        self.add_event(newEvent)
 
     def handle_del_event(self):
         row = self.event_list.currentRow()
@@ -362,8 +428,6 @@ class Dashboard(QWidget):
 
     def alert_event(self, row):
         """Temporarily alert by changing background to red, then revert."""
-        from PySide6.QtGui import QColor
-        from PySide6.QtCore import QTimer
         item = self.event_list.item(row)
         if not item:
             return
@@ -380,18 +444,39 @@ class Dashboard(QWidget):
 
     def on_event_selected(self, current, previous):
         if current:
-            self.event_name_edit.setText(current.text())
+            eventObj: EventItem = current.data(Qt.UserRole)
+            self.event_name_edit.setText(eventObj.name)
+            
+            # Set the dropdown by finding the index of the Enum name
+            typeName = eventObj.activationType.name
+            index = self.event_activation_type_dropdown.findText(typeName)
+            self.event_activation_type_dropdown.setCurrentIndex(index)
+            
             self.event_name_edit.setEnabled(True)
+            self.event_activation_type_dropdown.setEnabled(True)
         else:
             self.event_name_edit.clear()
             self.event_name_edit.setEnabled(False)
+            self.event_activation_type_dropdown.setEnabled(False)
 
     def handle_event_name_edit(self):
         item = self.event_list.currentItem()
-        if item and self.event_name_edit.isEnabled():
-            new_name = self.event_name_edit.text().strip()
-            if new_name:
-                item.setText(new_name)
+        if item:
+            eventObj: EventItem = item.data(Qt.UserRole)
+            newName = self.event_name_edit.text().strip()
+            
+            if newName:
+                eventObj.name = newName # Update Object
+                item.setText(newName)   # Update UI List
+
+    def handleActivationTypeChange(self, index):
+        item = self.event_list.currentItem()
+        if not item:
+            return
+
+        typeName = self.event_activation_type_dropdown.currentText()
+        eventObj: EventItem = item.data(Qt.UserRole)
+        eventObj.activationType = EventItem.ActivationType[typeName]
 
     def handle_send_keystroke(self):
         macro_name = self.keystroke_name_edit.text().strip()
