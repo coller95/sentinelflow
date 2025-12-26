@@ -196,13 +196,13 @@ class Dashboard(QWidget):
         hwndLayout = QHBoxLayout()
         self.titleEdit = QLineEdit()
         self.titleEdit.setText("Warcraft III")
-        self.findHwndBtn = QPushButton("Find HWND")
+        self.findHwndBtn = QPushButton("Find")
         self.findHwndBtn.clicked.connect(self.findWindowHandle)
-        self.hwndLabel = QLabel("HWND: -")
+        self.pidLabel = QLabel("Pid: -")
         hwndLayout.addWidget(QLabel("Window Title:"))
         hwndLayout.addWidget(self.titleEdit)
         hwndLayout.addWidget(self.findHwndBtn)
-        hwndLayout.addWidget(self.hwndLabel)
+        hwndLayout.addWidget(self.pidLabel)
 
         resizeWindowLayout = QHBoxLayout()
         self.resizeWidthEdit = QLineEdit()
@@ -345,10 +345,10 @@ class Dashboard(QWidget):
         hwnd = findHwndByTitle(title)
         if hwnd:
             self.currentHwnd = hwnd
-            self.hwndLabel.setText(f"HWND: {hwnd}")
+            self.pidLabel.setText(f"PID: {findPidByHwnd(hwnd)}")
         else:
             self.currentHwnd = None
-            self.hwndLabel.setText("HWND: -")
+            self.pidLabel.setText("PID: -")
             QMessageBox.warning(self, "Error", "Window not found.")
 
     def browseExecutable(self):

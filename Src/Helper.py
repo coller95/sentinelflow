@@ -6,6 +6,7 @@ import win32gui
 import win32ui
 import win32con
 import win32api
+import win32process
 
 def findHwndByTitle(windowTitle: str) -> int:
     """
@@ -19,6 +20,12 @@ def findHwndByTitle(windowTitle: str) -> int:
         
     return hwnd
 
+def findPidByHwnd(hwnd: int) -> int:
+    """
+    Find the process ID (PID) associated with the given window handle (HWND).
+    """
+    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+    return pid
 
 def launchHwndByExecutable(executablePath: str) -> int:
     """
@@ -55,7 +62,6 @@ def captureWindowByHwnd(hwnd: int) -> np.ndarray:
         # Fallback for older Windows
         result = user32.PrintWindow(hwnd, saveDc.GetSafeHdc(), 0)
 
-    bmpInfo = saveBitmap.GetInfo()
     bmpStr = saveBitmap.GetBitmapBits(True)
     imgNp = np.frombuffer(bmpStr, dtype='uint8').reshape((height, width, 4))
     imgCv = cv2.cvtColor(imgNp, cv2.COLOR_BGRA2BGR)
@@ -86,7 +92,7 @@ def ResizeWindow(hwnd: int, width: int, height: int) -> None:
 
     # SetWindowPos is often preferred in Windows development for fine-grained control,
     # but MoveWindow is used here as a direct refactor of your logic.
-    success = win32gui.MoveWindow(
+    win32gui.MoveWindow(
         hwnd, 
         currentX, 
         currentY, 
@@ -95,9 +101,6 @@ def ResizeWindow(hwnd: int, width: int, height: int) -> None:
         True
     )
 
-    if not success:
-        # Microsoft coding standards favor explicit handling of Win32 API failures.
-        raise Exception(f"Failed to resize window with HWND: {hwnd}")
 
 def cropImage(img: np.ndarray, roi: tuple[int, int, int, int]) -> np.ndarray:
     """
@@ -184,7 +187,6 @@ def vkFromKeyName(keyName: str) -> int:
         raise ValueError(f"Invalid key name: {keyName}")
     return vk & 0xff
 
-
 def sendKeystrokeToWindow(hwnd: int, vk: int) -> None:
     """
     Send a virtual key keystroke to the window with the given hwnd.
@@ -192,8 +194,7 @@ def sendKeystrokeToWindow(hwnd: int, vk: int) -> None:
     if not hwnd:
         return
     
-    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-    win32gui.SetForegroundWindow(hwnd)
+    WaitForWindowFocus(hwnd, timeoutSeconds=0.03)
     win32api.keybd_event(vk, 0, 0, 0)
     win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
 
@@ -219,10 +220,10 @@ def sendMouseClickToWindow(hwnd: int, xN: float, yN: float) -> None:
     # Restore and focus the window
     win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
     win32gui.SetForegroundWindow(hwnd)
-    time.sleep(0.03)
+    time.sleep(0.05)
 
     win32api.SetCursorPos((clickX, clickY))
-    time.sleep(0.02)
+    time.sleep(0.05)
     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, clickX, clickY, 0, 0)
-    time.sleep(0.1) 
+    time.sleep(0.01)
     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, clickX, clickY, 0, 0)
