@@ -194,7 +194,11 @@ def sendKeystrokeToWindow(hwnd: int, vk: int) -> None:
     if not hwnd:
         return
     
-    WaitForWindowFocus(hwnd, timeoutSeconds=0.03)
+    # Restore and focus the window
+    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    win32gui.SetForegroundWindow(hwnd)
+    time.sleep(0.05)
+    
     win32api.keybd_event(vk, 0, 0, 0)
     win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
 
