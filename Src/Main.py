@@ -15,13 +15,13 @@ from enum import Enum, auto
 # -------------------------
 # Third-party imports
 # -------------------------
-from PySide6.QtCore import Signal, QThread, Qt, QPoint, QTimer
+from PySide6.QtCore import Signal, QThread, Qt, QPoint
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox, 
-    QSizePolicy, QListWidgetItem, QComboBox
+    QSizePolicy, QListWidgetItem, QComboBox, QGroupBox, QFrame
 )
-from PySide6.QtGui import QPainter, QPen, QColor, QImage, QPixmap
+from PySide6.QtGui import QPainter, QPen, QImage, QPixmap
 
 # -------------------------
 # Local imports
@@ -141,151 +141,201 @@ class ClickableImageLabel(QLabel):
 class Dashboard(QWidget):
     def __init__(self):
         super().__init__()
+        # Data/State
         self.eventItems = []
         self.currentHwnd = None
         self.liveThread = None
         self.lastLiveImg = None
-        self.initUi()
+        
+        # UI Initialization
+        self.InitializeComponents()
+        self.WireUpSignals()
 
-    def initUi(self):
+    def CreateSeparator(self) -> QFrame:
+        """Creates a thin vertical line to separate panels."""
+        line = QFrame()
+        line.setFrameShape(QFrame.VLine)
+        line.setFrameShadow(QFrame.Plain)
+        # This color (Dark Gray) matches most modern 'Dark Mode' apps
+        line.setStyleSheet("color: #3f3f46;") 
+        line.setFixedWidth(1) # Keeps the line very thin
+        return line
+
+    def InitializeComponents(self):
+        """Primary entry point for UI setup."""
         self.setWindowTitle("SentinelFlow Dashboard")
-        self.setGeometry(100, 100, 800, 520)
+        self.resize(1000, 650)
 
-        rootLayout = QHBoxLayout()
+        self.MainLayout = QHBoxLayout(self)
+        self.MainLayout.setContentsMargins(0, 0, 0, 0)
+        self.MainLayout.setSpacing(5) # We want the line to touch the panels
 
-        # --- Left Panel: Event List ---
-        leftPanel = QVBoxLayout()
-        eventBtnLayout = QHBoxLayout()
+        # Build Panels via specialized methods
+        self.MainLayout.addLayout(self.SetupLeftPanel(), 0)
+        # self.MainLayout.addWidget(self.CreateSeparator())
+        self.MainLayout.addLayout(self.SetupCenterPanel(), 1)
+        # self.MainLayout.addWidget(self.CreateSeparator())
+        self.MainLayout.addLayout(self.SetupRightPanel(), 0)
+
+    # --- Panel Builders ---
+
+    def SetupLeftPanel(self) -> QVBoxLayout:
+        """Logic for the Event List and Management buttons."""
+        layout = QVBoxLayout()
         
-        self.addEventBtn = QPushButton("+")
-        self.addEventBtn.setFixedWidth(28)
-        self.addEventBtn.clicked.connect(self.handleAddEvent)
+        # Toolbar
+        btnLayout = QHBoxLayout()
+        self.btnAddEvent = QPushButton("+")
+        self.btnDelEvent = QPushButton("-")
+        self.btnAddEvent.setFixedWidth(30)
+        self.btnDelEvent.setFixedWidth(30)
         
-        self.delEventBtn = QPushButton("-")
-        self.delEventBtn.setFixedWidth(28)
-        self.delEventBtn.clicked.connect(self.handleDeleteEvent)
-        
-        eventBtnLayout.addWidget(self.addEventBtn)
-        eventBtnLayout.addWidget(self.delEventBtn)
-        eventBtnLayout.addStretch()
-        
+        btnLayout.addWidget(self.btnAddEvent)
+        btnLayout.addWidget(self.btnDelEvent)
+        btnLayout.addStretch()
+
+        # List
         self.eventListWidget = QListWidget()
         self.eventListWidget.setFixedWidth(200)
-        self.eventListWidget.currentItemChanged.connect(self.onEventSelected)
-        
-        leftPanel.addLayout(eventBtnLayout)
-        leftPanel.addWidget(self.eventListWidget)
+        self.eventListWidget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
 
-        # --- Center Panel: Capture & Actions ---
-        centerPanel = QVBoxLayout()
+        layout.addLayout(btnLayout)
+        layout.addWidget(self.eventListWidget)
+        return layout
+    
+    def SetupCenterPanel(self) -> QVBoxLayout:
+        """Main interaction area: Management Group, Live View, and Manual Controls."""
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5) # Space between the GroupBox and the Image
+
+        managementGroupBox = QGroupBox("Target Application Management")
+        managementGroupBox.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+
+        # Master layout for the group
+        groupMasterLayout = QVBoxLayout()
+        groupMasterLayout.setSpacing(0)  # Reduce space between rows
+        groupMasterLayout.setContentsMargins(10, 15, 10, 10) # Adjust internal padding
         
-        # Row 1: Executable Path
+
+        # --- Row 1: Executable Management ---
         exeLayout = QHBoxLayout()
-        self.exePathEdit = QLineEdit()
-        self.exePathEdit.setText(r"C:\Users\HONG\Desktop\frozenthrone1.26\war3.exe -window")
-        self.browseBtn = QPushButton("Browse")
-        self.launchBtn = QPushButton("Launch")
-        self.browseBtn.clicked.connect(self.browseExecutable)
-        self.launchBtn.clicked.connect(self.launchExecutable)
-        exeLayout.addWidget(QLabel("Executable:"))
+        self.exePathEdit = QLineEdit(r"C:\Users\HONG\Desktop\frozenthrone1.26\war3.exe -window")
+        self.btnBrowse = QPushButton("Browse")
+        self.btnLaunch = QPushButton("Launch")
+        exeLayout.addWidget(QLabel("Path:"))
         exeLayout.addWidget(self.exePathEdit)
-        exeLayout.addWidget(self.browseBtn)
-        exeLayout.addWidget(self.launchBtn)
-        
-        # Row 2: Window Handle Find
-        hwndLayout = QHBoxLayout()
-        self.titleEdit = QLineEdit()
-        self.titleEdit.setText("Warcraft III")
-        self.findHwndBtn = QPushButton("Find Process")
-        self.findHwndBtn.clicked.connect(self.findWindowHandle)
+        exeLayout.addWidget(self.btnBrowse)
+        exeLayout.addWidget(self.btnLaunch)
+        groupMasterLayout.addLayout(exeLayout) # Add row to master
+
+        # --- Row 2: Process Management ---
+        procLayout = QHBoxLayout()
+        self.titleEdit = QLineEdit("Warcraft III")
+        self.btnFindHwnd = QPushButton("Find Process")
         self.pidLabel = QLabel("Pid: -")
-        hwndLayout.addWidget(QLabel("Window Title:"))
-        hwndLayout.addWidget(self.titleEdit)
-        hwndLayout.addWidget(self.findHwndBtn)
-        hwndLayout.addWidget(self.pidLabel)
+        procLayout.addWidget(QLabel("Title:"))
+        procLayout.addWidget(self.titleEdit)
+        procLayout.addWidget(self.btnFindHwnd)
+        procLayout.addWidget(self.pidLabel)
+        groupMasterLayout.addLayout(procLayout) # Add row to master
 
-        resizeWindowLayout = QHBoxLayout()
-        self.resizeWidthEdit = QLineEdit()
-        self.resizeHeightEdit = QLineEdit()
-        self.resizeWidthEdit.setFixedWidth(100)
-        self.resizeHeightEdit.setFixedWidth(100)
-        self.resizeWidthEdit.setText("800")
-        self.resizeHeightEdit.setText("600")
-        self.resizeBtn = QPushButton("Resize Window")
-        self.resizeBtn.clicked.connect(self.handleResizeWindow)
-        resizeWindowLayout.addWidget(QLabel("Width:"))
-        resizeWindowLayout.addWidget(self.resizeWidthEdit)
-        resizeWindowLayout.addWidget(QLabel("Height:"))
-        resizeWindowLayout.addWidget(self.resizeHeightEdit)
-        resizeWindowLayout.addWidget(self.resizeBtn)
+        # --- Row 3: Window Metrics ---
+        resLayout = QHBoxLayout()
+        self.resizeWidthEdit = QLineEdit("800")
+        self.resizeHeightEdit = QLineEdit("600")
+        self.btnResize = QPushButton("Resize Window")
+        resLayout.addWidget(QLabel("W:"))
+        resLayout.addWidget(self.resizeWidthEdit)
+        resLayout.addWidget(QLabel("H:"))
+        resLayout.addWidget(self.resizeHeightEdit)
+        resLayout.addWidget(self.btnResize)
+        groupMasterLayout.addLayout(resLayout) # Add row to master
 
-        # Row 3: Live Capture Start/Stop
+        # VITAL: This pushes everything up and removes the big gaps
+        groupMasterLayout.addStretch(1)
+
+        # Set the master layout into the GroupBox
+        managementGroupBox.setLayout(groupMasterLayout)
+
+        # --- Group 4: Live Viewport ---
         self.liveCaptureBtn = QPushButton("Start Live Capture")
         self.liveCaptureBtn.setCheckable(True)
-        self.liveCaptureBtn.toggled.connect(self.toggleLiveCapture)
-        
-        # Row 4: Image View
         self.liveImageLabel = ClickableImageLabel()
         self.liveImageLabel.setScaledContents(True)
-        self.liveImageLabel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.liveImageLabel.clicked.connect(self.handleImageClick)
 
-        # Row 5: Keystroke Sending
-        keystrokeLayout = QHBoxLayout()
-        self.keystrokeNameEdit = QLineEdit()
-        self.keystrokeNameEdit.setPlaceholderText("Keystroke (e.g., 'F1', 'Enter')...")
-        self.sendKeystrokeBtn = QPushButton("Send Keystroke")
-        self.sendKeystrokeBtn.clicked.connect(self.handleSendKeystroke)
-        keystrokeLayout.addWidget(self.keystrokeNameEdit)
-        keystrokeLayout.addWidget(self.sendKeystrokeBtn)
+        self.liveImageLabel.setMinimumSize(640, 480)
+        self.liveImageLabel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.liveImageLabel.setAlignment(Qt.AlignCenter)
 
-        # Row 6: Mouse Clicking
-        mouseLayout = QHBoxLayout()
+        # --- Group 5: Interaction Controls ---
+        interactLayout = QHBoxLayout()
+        self.keystrokeEdit = QLineEdit()
+        self.btnSendKeystroke = QPushButton("Send Key")
         self.mouseXEdit = QLineEdit()
         self.mouseYEdit = QLineEdit()
-        self.mouseXEdit.setFixedWidth(100)
-        self.mouseYEdit.setFixedWidth(100)
+        self.btnSendClick = QPushButton("Send Click")
+        
+        interactLayout.addWidget(self.keystrokeEdit)
+        interactLayout.addWidget(self.btnSendKeystroke)
+        interactLayout.addSpacing(10)
+        interactLayout.addWidget(QLabel("X:"))
+        interactLayout.addWidget(self.mouseXEdit)
+        interactLayout.addWidget(QLabel("Y:"))
+        interactLayout.addWidget(self.mouseYEdit)
+        interactLayout.addWidget(self.btnSendClick)
+
+        # Add components to the Center Panel layout
+        layout.addWidget(managementGroupBox)
+        layout.addWidget(self.liveCaptureBtn)
+        layout.addWidget(self.liveImageLabel)
+        layout.addLayout(interactLayout)
+        
+        return layout
+
+    def SetupRightPanel(self) -> QVBoxLayout:
+        """Property Editor for the selected event."""
+        layout = QVBoxLayout()
+        
+        self.eventNameEdit = QLineEdit()
+        self.eventNameEdit.setEnabled(False)
+        self.activationDropdown = QComboBox()
+        self.activationDropdown.setEnabled(False)
+        self.activationDropdown.addItems([at.name for at in EventItem.ActivationType])
+
+        layout.addWidget(QLabel("<b>Event Settings</b>"))
+        layout.addWidget(QLabel("Name:"))
+        layout.addWidget(self.eventNameEdit)
+        layout.addWidget(QLabel("Trigger Type:"))
+        layout.addWidget(self.activationDropdown)
+        layout.addStretch()
+        
+        return layout
+
+    def WireUpSignals(self):
+        """Dedicated method for all event connections."""
+        # Management
+        self.btnAddEvent.clicked.connect(self.handleAddEvent)
+        self.btnDelEvent.clicked.connect(self.handleDeleteEvent)
+        self.eventListWidget.currentItemChanged.connect(self.onEventSelected)
+
+        # Launcher/Binding
+        self.btnBrowse.clicked.connect(self.browseExecutable)
+        self.btnLaunch.clicked.connect(self.launchExecutable)
+        self.btnFindHwnd.clicked.connect(self.findWindowHandle)
+        self.btnResize.clicked.connect(self.handleResizeWindow)
+
+        # Capture & Input
+        self.liveCaptureBtn.toggled.connect(self.toggleLiveCapture)
+        self.liveImageLabel.clicked.connect(self.handleImageClick)
+        self.btnSendKeystroke.clicked.connect(self.handleSendKeystroke)
+        self.btnSendClick.clicked.connect(self.handleSendMouseClick)
         self.mouseXEdit.textChanged.connect(self.handleMouseTextChanged)
         self.mouseYEdit.textChanged.connect(self.handleMouseTextChanged)
-        self.sendMouseBtn = QPushButton("Send Click")
-        self.sendMouseBtn.clicked.connect(self.handleSendMouseClick)
-        mouseLayout.addWidget(QLabel("X:"))
-        mouseLayout.addWidget(self.mouseXEdit)
-        mouseLayout.addWidget(QLabel("Y:"))
-        mouseLayout.addWidget(self.mouseYEdit)
-        mouseLayout.addWidget(self.sendMouseBtn)
 
-        centerPanel.addLayout(exeLayout)
-        centerPanel.addLayout(hwndLayout)
-        centerPanel.addLayout(resizeWindowLayout)
-        centerPanel.addWidget(self.liveCaptureBtn)
-        centerPanel.addWidget(self.liveImageLabel)
-        centerPanel.addLayout(keystrokeLayout)
-        centerPanel.addLayout(mouseLayout)
-
-        # --- Right Panel: Property Editor ---
-        rightPanel = QVBoxLayout()
-        self.eventNameEdit = QLineEdit()
-        self.eventNameEdit.setFixedWidth(200)
-        self.eventNameEdit.setEnabled(False)
+        # Property Editor
         self.eventNameEdit.editingFinished.connect(self.handleEventNameEdit)
-        
-        self.activationDropdown = QComboBox()
-        self.activationDropdown.setFixedWidth(200)
-        self.activationDropdown.addItems([at.name for at in EventItem.ActivationType])
-        self.activationDropdown.setEnabled(False)
         self.activationDropdown.currentIndexChanged.connect(self.handleActivationTypeChange)
-
-        rightPanel.addWidget(QLabel("Selected Event Name:"))
-        rightPanel.addWidget(self.eventNameEdit)
-        rightPanel.addWidget(QLabel("Activation Type:"))
-        rightPanel.addWidget(self.activationDropdown)
-        rightPanel.addStretch()
-
-        rootLayout.addLayout(leftPanel, 1)
-        rootLayout.addLayout(centerPanel, 4)
-        rootLayout.addLayout(rightPanel, 1)
-        self.setLayout(rootLayout)
 
     # --- Event Management Methods ---
     def handleAddEvent(self):
@@ -308,7 +358,7 @@ class Dashboard(QWidget):
             if eventObj in self.eventItems:
                 self.eventItems.remove(eventObj)
 
-    def onEventSelected(self, current, previous):
+    def onEventSelected(self, current: 'QListWidgetItem | None', previous: 'QListWidgetItem | None'):
         if current:
             eventObj: EventItem = current.data(Qt.UserRole)
             self.eventNameEdit.setText(eventObj.name)
