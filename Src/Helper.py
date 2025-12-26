@@ -7,77 +7,71 @@ import win32ui
 import win32con
 import win32api
 
-def find_hwnd_by_title(window_title: str) -> int:
+def findHwndByTitle(windowTitle: str) -> int:
     """
     Find the window handle (HWND) using the exact window title.
-    Returns 0 if no window is found.
+    Returns None if no window is found.
     """
-    # FindWindow(ClassName, WindowName)
-    # Passing None to ClassName searches by Title only
-    Hwnd = win32gui.FindWindow(None, window_title)
+    hwnd = win32gui.FindWindow(None, windowTitle)
     
-    if Hwnd == 0:
+    if hwnd == 0:
         return None
         
-    return Hwnd
+    return hwnd
 
 
-def launch_hwnd_by_executable(executable_path: str) -> int:
+def launchHwndByExecutable(executablePath: str) -> int:
     """
-    Launch an application by its executable path and return its window handle (hwnd).
+    Launch an application by its executable path and return its PID.
     """
     import subprocess
-    # Launch the script as a separate process
-    proc = subprocess.Popen(executable_path, shell=True)
+    proc = subprocess.Popen(executablePath, shell=True)
     time.sleep(1.5)  # Wait for the window to appear
-    # Find the window by title after launching
-    # (Assume the window title is known and passed separately if needed)
     return proc.pid
 
-                                                  
 
-def capture_window_by_hwnd(hwnd: int) -> np.ndarray:
+def captureWindowByHwnd(hwnd: int) -> np.ndarray:
     """
-    Capture the window of a process by PID and return as OpenCV image (BGR).
+    Capture the window by HWND and return as OpenCV image (BGR).
     Uses Windows GDI for direct window capture.
     """
     (left, top, right, bottom) = win32gui.GetWindowRect(hwnd)
     width, height = right - left, bottom - top
 
-    hwndDC = win32gui.GetWindowDC(hwnd)
-    mfcDC = win32ui.CreateDCFromHandle(hwndDC)
-    saveDC = mfcDC.CreateCompatibleDC()
-    saveBitMap = win32ui.CreateBitmap()
-    saveBitMap.CreateCompatibleBitmap(mfcDC, width, height)
-    saveDC.SelectObject(saveBitMap)
+    hwndDc = win32gui.GetWindowDC(hwnd)
+    mfcDc = win32ui.CreateDCFromHandle(hwndDc)
+    saveDc = mfcDc.CreateCompatibleDC()
+    saveBitmap = win32ui.CreateBitmap()
+    saveBitmap.CreateCompatibleBitmap(mfcDc, width, height)
+    saveDc.SelectObject(saveBitmap)
 
     # Use ctypes to call PrintWindow from user32.dll
     user32 = ctypes.windll.user32
-    PW_RENDERFULLCONTENT = 0x00000002  # For Windows 8 and above, else use 0
+    pwRenderFullContent = 0x00000002  # For Windows 8 and above
+    
     try:
-        result = user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), PW_RENDERFULLCONTENT)
+        result = user32.PrintWindow(hwnd, saveDc.GetSafeHdc(), pwRenderFullContent)
     except Exception:
-        # fallback for older Windows
-        result = user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 0)
+        # Fallback for older Windows
+        result = user32.PrintWindow(hwnd, saveDc.GetSafeHdc(), 0)
 
-    bmpinfo = saveBitMap.GetInfo()
-    bmpstr = saveBitMap.GetBitmapBits(True)
-    img_np = np.frombuffer(bmpstr, dtype='uint8').reshape((height, width, 4))
-    img_cv = cv2.cvtColor(img_np, cv2.COLOR_BGRA2BGR)
+    bmpInfo = saveBitmap.GetInfo()
+    bmpStr = saveBitmap.GetBitmapBits(True)
+    imgNp = np.frombuffer(bmpStr, dtype='uint8').reshape((height, width, 4))
+    imgCv = cv2.cvtColor(imgNp, cv2.COLOR_BGRA2BGR)
 
     # Free resources
-    win32gui.DeleteObject(saveBitMap.GetHandle())
-    saveDC.DeleteDC()
-    mfcDC.DeleteDC()
-    win32gui.ReleaseDC(hwnd, hwndDC)
+    win32gui.DeleteObject(saveBitmap.GetHandle())
+    saveDc.DeleteDC()
+    mfcDc.DeleteDC()
+    win32gui.ReleaseDC(hwnd, hwndDc)
 
     if result != 1:
         raise Exception("Failed to capture window image using PrintWindow.")
-    return img_cv
+    return imgCv
 
 
-
-def crop_image(img: np.ndarray, roi: tuple[int, int, int, int]) -> np.ndarray:
+def cropImage(img: np.ndarray, roi: tuple[int, int, int, int]) -> np.ndarray:
     """
     Given an image and ROI coordinates, return the cropped image.
     ROI: (x, y, w, h)
@@ -86,7 +80,7 @@ def crop_image(img: np.ndarray, roi: tuple[int, int, int, int]) -> np.ndarray:
     return img[y:y+h, x:x+w]
 
 
-def template_match(img: np.ndarray, template: np.ndarray, threshold: float = 0.8) -> list[tuple[int, int]]:
+def templateMatch(img: np.ndarray, template: np.ndarray, threshold: float = 0.8) -> list[tuple[int, int]]:
     """
     Perform template matching to find template in image.
     Returns list of top-left points where matches are found.
@@ -96,16 +90,14 @@ def template_match(img: np.ndarray, template: np.ndarray, threshold: float = 0.8
     return list(zip(*locations[::-1]))
 
 
-def estimate_progress_bar_percentage(bar_img: np.ndarray) -> float:
+def estimateProgressBarPercentage(barImg: np.ndarray) -> float:
     """
-    Estimate the filled percentage of a horizontal progress bar
-    filled from left to right. Correctly distinguishes 0% vs 100%.
+    Estimate the filled percentage of a horizontal progress bar.
     """
-
-    if bar_img is None or bar_img.size == 0:
+    if barImg is None or barImg.size == 0:
         return 0.0
 
-    gray = cv2.cvtColor(bar_img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(barImg, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
     h, w = gray.shape
@@ -113,61 +105,61 @@ def estimate_progress_bar_percentage(bar_img: np.ndarray) -> float:
         return 0.0
 
     # Column mean intensity
-    col_means = gray.mean(axis=0)
+    colMeans = gray.mean(axis=0)
 
     # Background reference: narrow vertical strip at right edge
-    bg_strip = gray[:, int(w * 0.95):w]
-    bg_mean = bg_strip.mean()
+    bgStrip = gray[:, int(w * 0.95):w]
+    bgMean = bgStrip.mean()
 
     # Interior reference: center region
-    center_strip = gray[:, int(w * 0.45):int(w * 0.55)]
-    center_mean = center_strip.mean()
+    centerStrip = gray[:, int(w * 0.45):int(w * 0.55)]
+    centerMean = centerStrip.mean()
 
     # If flat signal, decide between 0% and 100%
-    range_ = np.ptp(col_means)
-    if range_ < 1e-6:
-        # Compare interior to background
-        if abs(center_mean - bg_mean) < 5:
-            return 0.0   # empty
+    rangeValue = np.ptp(colMeans)
+    if rangeValue < 1e-6:
+        if abs(centerMean - bgMean) < 5:
+            return 0.0
         else:
-            return 100.0 # full
+            return 100.0
 
     # Determine fill polarity
-    sample_width = max(1, w // 10)
-    left_mean = np.mean(col_means[:sample_width])
-    right_mean = np.mean(col_means[-sample_width:])
-    fill_is_darker = left_mean < right_mean
+    sampleWidth = max(1, w // 10)
+    leftMean = np.mean(colMeans[:sampleWidth])
+    rightMean = np.mean(colMeans[-sampleWidth:])
+    fillIsDarker = leftMean < rightMean
 
     # Normalize
-    col_norm = (col_means - col_means.min()) / range_
+    colNorm = (colMeans - colMeans.min()) / rangeValue
 
-    signal = 1.0 - col_norm if fill_is_darker else col_norm
+    signal = 1.0 - colNorm if fillIsDarker else colNorm
     signal = cv2.GaussianBlur(signal.reshape(1, -1), (1, 31), 0).flatten()
 
-    threshold = 0.5
-    filled_cols = np.where(signal > threshold)[0]
+    thresholdValue = 0.5
+    filledCols = np.where(signal > thresholdValue)[0]
 
-    if len(filled_cols) == 0:
+    if len(filledCols) == 0:
         return 0.0
 
-    fill_end = filled_cols[-1]
-    percent = (fill_end + 1) / w * 100.0
+    fillEnd = filledCols[-1]
+    percent = (fillEnd + 1) / w * 100.0
 
     return float(np.clip(percent, 0.0, 100.0))
 
-def vk_from_keyname(key_name: str) -> int:
-    """
-    Convert a key name (like 'a', 'ENTER', 'F5') to its virtual key code.
-    """
-    vk = win32api.VkKeyScan(key_name)
-    if vk == -1:
-        raise ValueError(f"Invalid key name: {key_name}")
-    return vk & 0xff  # Return only the low byte (virtual key code)
 
-def send_keystroke_to_window(hwnd: int, vk: int) -> None:
+def vkFromKeyName(keyName: str) -> int:
     """
-    Send a keystroke to the window with the given hwnd.
-    Keystroke should be a string like 'a', 'ENTER', 'F5', etc.
+    Convert a key name to its virtual key code.
+    """
+    vk = win32api.VkKeyScan(keyName)
+    if vk == -1:
+        raise ValueError(f"Invalid key name: {keyName}")
+    return vk & 0xff
+
+
+def sendKeystrokeToWindow(hwnd: int, vk: int) -> None:
+    """
+    Send a virtual key keystroke to the window with the given hwnd.
     """
     if not hwnd:
         return
@@ -177,30 +169,32 @@ def send_keystroke_to_window(hwnd: int, vk: int) -> None:
     win32api.keybd_event(vk, 0, 0, 0)
     win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
 
-def send_mouseclick_to_window(hwnd: int, x_n: float, y_n: float) -> None:
+
+def sendMouseClickToWindow(hwnd: int, xN: float, yN: float) -> None:
     """
-    Send a mouse click to the window with the given hwnd at (x, y) coordinates.
-    Coordinates are relative to the window's client area.
+    Send a mouse click to the window at normalized (0.0 to 1.0) coordinates.
     """
     if not hwnd:
         return
         
-
     # Calculate absolute screen coordinates   
     (left, top, right, bottom) = win32gui.GetWindowRect(hwnd)
-    x = float(x_n * (right - left))
-    y = float(y_n * (bottom - top))
+    width = right - left
+    height = bottom - top
+    
+    x = float(xN * width)
+    y = float(yN * height)
 
-    click_x = left + int(x)
-    click_y = top + int(y)
+    clickX = left + int(x)
+    clickY = top + int(y)
 
     # Restore and focus the window
     win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
     win32gui.SetForegroundWindow(hwnd)
     time.sleep(0.03)
 
-    win32api.SetCursorPos((click_x, click_y))
+    win32api.SetCursorPos((clickX, clickY))
     time.sleep(0.02)
-    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, click_x, click_y, 0, 0)
-    time.sleep(0.1) # A short delay is often needed
-    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, click_x, click_y, 0, 0)
+    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, clickX, clickY, 0, 0)
+    time.sleep(0.1) 
+    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, clickX, clickY, 0, 0)

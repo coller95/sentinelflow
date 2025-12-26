@@ -1,6 +1,7 @@
 """
 SentinelFlow Main Dashboard
 Description: PySide6 GUI for live capture, launcher, and window management.
+Refactored to Microsoft CamelCase guidelines.
 """
 
 # -------------------------
@@ -10,17 +11,30 @@ import os
 import sys
 import time
 from enum import Enum, auto
+
+# -------------------------
+# Third-party imports
+# -------------------------
+from PySide6.QtCore import Signal, QThread, Qt, QPoint, QTimer
+from PySide6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+    QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox, 
+    QSizePolicy, QListWidgetItem, QComboBox
+)
+from PySide6.QtGui import QPainter, QPen, QColor, QImage, QPixmap
+
+# -------------------------
+# Local imports
+# -------------------------
 from Src.Helper import *
 
-from PySide6.QtCore import Signal, QThread, Qt, QPoint, QTimer
+# High DPI Scaling setup
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox, QSizePolicy, QListWidgetItem, QComboBox
-from PySide6.QtGui import QPainter, QPen, QColor
 
 class EventItem:
     class ActivationType(Enum):
-        NotSet = auto()  # Avoids 'None' keyword conflict
+        NotSet = auto()
         ImageMatch = auto()
         ImageMatchRoi = auto()
         ImagePercent = auto()
@@ -61,30 +75,25 @@ class EventItem:
     def activationType(self, value: ActivationType):
         self._activationType = value
 
-
-    
 # -------------------------
 # Live Capture Thread
 # -------------------------
 class LiveCaptureThread(QThread):
-    image_captured = Signal(object)
+    imageCaptured = Signal(object)
 
-    def __init__(self, hwnd, interval_ms=200, parent=None):
+    def __init__(self, hwnd, intervalMs=200, parent=None):
         super().__init__(parent)
         self.hwnd = hwnd
-        self.interval_ms = interval_ms
+        self.intervalMs = intervalMs
         self._running = True
 
     def run(self):
-        """Main loop: periodically capture the target window and emit images."""
+        """Main loop: periodically capture the target window."""
         self._running = True
         while self._running:
-            try:
-                img = capture_window_by_hwnd(self.hwnd)
-                self.image_captured.emit(img)
-            except Exception:
-                self.image_captured.emit(None)
-            time.sleep(self.interval_ms / 1000.0)
+            img = captureWindowByHwnd(self.hwnd)
+            self.imageCaptured.emit(img)
+            time.sleep(self.intervalMs / 1000.0)
 
     def stop(self):
         self._running = False
@@ -95,430 +104,324 @@ class ClickableImageLabel(QLabel):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._nx = None
-        self._ny = None
+        self.nxValue = None
+        self.nyValue = None
         self.setMouseTracking(True)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             w = self.width()
             h = self.height()
-
             if w > 0 and h > 0:
-                self._nx = event.position().x() / w
-                self._ny = event.position().y() / h
+                self.nxValue = event.position().x() / w
+                self.nyValue = event.position().y() / h
                 self.clicked.emit(event.position().toPoint())
                 self.update()
 
     def setMarkerNormalized(self, nx: float, ny: float):
-        self._nx = nx
-        self._ny = ny
+        self.nxValue = nx
+        self.nyValue = ny
         self.update()
 
     def paintEvent(self, event):
         super().paintEvent(event)
-
-        if self._nx is None or self._ny is None:
+        if self.nxValue is None or self.nyValue is None:
             return
 
-        x = int(self._nx * self.width())
-        y = int(self._ny * self.height())
-
+        x = int(self.nxValue * self.width())
+        y = int(self.nyValue * self.height())
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        pen = QPen(Qt.red, 2)
-        painter.setPen(pen)
+        painter.setPen(QPen(Qt.red, 2))
 
         size = 10
         painter.drawLine(x - size, y, x + size, y)
         painter.drawLine(x, y - size, x, y + size)
 
-class CoordinateQLineEdit(QWidget):
+class Dashboard(QWidget):
     def __init__(self):
         super().__init__()
-        self.text : str = ""
+        self.eventItems = []
+        self.currentHwnd = None
+        self.liveThread = None
+        self.lastLiveImg = None
         self.initUi()
 
     def initUi(self):
-        self.userInput = QLineEdit(self)
-        self.userInput.textChanged.connect(self.whenTextChanged)
-        
-        layout = QVBoxLayout()
-        layout.addWidget(self.userInput)
-        self.setLayout(layout)
-
-    def whenTextChanged(self, newText: str) -> None:
-        self.text = newText
-
-    def bind(self, newText: str) -> None:
-        self.text = newText
-        return self.userInput.setText(newText)
-
-    def setPlaceholderText(self, text: str) -> None:
-        return self.userInput.setPlaceholderText(text)
-
-    def setFixedWidth(self, w: int) -> None:
-        return self.userInput.setFixedWidth(w)
-        
-
-class Dashboard(QWidget):
-    """Main application window (dashboard).
-
-    Handles UI layout, user actions, and live capture updates.
-    """
-
-    def __init__(self):
-        super().__init__()
-        # ---- UI Setup ----
         self.setWindowTitle("SentinelFlow Dashboard")
-        self.setGeometry(100, 100, 720, 480)
-        self.eventItems = []
+        self.setGeometry(100, 100, 800, 520)
 
-        # Root layout
-        root_layout = QHBoxLayout()
+        rootLayout = QHBoxLayout()
 
-        # Left panel
-        left_panel = QVBoxLayout()
-        # Add/Del buttons layout
-        event_btn_layout = QHBoxLayout()
-        self.add_event_btn = QPushButton("+")
-        self.add_event_btn.setFixedWidth(28)
-        self.add_event_btn.setToolTip("Add Event")
-        self.add_event_btn.clicked.connect(self.handle_add_event)
-        self.del_event_btn = QPushButton("-")
-        self.del_event_btn.setFixedWidth(28)
-        self.del_event_btn.setToolTip("Delete Selected Event")
-        self.del_event_btn.clicked.connect(self.handle_del_event)
-        event_btn_layout.addWidget(self.add_event_btn)
-        event_btn_layout.addWidget(self.del_event_btn)
-        event_btn_layout.addStretch()
-        left_panel.addLayout(event_btn_layout)
-        # Add event list widget
-        self.event_list = QListWidget()
-        self.event_list.setFixedWidth(200)
-        self.event_list.currentItemChanged.connect(self.on_event_selected)
-        left_panel.addWidget(self.event_list)
-
-        # Center panel
-        center_panel = QVBoxLayout()
-        exe_layout = QHBoxLayout()
-        self.exe_path_edit = QLineEdit()
-        self.exe_path_edit.setPlaceholderText("Executable path...")
-        self.exe_path_edit.setText(r"C:\Users\HONG\Desktop\frozenthrone1.26\war3.exe -window")
-        exe_browse_btn = QPushButton("Browse")
-        exe_launch_btn = QPushButton("Launch")
-        exe_browse_btn.clicked.connect(self.browse_exe)
-        exe_launch_btn.clicked.connect(self.launch_exe)
-        exe_layout.addWidget(QLabel("Executable:"))
-        exe_layout.addWidget(self.exe_path_edit)
-        exe_layout.addWidget(exe_browse_btn)
-        exe_layout.addWidget(exe_launch_btn)
-        center_panel.addLayout(exe_layout)
-
-        hwnd_layout = QHBoxLayout()
-        self.title_edit = QLineEdit()
-        self.title_edit.setPlaceholderText("Window title...")
-        self.title_edit.setText("Warcraft III")
-        hwnd_find_btn = QPushButton("Find HWND")
-        hwnd_find_btn.clicked.connect(self.find_hwnd)
-        self.hwnd_label = QLabel("HWND: -")
-        hwnd_layout.addWidget(QLabel("Window Title:"))
-        hwnd_layout.addWidget(self.title_edit)
-        hwnd_layout.addWidget(hwnd_find_btn)
-        hwnd_layout.addWidget(self.hwnd_label)
-        center_panel.addLayout(hwnd_layout)
-
-        live_btn_layout = QHBoxLayout()
-        self.live_capture_btn = QPushButton("Start Live Capture")
-        self.live_capture_btn.setCheckable(True)
-        self.live_capture_btn.toggled.connect(self.toggle_live_capture)
-        live_btn_layout.addWidget(self.live_capture_btn)
-        live_btn_layout.setAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
-        center_panel.addLayout(live_btn_layout)
-
-        self.live_image_label = ClickableImageLabel()
-        self.live_image_label.setAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
-        self.live_image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.live_image_label.setScaledContents(True)
-        self.live_image_label.clicked.connect(self.handle_image_click)
-        center_panel.addWidget(self.live_image_label)
-
-
-        self.keystroke_layout = QHBoxLayout()
-        self.keystroke_name_edit = QLineEdit()
-        self.keystroke_name_edit.setPlaceholderText("Keystroke name...")
-        self.keystroke_layout.addWidget(self.keystroke_name_edit)
-        self.keystroke_add_btn = QPushButton("Send Keystroke")
-        self.keystroke_add_btn.clicked.connect(self.handle_send_keystroke)
-        self.keystroke_layout.addWidget(self.keystroke_add_btn)
-        center_panel.addLayout(self.keystroke_layout)
-
-        self.mouse_layout = QHBoxLayout()
-        self.mouse_label = QLabel("x:")
-        self.mouse_x_edit = QLineEdit()
-        self.mouse_x_edit.setPlaceholderText("X")
-        self.mouse_x_edit.setFixedWidth(120)
-        self.mouse_x_edit.textChanged.connect(self.handle_mouse_text_changed)
-        self.mouse_y_label = QLabel("y:")
-        self.mouse_y_edit = QLineEdit()
-        self.mouse_y_edit.setPlaceholderText("Y")
-        self.mouse_y_edit.setFixedWidth(120)
-        self.mouse_y_edit.textChanged.connect(self.handle_mouse_text_changed)
-        self.mouse_click_btn = QPushButton("Send Mouse Click")  
-        self.mouse_click_btn.clicked.connect(self.handle_send_mouse_click)
-        self.mouse_layout.addWidget(self.mouse_label)
-        self.mouse_layout.addWidget(self.mouse_x_edit)
-        self.mouse_layout.addWidget(self.mouse_y_label)
-        self.mouse_layout.addWidget(self.mouse_y_edit)
-        self.mouse_layout.addWidget(self.mouse_click_btn)
-
-        center_panel.addLayout(self.mouse_layout)
-
-        # Right panel
-        right_panel = QVBoxLayout()
-        # Event name edit
-        self.event_name_edit = QLineEdit()
-        self.event_name_edit.setFixedWidth(200)
-        self.event_name_edit.setPlaceholderText("Edit event name...")
-        self.event_name_edit.setEnabled(False)
-        self.event_name_edit.editingFinished.connect(self.handle_event_name_edit)
-        right_panel.addWidget(QLabel("Selected Event Name:"))
-        right_panel.addWidget(self.event_name_edit)
-        # Activation type
-        self.event_activation_type_dropdown = QComboBox()
-        self.event_activation_type_dropdown.setFixedWidth(200)
-        self.event_activation_type_dropdown.clear()
-        self.event_activation_type_dropdown.addItems([at.name for at in EventItem.ActivationType])
-        self.event_activation_type_dropdown.setEnabled(False)
-        self.event_activation_type_dropdown.currentIndexChanged.connect(self.handleActivationTypeChange)
-        right_panel.addWidget(QLabel("Activation Type:"))
-        right_panel.addWidget(self.event_activation_type_dropdown)
+        # --- Left Panel: Event List ---
+        leftPanel = QVBoxLayout()
+        eventBtnLayout = QHBoxLayout()
         
-        right_panel.addStretch()
+        self.addEventBtn = QPushButton("+")
+        self.addEventBtn.setFixedWidth(28)
+        self.addEventBtn.clicked.connect(self.handleAddEvent)
+        
+        self.delEventBtn = QPushButton("-")
+        self.delEventBtn.setFixedWidth(28)
+        self.delEventBtn.clicked.connect(self.handleDeleteEvent)
+        
+        eventBtnLayout.addWidget(self.addEventBtn)
+        eventBtnLayout.addWidget(self.delEventBtn)
+        eventBtnLayout.addStretch()
+        
+        self.eventListWidget = QListWidget()
+        self.eventListWidget.setFixedWidth(200)
+        self.eventListWidget.currentItemChanged.connect(self.onEventSelected)
+        
+        leftPanel.addLayout(eventBtnLayout)
+        leftPanel.addWidget(self.eventListWidget)
 
+        # --- Center Panel: Capture & Actions ---
+        centerPanel = QVBoxLayout()
+        
+        # Row 1: Executable Path
+        exeLayout = QHBoxLayout()
+        self.exePathEdit = QLineEdit()
+        self.exePathEdit.setText(r"C:\Users\HONG\Desktop\frozenthrone1.26\war3.exe -window")
+        self.browseBtn = QPushButton("Browse")
+        self.launchBtn = QPushButton("Launch")
+        self.browseBtn.clicked.connect(self.browseExecutable)
+        self.launchBtn.clicked.connect(self.launchExecutable)
+        exeLayout.addWidget(QLabel("Executable:"))
+        exeLayout.addWidget(self.exePathEdit)
+        exeLayout.addWidget(self.browseBtn)
+        exeLayout.addWidget(self.launchBtn)
+        
+        # Row 2: Window Handle Find
+        hwndLayout = QHBoxLayout()
+        self.titleEdit = QLineEdit()
+        self.titleEdit.setText("Warcraft III")
+        self.findHwndBtn = QPushButton("Find HWND")
+        self.findHwndBtn.clicked.connect(self.findWindowHandle)
+        self.hwndLabel = QLabel("HWND: -")
+        hwndLayout.addWidget(QLabel("Window Title:"))
+        hwndLayout.addWidget(self.titleEdit)
+        hwndLayout.addWidget(self.findHwndBtn)
+        hwndLayout.addWidget(self.hwndLabel)
 
-        # Assemble root layout
-        root_layout.addLayout(left_panel, stretch=1)
-        root_layout.addLayout(center_panel, stretch=4)
-        root_layout.addLayout(right_panel, stretch=1)
-        self.setLayout(root_layout)
+        # Row 3: Live Capture Start/Stop
+        self.liveCaptureBtn = QPushButton("Start Live Capture")
+        self.liveCaptureBtn.setCheckable(True)
+        self.liveCaptureBtn.toggled.connect(self.toggleLiveCapture)
+        
+        # Row 4: Image View
+        self.liveImageLabel = ClickableImageLabel()
+        self.liveImageLabel.setScaledContents(True)
+        self.liveImageLabel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.liveImageLabel.clicked.connect(self.handleImageClick)
 
-        self.current_hwnd = None
-        self.live_thread = None
-        self.last_live_img = None
+        # Row 5: Keystroke Sending
+        keystrokeLayout = QHBoxLayout()
+        self.keystrokeNameEdit = QLineEdit()
+        self.keystrokeNameEdit.setPlaceholderText("Keystroke (e.g., 'F1', 'Enter')...")
+        self.sendKeystrokeBtn = QPushButton("Send Keystroke")
+        self.sendKeystrokeBtn.clicked.connect(self.handleSendKeystroke)
+        keystrokeLayout.addWidget(self.keystrokeNameEdit)
+        keystrokeLayout.addWidget(self.sendKeystrokeBtn)
 
+        # Row 6: Mouse Clicking
+        mouseLayout = QHBoxLayout()
+        self.mouseXEdit = QLineEdit()
+        self.mouseYEdit = QLineEdit()
+        self.mouseXEdit.setFixedWidth(100)
+        self.mouseYEdit.setFixedWidth(100)
+        self.mouseXEdit.textChanged.connect(self.handleMouseTextChanged)
+        self.mouseYEdit.textChanged.connect(self.handleMouseTextChanged)
+        self.sendMouseBtn = QPushButton("Send Click")
+        self.sendMouseBtn.clicked.connect(self.handleSendMouseClick)
+        mouseLayout.addWidget(QLabel("X:"))
+        mouseLayout.addWidget(self.mouseXEdit)
+        mouseLayout.addWidget(QLabel("Y:"))
+        mouseLayout.addWidget(self.mouseYEdit)
+        mouseLayout.addWidget(self.sendMouseBtn)
 
-    # ---- Live Capture Controls ----
-    def toggle_live_capture(self, checked):
-        if checked:
-            if not self.current_hwnd:
-                self.live_capture_btn.setChecked(False)
-                QMessageBox.warning(self, "Error", "No HWND selected. Please find a window first.")
-                return
-            self.live_capture_btn.setText("Stop Live Capture")
-            self.start_live_thread()
-        else:
-            self.live_capture_btn.setText("Start Live Capture")
-            self.stop_live_thread()
-            self.live_image_label.clear()
+        centerPanel.addLayout(exeLayout)
+        centerPanel.addLayout(hwndLayout)
+        centerPanel.addWidget(self.liveCaptureBtn)
+        centerPanel.addWidget(self.liveImageLabel)
+        centerPanel.addLayout(keystrokeLayout)
+        centerPanel.addLayout(mouseLayout)
 
-    def start_live_thread(self):
-        self.stop_live_thread()
-        self.live_thread = LiveCaptureThread(self.current_hwnd, interval_ms=200)
-        self.live_thread.image_captured.connect(self.on_live_image_captured)
-        self.live_thread.start()
+        # --- Right Panel: Property Editor ---
+        rightPanel = QVBoxLayout()
+        self.eventNameEdit = QLineEdit()
+        self.eventNameEdit.setFixedWidth(200)
+        self.eventNameEdit.setEnabled(False)
+        self.eventNameEdit.editingFinished.connect(self.handleEventNameEdit)
+        
+        self.activationDropdown = QComboBox()
+        self.activationDropdown.setFixedWidth(200)
+        self.activationDropdown.addItems([at.name for at in EventItem.ActivationType])
+        self.activationDropdown.setEnabled(False)
+        self.activationDropdown.currentIndexChanged.connect(self.handleActivationTypeChange)
 
-    def stop_live_thread(self):
-        if self.live_thread:
-            self.live_thread.stop()
-            self.live_thread = None
+        rightPanel.addWidget(QLabel("Selected Event Name:"))
+        rightPanel.addWidget(self.eventNameEdit)
+        rightPanel.addWidget(QLabel("Activation Type:"))
+        rightPanel.addWidget(self.activationDropdown)
+        rightPanel.addStretch()
 
-    def on_live_image_captured(self, img):
-        self.update_live_image(img=img)
+        rootLayout.addLayout(leftPanel, 1)
+        rootLayout.addLayout(centerPanel, 4)
+        rootLayout.addLayout(rightPanel, 1)
+        self.setLayout(rootLayout)
 
-    # ---- Image Rendering ----
-    def update_live_image(self, img=None):
-        if img is None:
-            if not self.current_hwnd:
-                self.live_image_label.clear()
-                self.last_live_img = None
-                return
-            try:
-                img = capture_window_by_hwnd(self.current_hwnd)
-            except Exception:
-                self.live_image_label.setText("Capture error")
-                self.last_live_img = None
-                return
-        self.last_live_img = img
-        if img is not None and hasattr(img, 'size') and img.size > 0:
-            from PySide6.QtGui import QImage, QPixmap
-            h, w, ch = img.shape
-            bytes_per_line = ch * w
-            qimg = QImage(img.data, w, h, bytes_per_line, QImage.Format_BGR888)
-            pixmap = QPixmap.fromImage(qimg).scaled(
-                self.live_image_label.width(), self.live_image_label.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.live_image_label.setPixmap(pixmap)
-        else:
-            self.live_image_label.clear()
-            self.last_live_img = None
+    # --- Event Management Methods ---
+    def handleAddEvent(self):
+        newEvent = EventItem(name="New Event")
+        self.addEventToUi(newEvent)
 
-    def closeEvent(self, event):
-        self.stop_live_thread()
-        super().closeEvent(event)
-
-    def browse_exe(self):
-        dialog = QFileDialog(self, "Select Executable", "", "Executables (*.exe)")
-        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-        if dialog.exec() == QFileDialog.Accepted:
-            files = dialog.selectedFiles()
-            if files:
-                self.exe_path_edit.setText(files[0])
-
-    def launch_exe(self):
-        exe_path = self.exe_path_edit.text().strip()
-        if not exe_path:
-            QMessageBox.warning(self, "Error", "Please select an executable.")
-            return
-        pid = launch_hwnd_by_executable(exe_path)
-        QMessageBox.information(self, "Launched", f"Process launched with PID: {pid}")
-
-    def find_hwnd(self):
-        title = self.title_edit.text().strip()
-        if not title:
-            QMessageBox.warning(self, "Error", "Please enter a window title.")
-            return
-        hwnd = find_hwnd_by_title(title)
-        if hwnd:
-            self.hwnd_label.setText(f"HWND: {hwnd}")
-            self.current_hwnd = hwnd
-        else:
-            self.hwnd_label.setText("HWND: -")
-            self.current_hwnd = None
-            QMessageBox.warning(self, "Not found", "Window not found.")
-
-    def add_event(self, eventObj: EventItem):
+    def addEventToUi(self, eventObj: EventItem):
         item = QListWidgetItem(eventObj.name)
-        # Store the actual Python object in the item
-        item.setData(Qt.UserRole, eventObj) 
-        
+        item.setData(Qt.UserRole, eventObj)
         item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-        state = Qt.Checked if eventObj.enabled else Qt.Unchecked
-        item.setCheckState(state)
-        
-        self.event_list.addItem(item)
+        item.setCheckState(Qt.Checked if eventObj.enabled else Qt.Unchecked)
+        self.eventListWidget.addItem(item)
         self.eventItems.append(eventObj)
 
-    def handle_add_event(self):
-        # 1. Create the data object first
-        newEvent = EventItem(name="New Event", enabled=False)
-        
-        # 2. Pass the object to the UI adder
-        self.add_event(newEvent)
-
-    def handle_del_event(self):
-        row = self.event_list.currentRow()
+    def handleDeleteEvent(self):
+        row = self.eventListWidget.currentRow()
         if row >= 0:
-            self.event_list.takeItem(row)
+            item = self.eventListWidget.takeItem(row)
+            eventObj = item.data(Qt.UserRole)
+            if eventObj in self.eventItems:
+                self.eventItems.remove(eventObj)
 
-    def set_event_color(self, row, color):
-        """Set the background color of the event at the given row."""
-        item = self.event_list.item(row)
-        if item:
-            item.setBackground(color)
-
-    def alert_event(self, row):
-        """Temporarily alert by changing background to red, then revert."""
-        item = self.event_list.item(row)
-        if not item:
-            return
-        original_brush = item.background()
-        self.set_event_color(row, QColor('#ff0000'))  # Light red
-        
-        def revert_color():
-            item.setBackground(original_brush)
-        timer = QTimer(self)
-        timer.setSingleShot(True)
-        timer.timeout.connect(revert_color)
-        timer.start(200)  # 1000 ms = 1 second
-
-
-    def on_event_selected(self, current, previous):
+    def onEventSelected(self, current, previous):
         if current:
             eventObj: EventItem = current.data(Qt.UserRole)
-            self.event_name_edit.setText(eventObj.name)
+            self.eventNameEdit.setText(eventObj.name)
+            self.eventNameEdit.setEnabled(True)
             
-            # Set the dropdown by finding the index of the Enum name
-            typeName = eventObj.activationType.name
-            index = self.event_activation_type_dropdown.findText(typeName)
-            self.event_activation_type_dropdown.setCurrentIndex(index)
-            
-            self.event_name_edit.setEnabled(True)
-            self.event_activation_type_dropdown.setEnabled(True)
+            idx = self.activationDropdown.findText(eventObj.activationType.name)
+            self.activationDropdown.setCurrentIndex(idx)
+            self.activationDropdown.setEnabled(True)
         else:
-            self.event_name_edit.clear()
-            self.event_name_edit.setEnabled(False)
-            self.event_activation_type_dropdown.setEnabled(False)
+            self.eventNameEdit.clear()
+            self.eventNameEdit.setEnabled(False)
+            self.activationDropdown.setEnabled(False)
 
-    def handle_event_name_edit(self):
-        item = self.event_list.currentItem()
+    def handleEventNameEdit(self):
+        item = self.eventListWidget.currentItem()
         if item:
             eventObj: EventItem = item.data(Qt.UserRole)
-            newName = self.event_name_edit.text().strip()
-            
+            newName = self.eventNameEdit.text().strip()
             if newName:
-                eventObj.name = newName # Update Object
-                item.setText(newName)   # Update UI List
+                eventObj.name = newName
+                item.setText(newName)
 
     def handleActivationTypeChange(self, index):
-        item = self.event_list.currentItem()
-        if not item:
-            return
+        item = self.eventListWidget.currentItem()
+        if item and index >= 0:
+            eventObj: EventItem = item.data(Qt.UserRole)
+            typeName = self.activationDropdown.currentText()
+            # Direct lookup from Enum (First Principle)
+            eventObj.activationType = EventItem.ActivationType[typeName]
 
-        typeName = self.event_activation_type_dropdown.currentText()
-        eventObj: EventItem = item.data(Qt.UserRole)
-        eventObj.activationType = EventItem.ActivationType[typeName]
+    # --- Window & Process Control ---
+    def findWindowHandle(self):
+        title = self.titleEdit.text().strip()
+        hwnd = findHwndByTitle(title)
+        if hwnd:
+            self.currentHwnd = hwnd
+            self.hwndLabel.setText(f"HWND: {hwnd}")
+        else:
+            self.currentHwnd = None
+            self.hwndLabel.setText("HWND: -")
+            QMessageBox.warning(self, "Error", "Window not found.")
 
-    def handle_send_keystroke(self):
-        macro_name = self.keystroke_name_edit.text().strip()
-        if not macro_name:
-            QMessageBox.warning(self, "Error", "Please enter a macro name.")
-            return
-        # Here you would implement the actual macro sending logic.
-        vk = vk_from_keyname(macro_name)
-        send_keystroke_to_window(self.current_hwnd, vk)
+    def browseExecutable(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select EXE", "", "Executables (*.exe)")
+        if path:
+            self.exePathEdit.setText(path)
 
-    def handle_send_mouse_click(self):
-        x_n = self.mouse_x_edit.text().strip()
-        y_n = self.mouse_y_edit.text().strip()
-        if not x_n or not y_n:
-            QMessageBox.warning(self, "Error", "Please enter both X and Y coordinates.")
-            return
+    def launchExecutable(self):
+        path = self.exePathEdit.text().strip()
+        if path:
+            pid = launchHwndByExecutable(path)
+            QMessageBox.information(self, "Success", f"Launched PID: {pid}")
+
+    # --- Capture Logic ---
+    def toggleLiveCapture(self, checked):
+        if checked:
+            if not self.currentHwnd:
+                self.liveCaptureBtn.setChecked(False)
+                QMessageBox.warning(self, "Error", "Please find a window first.")
+                return
+            self.startLiveThread()
+        else:
+            self.stopLiveThread()
+
+    def startLiveThread(self):
+        self.stopLiveThread()
+        self.liveThread = LiveCaptureThread(self.currentHwnd)
+        self.liveThread.imageCaptured.connect(self.updateLiveImage)
+        self.liveThread.start()
+
+    def stopLiveThread(self):
+        if self.liveThread:
+            self.liveThread.stop()
+            self.liveThread = None
+
+    def updateLiveImage(self, img):
+        if img is not None:
+            self.lastLiveImg = img
+            h, w, ch = img.shape
+            bytesPerLine = ch * w
+            qImg = QImage(img.data, w, h, bytesPerLine, QImage.Format_BGR888)
+            pix = QPixmap.fromImage(qImg).scaled(
+                self.liveImageLabel.width(), self.liveImageLabel.height(), 
+                Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+            self.liveImageLabel.setPixmap(pix)
+        else:
+            self.liveImageLabel.clear()
+
+    # --- Interaction Logic ---
+    def handleImageClick(self, pos: QPoint):
+        nx = float(pos.x()) / self.liveImageLabel.width()
+        ny = float(pos.y()) / self.liveImageLabel.height()
+        self.mouseXEdit.setText(f"{nx:.7f}")
+        self.mouseYEdit.setText(f"{ny:.7f}")
+
+    def handleMouseTextChanged(self):
         try:
-            x_n = float(x_n)
-            y_n = float(y_n)
+            nx = float(self.mouseXEdit.text()) if self.mouseXEdit.text() else 0.0
+            ny = float(self.mouseYEdit.text()) if self.mouseYEdit.text() else 0.0
+            self.liveImageLabel.setMarkerNormalized(nx, ny)
         except ValueError:
-            QMessageBox.warning(self, "Error", "X and Y must be floats.")
+            pass
+
+    def handleSendMouseClick(self):
+        if self.currentHwnd:
+            try:
+                nx = float(self.mouseXEdit.text())
+                ny = float(self.mouseYEdit.text())
+                sendMouseClickToWindow(self.currentHwnd, nx, ny)
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Invalid coordinates.")
+
+    def handleSendKeystroke(self):
+        macroName = self.keystrokeNameEdit.text().strip()
+        if not macroName or not self.currentHwnd:
             return
-        # Here you would implement the actual mouse click sending logic.
-        # For now, just print the coordinates.
-        
-        print(f"Sending mouse click at ({x_n}, {y_n})")
-        send_mouseclick_to_window(self.current_hwnd, x_n, y_n)
+        vk = vkFromKeyName(macroName)
+        if vk:
+            sendKeystrokeToWindow(self.currentHwnd, vk)
+        else:
+            QMessageBox.warning(self, "Error", f"Unknown key: {macroName}")
 
-    def handle_image_click(self, pos: QPoint):
-        self.mouse_x_edit.setText(f"{float(pos.x())/self.live_image_label.width():.7f}")
-        self.mouse_y_edit.setText(f"{float(pos.y())/self.live_image_label.height():.7f}")
+    def closeEvent(self, event):
+        self.stopLiveThread()
+        super().closeEvent(event)
 
-    def handle_mouse_text_changed(self):
-        nx = float(self.mouse_x_edit.text()) if self.mouse_x_edit.text() else 0.0
-        ny = float(self.mouse_y_edit.text()) if self.mouse_y_edit.text() else 0.0
-        self.live_image_label.setMarkerNormalized(nx, ny)
-            
-
-
-if __name__ == "__main__": 
+if __name__ == "__main__":
     app = QApplication(sys.argv)
-    dashboard = Dashboard()
-    dashboard.show()
+    window = Dashboard()
+    window.show()
     sys.exit(app.exec())
-    
