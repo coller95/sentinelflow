@@ -196,7 +196,7 @@ class Dashboard(QWidget):
         hwndLayout = QHBoxLayout()
         self.titleEdit = QLineEdit()
         self.titleEdit.setText("Warcraft III")
-        self.findHwndBtn = QPushButton("Find")
+        self.findHwndBtn = QPushButton("Find Process")
         self.findHwndBtn.clicked.connect(self.findWindowHandle)
         self.pidLabel = QLabel("Pid: -")
         hwndLayout.addWidget(QLabel("Window Title:"))
