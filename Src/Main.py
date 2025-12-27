@@ -14,7 +14,7 @@ from PySide6.QtCore import Signal, QThread, Qt, QPoint, QObject
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox, 
-    QSizePolicy, QListWidgetItem, QComboBox, QGroupBox, QFrame
+    QSizePolicy, QListWidgetItem, QComboBox, QGroupBox
 )
 from PySide6.QtGui import QPainter, QPen, QImage, QPixmap
 
