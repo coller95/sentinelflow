@@ -65,12 +65,12 @@ class MacroStep:
 
     def _sendKeystroke(self, hwnd: int, vk: int):
         """Private: Handles low-level background keyboard input."""
-        # Win32 PostMessage logic goes here
+        sendKeystrokeToWindow(hwnd, vk)
         pass
 
     def _sendMouseClick(self, hwnd: int, xN: float, yN: float):
         """Private: Handles low-level background mouse input."""
-        # Win32 PostMessage logic goes here
+        sendMouseClickToWindow(hwnd, xN, yN)
         pass
 
 class ActionItem:
@@ -114,6 +114,7 @@ class EventItem:
         self._enabled = enabled
         self._selectedActivationType = activationType
         self._activationVkList: List[int] = []
+        self._isCurrentlyHeld = False
         self._assignedAction = action
 
     @property
@@ -149,6 +150,14 @@ class EventItem:
         self._activationVkList = value
 
     @property
+    def IsCurrentlyHeld(self) -> bool:
+        return self._isCurrentlyHeld
+
+    @IsCurrentlyHeld.setter
+    def IsCurrentlyHeld(self, value: bool):
+        self._isCurrentlyHeld = value
+
+    @property
     def AssignedAction(self) -> ActionItem:
         return self._assignedAction
 
@@ -172,7 +181,6 @@ class TriggerMonitorThread(QThread):
         self._viewModel = viewModel
         self._pollIntervalMs = pollIntervalMs
         self._isRunning = True
-        self._isCurrentlyHeld = False
 
     def run(self):
         while self._isRunning:
@@ -190,10 +198,10 @@ class TriggerMonitorThread(QThread):
                 # We check if ALL keys in the combo are currently pressed
                 isDownNow = IsHotkeyActive(event.ActivationVkList)
 
-                if self._isCurrentlyHeld and not isDownNow:
+                if event.IsCurrentlyHeld and not isDownNow:
                     self.EventTriggered.emit(event)
 
-                self._isCurrentlyHeld = isDownNow
+                event.IsCurrentlyHeld = isDownNow
             time.sleep(self._pollIntervalMs / 1000.0)
 
     def Stop(self):
@@ -526,8 +534,22 @@ class DashboardView(QWidget):
         self.ActionNameLabel = QLabel("<b>Action Sequence</b>")
 
         # The actual list of MacroSteps
+        self.MacroStepListWidgetLayout = QVBoxLayout()
         self.MacroStepListWidget = QListWidget()
         self.MacroStepListWidget.setMinimumHeight(200)
+
+        self.BtnMoveLayout = QHBoxLayout()
+        self.BtnMoveUp = QPushButton("↑")
+        self.BtnMoveDown = QPushButton("↓")
+        self.BtnMoveUp.setFixedWidth(30)
+        self.BtnMoveDown.setFixedWidth(30)
+        self.BtnMoveUp.setEnabled(False)
+        self.BtnMoveDown.setEnabled(False)
+
+        self.MacroStepListWidgetLayout.addWidget(self.MacroStepListWidget)
+        self.BtnMoveLayout.addWidget(self.BtnMoveUp)
+        self.BtnMoveLayout.addWidget(self.BtnMoveDown)
+        self.MacroStepListWidgetLayout.addLayout(self.BtnMoveLayout)
         
         self.stepDropDown = QComboBox()
         self.stepDropDown.addItems([mt.name for mt in MacroStep.InputType])
@@ -553,7 +575,7 @@ class DashboardView(QWidget):
         layout.addWidget(self.CreateHorizontalLine()) # Optional visual separator
         
         layout.addWidget(self.ActionNameLabel)
-        layout.addWidget(self.MacroStepListWidget)
+        layout.addLayout(self.MacroStepListWidgetLayout)
         layout.addWidget(self.stepDropDown)
         layout.addLayout(stepButtonLayout)
         
@@ -576,6 +598,8 @@ class DashboardView(QWidget):
         self.BtnLaunch.clicked.connect(self.OnLaunchExecutable)
         self.BtnResize.clicked.connect(self.OnResizeRequested)
         self.BtnLiveCapture.toggled.connect(self.OnToggleCapture)
+        self.BtnMoveUp.clicked.connect(lambda: self.MoveStep(-1))
+        self.BtnMoveDown.clicked.connect(lambda: self.MoveStep(1))
         self.BtnAddStep.clicked.connect(self.OnAddStepClicked)
         self.BtnDelStep.clicked.connect(self.OnRemoveStepClicked)
         self.ActivationHotkeyBtn.clicked.connect(self.OnCaptureHotkey)
@@ -711,6 +735,8 @@ class DashboardView(QWidget):
             self.stepDropDown.setEnabled(False)
             self.BtnAddStep.setEnabled(False)
             self.BtnDelStep.setEnabled(False)
+            self.BtnMoveUp.setEnabled(False)
+            self.BtnMoveDown.setEnabled(False)
             return
 
         eventObj: EventItem = current.data(Qt.UserRole)
@@ -726,10 +752,11 @@ class DashboardView(QWidget):
         self.ActivationHotkeyBtn.setEnabled(True)
 
         self.RefreshMacroStepList(eventObj.AssignedAction)
-        
         self.stepDropDown.setEnabled(True)
         self.BtnAddStep.setEnabled(True)
         self.BtnDelStep.setEnabled(True)
+        self.BtnMoveUp.setEnabled(True)
+        self.BtnMoveDown.setEnabled(True)
         
     def OnEventItemChanged(self, item: QListWidgetItem):
         """Triggered when an item is renamed or check state changes."""
@@ -762,6 +789,34 @@ class DashboardView(QWidget):
             typeName = self.ActivationDropdown.currentText()
             # Update via the new property name
             eventObj.SelectedActivationType = EventItem.ActivationType[typeName]
+
+    def MoveStep(self, direction: int):
+        """direction: -1 for Up, 1 for Down"""
+        # 1. Get current selection
+        currentRow = self.MacroStepListWidget.currentRow()
+        if currentRow == -1: return
+        
+        # 2. Calculate target row and check boundaries
+        targetRow = currentRow + direction
+        if targetRow < 0 or targetRow >= self.MacroStepListWidget.count():
+            return
+
+        # 3. Get the Action object from the selected Event
+        eventItem = self.EventListWidget.currentItem()
+        if not eventItem: return
+        eventObj: EventItem = eventItem.data(Qt.UserRole)
+        steps = eventObj.AssignedAction.MacroSteps
+
+        # 4. Swap in the Python List (The Data Model)
+        steps[currentRow], steps[targetRow] = steps[targetRow], steps[currentRow]
+
+        # 5. Swap in the UI (The View)
+        # We take the item out and re-insert it at the new position
+        item = self.MacroStepListWidget.takeItem(currentRow)
+        self.MacroStepListWidget.insertItem(targetRow, item)
+        
+        # 6. Keep the moved item selected so the user can click multiple times
+        self.MacroStepListWidget.setCurrentRow(targetRow)
 
     # --- UI Update Slots ---
 
