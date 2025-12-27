@@ -245,3 +245,12 @@ def sendMouseClickToWindow(hwnd: int, xN: float, yN: float) -> None:
     time.sleep(0.01)
     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, clickX, clickY, 0, 0)
 
+def IsHotkeyActive(vkList: list[int]) -> bool:
+    if not vkList:
+        return False
+
+    for vk in vkList:
+        if win32api.GetAsyncKeyState(vk) >= 0:
+            return False
+            
+    return True

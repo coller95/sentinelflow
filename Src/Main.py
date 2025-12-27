@@ -164,6 +164,42 @@ class EventItem:
 # VIEWMODEL
 # =========================
 
+class TriggerMonitorThread(QThread):
+    EventTriggered = Signal(EventItem)
+
+    def __init__(self, viewModel, pollIntervalMs=50):
+        super().__init__()
+        self._viewModel = viewModel
+        self._pollIntervalMs = pollIntervalMs
+        self._isRunning = True
+        self._isCurrentlyHeld = False
+
+    def run(self):
+        while self._isRunning:
+            for event in self._viewModel.EventItems:
+                if not event.Enabled:
+                    continue
+
+                if event.SelectedActivationType != EventItem.ActivationType.Hotkey:
+                    continue
+
+                if len(event.ActivationVkList) == 0:
+                    continue
+
+                # Get the current hardware state using pywin32
+                # We check if ALL keys in the combo are currently pressed
+                isDownNow = IsHotkeyActive(event.ActivationVkList)
+
+                if self._isCurrentlyHeld and not isDownNow:
+                    self.EventTriggered.emit(event)
+
+                self._isCurrentlyHeld = isDownNow
+            time.sleep(self._pollIntervalMs / 1000.0)
+
+    def Stop(self):
+        self._isRunning = False
+        self.wait()
+
 class LiveCaptureThread(QThread):
     ImageCaptured = Signal(object)
 
@@ -210,6 +246,9 @@ class DashboardViewModel(QObject):
         self.CurrentHwnd = None
         self.LiveThread: Optional[LiveCaptureThread] = None
         self.LastLiveImg = None
+        self.TriggerThread = None
+
+        self.StartSentinel()
 
     def AddNewEvent(self):
         newAction = ActionItem(name="") 
@@ -264,6 +303,18 @@ class DashboardViewModel(QObject):
         if self.LiveThread:
             self.LiveThread.Stop()
             self.LiveThread = None
+            
+    def StartSentinel(self):
+        if not self.TriggerThread:
+            self.TriggerThread = TriggerMonitorThread(self)
+            self.TriggerThread.EventTriggered.connect(self._OnEventTriggered)
+            self.TriggerThread.start()
+
+    def _OnEventTriggered(self, event: EventItem):
+        print(f"Event Triggered: {event.Name}")
+        if self.CurrentHwnd:
+            event.Trigger(self.CurrentHwnd)
+
 
 # =========================
 # VIEW COMPONENTS
@@ -533,6 +584,7 @@ class DashboardView(QWidget):
 
         # Property Editing
         self.EventListWidget.currentItemChanged.connect(self.OnSelectionChanged)
+        self.EventListWidget.itemChanged.connect(self.OnEventItemChanged)
         self.EventNameEdit.editingFinished.connect(self.OnCommitEventName)
         self.ActivationDropdown.currentIndexChanged.connect(self.OnCommitActivationType)
 
@@ -652,7 +704,14 @@ class DashboardView(QWidget):
         
         self.BtnAddStep.setEnabled(True)
         self.BtnDelStep.setEnabled(True)
-
+        
+    def OnEventItemChanged(self, item: QListWidgetItem):
+        """Triggered when an item is renamed or check state changes."""
+        eventObj: EventItem = item.data(Qt.UserRole)
+        if not eventObj:
+            return
+        eventObj.Enabled = (item.checkState() == Qt.Checked)
+            
     def RefreshMacroStepList(self, actionObj: ActionItem):
         """Refreshes the UI list based on the ActionItem's steps."""
         self.MacroStepListWidget.clear()
