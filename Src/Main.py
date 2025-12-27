@@ -132,6 +132,7 @@ class EventItem(BaseSerializable):
     class ActivationType(Enum):
         NotSet = auto()
         Hotkey = auto()
+        Loop = auto()
 
     def __init__(self, name: str, action: ActionItem, enabled: bool = False, activationType: ActivationType = ActivationType.NotSet, hotkeyVk: int = None):
         self._name = name
@@ -139,6 +140,10 @@ class EventItem(BaseSerializable):
         self._selectedActivationType = activationType
         self._activationVkList: List[int] = []
         self._isCurrentlyHeld = False
+        self._loopCount = 0
+        self._loopCounter = 0
+        self._intervalMs = 1000
+        self._timeOfLastTriggerMs = 0.0
         self._assignedAction = action
 
     @property
@@ -182,6 +187,38 @@ class EventItem(BaseSerializable):
         self._isCurrentlyHeld = value
 
     @property
+    def LoopCount(self) -> int:
+        return self._loopCount
+
+    @LoopCount.setter
+    def LoopCount(self, value: int):
+        self._loopCount = value
+
+    @property
+    def LoopCounter(self) -> int:
+        return self._loopCounter
+
+    @LoopCounter.setter
+    def LoopCounter(self, value: int):
+        self._loopCounter = value
+
+    @property
+    def IntervalMs(self) -> int:
+        return self._intervalMs
+
+    @IntervalMs.setter
+    def IntervalMs(self, value: int):
+        self._intervalMs = value
+
+    @property
+    def TimeOfLastTriggerMs(self) -> float:
+        return self._timeOfLastTriggerMs
+
+    @TimeOfLastTriggerMs.setter
+    def TimeOfLastTriggerMs(self, value: float):
+        self._timeOfLastTriggerMs = value
+
+    @property
     def AssignedAction(self) -> ActionItem:
         return self._assignedAction
 
@@ -199,6 +236,7 @@ class EventItem(BaseSerializable):
 
 class TriggerMonitorThread(QThread):
     EventTriggered = Signal(EventItem)
+    EventDisabled = Signal(EventItem)
 
     def __init__(self, viewModel, pollIntervalMs=50):
         super().__init__()
@@ -212,20 +250,30 @@ class TriggerMonitorThread(QThread):
                 if not event.Enabled:
                     continue
 
-                if event.SelectedActivationType != EventItem.ActivationType.Hotkey:
-                    continue
+                if event.SelectedActivationType == EventItem.ActivationType.Hotkey:
+                    if len(event.ActivationVkList) == 0:
+                        continue
+                    isDownNow = IsHotkeyActive(event.ActivationVkList)
+                    if event.IsCurrentlyHeld and not isDownNow:
+                        self.EventTriggered.emit(event)
+                    event.IsCurrentlyHeld = isDownNow
+                elif event.SelectedActivationType == EventItem.ActivationType.Loop:
+                    if event.LoopCount < 0:
+                        continue
+                    elif event.LoopCount > 0:
+                        if event.LoopCounter >= event.LoopCount:
+                            event.Enabled = False
+                            self.EventDisabled.emit(event)
+                    else: # LoopCount == 0 means infinite
+                        pass
 
-                if len(event.ActivationVkList) == 0:
-                    continue
+                    if time.time() * 1000 - event.TimeOfLastTriggerMs < event.IntervalMs:
+                        continue
 
-                # Get the current hardware state using pywin32
-                # We check if ALL keys in the combo are currently pressed
-                isDownNow = IsHotkeyActive(event.ActivationVkList)
-
-                if event.IsCurrentlyHeld and not isDownNow:
+                    event.LoopCounter += 1
+                    event.TimeOfLastTriggerMs = time.time()*1000
                     self.EventTriggered.emit(event)
 
-                event.IsCurrentlyHeld = isDownNow
             time.sleep(self._pollIntervalMs / 1000.0)
 
     def Stop(self):
@@ -270,6 +318,7 @@ class DashboardViewModel(QObject):
     ActionRemoved = Signal(int)
     HwndUpdated = Signal(object) # HWND
     CaptureImageReady = Signal(object) # Image data
+    EventDisabled = Signal(int) # Index of changed event
 
     def __init__(self):
         super().__init__()
@@ -330,12 +379,17 @@ class DashboardViewModel(QObject):
         if not self.TriggerThread:
             self.TriggerThread = TriggerMonitorThread(self)
             self.TriggerThread.EventTriggered.connect(self._OnEventTriggered)
+            self.TriggerThread.EventDisabled.connect(self._OnEventDisabled)
             self.TriggerThread.start()
 
     def _OnEventTriggered(self, event: EventItem):
         print(f"Event Triggered: {event.Name}")
         if self.CurrentHwnd:
             event.Trigger(self.CurrentHwnd)
+
+    def _OnEventDisabled(self, event: EventItem):
+        print(f"Event Disabled: {event.Name}")
+        self.EventDisabled.emit(self.EventItems.index(event))
 
     def SaveState(self, filePath: str):
         try:
@@ -377,6 +431,10 @@ class DashboardViewModel(QObject):
                 
         except Exception as e:
             print(f"LoadState Error: {e}")
+
+    def EnableEvent(self, event: EventItem):
+        event.Enabled = True
+        event.LoopCounter = 0
 
 
 # =========================
@@ -584,6 +642,8 @@ class DashboardView(QWidget):
         self.ActivationDropdown.setEnabled(False)
         self.ActivationDropdown.addItems([at.name for at in EventItem.ActivationType])
 
+        # hotkey capture widget
+        self.ActivationHotkeyWidget = QWidget()
         self.ActivationHotkeyLayout = QHBoxLayout()
         self.ActivationHotkeyLayout.addWidget(QLabel("Hotkey:"))
         self.ActivationHotkeyEdit = QLineEdit()
@@ -592,16 +652,40 @@ class DashboardView(QWidget):
         self.ActivationHotkeyBtn = QPushButton("Capture")
         self.ActivationHotkeyLayout.addWidget(self.ActivationHotkeyBtn)
         self.ActivationHotkeyBtn.setEnabled(False)
+        self.ActivationHotkeyWidget.setLayout(self.ActivationHotkeyLayout)
+        self.ActivationHotkeyWidget.hide()
+
+        # loop and interval widgets can be added here similarly if needed
+        self.LoopWidget = QWidget()
+        self.LoopWidgetLayout = QHBoxLayout()
+        self.LoopCountLayout = QVBoxLayout()
+        self.LoopCountLabel = QLabel("Count:")
+        self.LoopCountEdit = QLineEdit("1")
+        self.LoopIntervalLayout = QVBoxLayout()
+        self.LoopIntervalLabel = QLabel("Interval (ms):")
+        self.LoopIntervalEdit = QLineEdit("1000")
+        self.LoopCountLayout.addWidget(self.LoopCountLabel)
+        self.LoopCountLayout.addWidget(self.LoopCountEdit)
+        self.LoopIntervalLayout.addWidget(self.LoopIntervalLabel)
+        self.LoopIntervalLayout.addWidget(self.LoopIntervalEdit)
+        self.LoopWidgetLayout.addLayout(self.LoopCountLayout)
+        self.LoopWidgetLayout.addLayout(self.LoopIntervalLayout)
+        self.LoopWidget.setLayout(self.LoopWidgetLayout)
+        
+        self.LoopCountEdit.setEnabled(False)
+        self.LoopIntervalEdit.setEnabled(False)
+        self.LoopWidget.hide()
+        
 
         # Action Sequence Properties
         self.ActionNameLabel = QLabel("<b>Action Sequence</b>")
 
         # The actual list of MacroSteps
-        self.MacroStepListWidgetLayout = QVBoxLayout()
+        self.MacroStepListWidgetLayout = QHBoxLayout()
         self.MacroStepListWidget = QListWidget()
         self.MacroStepListWidget.setMinimumHeight(200)
 
-        self.BtnMoveLayout = QHBoxLayout()
+        self.BtnMoveLayout = QVBoxLayout()
         self.BtnMoveUp = QPushButton("↑")
         self.BtnMoveDown = QPushButton("↓")
         self.BtnMoveUp.setFixedWidth(30)
@@ -633,7 +717,8 @@ class DashboardView(QWidget):
         layout.addWidget(self.EventNameEdit)
         layout.addWidget(QLabel("Trigger Type:"))
         layout.addWidget(self.ActivationDropdown)
-        layout.addLayout(self.ActivationHotkeyLayout)
+        layout.addWidget(self.ActivationHotkeyWidget)
+        layout.addWidget(self.LoopWidget)
         
         layout.addWidget(self.CreateHorizontalLine()) # Optional visual separator
         
@@ -682,12 +767,15 @@ class DashboardView(QWidget):
         self.EventListWidget.itemChanged.connect(self.OnEventItemChanged)
         self.EventNameEdit.editingFinished.connect(self.OnCommitEventName)
         self.ActivationDropdown.currentIndexChanged.connect(self.OnCommitActivationType)
+        self.LoopCountEdit.editingFinished.connect(self.OnCommitLoopCount)
+        self.LoopIntervalEdit.editingFinished.connect(self.OnCommitLoopInterval)
 
         # --- ViewModel to View ---
         self.ViewModel.EventAdded.connect(self.UpdateUiAddEvent)
         self.ViewModel.EventRemoved.connect(self.UpdateUiRemoveEvent)
         self.ViewModel.HwndUpdated.connect(self.UpdateUiHwndInfo)
         self.ViewModel.CaptureImageReady.connect(self.UpdateUiImage)
+        self.ViewModel.EventDisabled.connect(self.UpdateUiEventDisabled)
 
     # --- Interaction Handlers ---
     def OnSaveEvent(self):
@@ -832,6 +920,8 @@ class DashboardView(QWidget):
             self.EventNameEdit.setEnabled(False)
             self.ActivationDropdown.setEnabled(False)
             self.ActivationHotkeyBtn.setEnabled(False)
+            self.LoopCountEdit.setEnabled(False)
+            self.LoopIntervalEdit.setEnabled(False)
             self.stepDropDown.setEnabled(False)
             self.BtnAddStep.setEnabled(False)
             self.BtnDelStep.setEnabled(False)
@@ -856,6 +946,11 @@ class DashboardView(QWidget):
         self.ActivationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventObj.ActivationVkList)))
         self.ActivationHotkeyBtn.setEnabled(True)
 
+        self.LoopCountEdit.setText(str(eventObj.LoopCount))
+        self.LoopIntervalEdit.setText(str(eventObj.IntervalMs))
+        self.LoopCountEdit.setEnabled(True)
+        self.LoopIntervalEdit.setEnabled(True)
+
         self.RefreshMacroStepList(eventObj.AssignedAction)
         self.stepDropDown.setEnabled(True)
         self.BtnAddStep.setEnabled(True)
@@ -868,7 +963,8 @@ class DashboardView(QWidget):
         eventObj: EventItem = item.data(Qt.UserRole)
         if not eventObj:
             return
-        eventObj.Enabled = (item.checkState() == Qt.Checked)
+        if item.checkState() == Qt.Checked:
+            self.ViewModel.EnableEvent(eventObj)
             
     def RefreshMacroStepList(self, actionObj: ActionItem):
         """Refreshes the UI list based on the ActionItem's steps."""
@@ -901,6 +997,36 @@ class DashboardView(QWidget):
             typeName = self.ActivationDropdown.currentText()
             # Update via the new property name
             eventObj.SelectedActivationType = EventItem.ActivationType[typeName]
+
+            if eventObj.SelectedActivationType == EventItem.ActivationType.Hotkey:
+                self.ActivationHotkeyWidget.show()
+            else:
+                self.ActivationHotkeyWidget.hide()
+
+            if eventObj.SelectedActivationType == EventItem.ActivationType.Loop:
+                self.LoopWidget.show()
+            else:
+                self.LoopWidget.hide()
+
+    def OnCommitLoopCount(self):
+        item = self.EventListWidget.currentItem()
+        if item:
+            eventObj: EventItem = item.data(Qt.UserRole)
+            try:
+                count = int(self.LoopCountEdit.text())
+                eventObj.LoopCount = count
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Invalid loop count.")
+
+    def OnCommitLoopInterval(self):
+        item = self.EventListWidget.currentItem()
+        if item:
+            eventObj: EventItem = item.data(Qt.UserRole)
+            try:
+                interval = int(self.LoopIntervalEdit.text())
+                eventObj.IntervalMs = interval
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Invalid interval.")
 
     def MoveStep(self, direction: int):
         """direction: -1 for Up, 1 for Down"""
@@ -960,6 +1086,13 @@ class DashboardView(QWidget):
             self.LiveImageLabel.setPixmap(pix)
         else:
             self.LiveImageLabel.clear()
+
+    def UpdateUiEventDisabled(self, index: int):
+        item = self.EventListWidget.item(index)
+        if item:
+            eventObj: EventItem = item.data(Qt.UserRole)
+            # Update the check state to reflect Enabled status
+            item.setCheckState(Qt.Checked if eventObj.Enabled else Qt.Unchecked)
 
     def closeEvent(self, event):
         self.ViewModel.StopCapture()
