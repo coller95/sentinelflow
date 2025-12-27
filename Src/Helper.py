@@ -187,6 +187,19 @@ def vkFromKeyName(keyName: str) -> int:
         raise ValueError(f"Invalid key name: {keyName}")
     return vk & 0xff
 
+def KeyNameFromVk(virtualKey: int) -> str:
+    """
+    Convert a single virtual key code to its key name using Microsoft naming standards.
+    """
+    scanCode = win32api.MapVirtualKey(virtualKey, 0)
+    lParam = (scanCode << 16)
+    nameBuffer = ctypes.create_unicode_buffer(32)
+    result = ctypes.windll.user32.GetKeyNameTextW(lParam, nameBuffer, 32)
+    if result == 0:
+        raise ValueError(f"Invalid virtual key code: {virtualKey}")
+        
+    return nameBuffer.value
+
 def sendKeystrokeToWindow(hwnd: int, vk: int) -> None:
     """
     Send a virtual key keystroke to the window with the given hwnd.
@@ -231,3 +244,4 @@ def sendMouseClickToWindow(hwnd: int, xN: float, yN: float) -> None:
     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, clickX, clickY, 0, 0)
     time.sleep(0.01)
     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, clickX, clickY, 0, 0)
+
