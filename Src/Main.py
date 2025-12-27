@@ -14,7 +14,7 @@ from PySide6.QtCore import Signal, QThread, Qt, QPoint, QObject
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox, 
-    QSizePolicy, QListWidgetItem, QComboBox, QGroupBox, QFrame, QDialog
+    QSizePolicy, QListWidgetItem, QComboBox, QGroupBox, QFrame, QDialog, QInputDialog
 )
 from PySide6.QtGui import QPainter, QPen, QImage, QPixmap
 
@@ -529,6 +529,10 @@ class DashboardView(QWidget):
         self.MacroStepListWidget = QListWidget()
         self.MacroStepListWidget.setMinimumHeight(200)
         
+        self.stepDropDown = QComboBox()
+        self.stepDropDown.addItems([mt.name for mt in MacroStep.InputType])
+        self.stepDropDown.setEnabled(False)
+        
         # Buttons for Step Management
         stepButtonLayout = QHBoxLayout()
         self.BtnAddStep = QPushButton("Add Step")
@@ -550,6 +554,7 @@ class DashboardView(QWidget):
         
         layout.addWidget(self.ActionNameLabel)
         layout.addWidget(self.MacroStepListWidget)
+        layout.addWidget(self.stepDropDown)
         layout.addLayout(stepButtonLayout)
         
         layout.addStretch()
@@ -623,10 +628,29 @@ class DashboardView(QWidget):
         if item:
             eventObj: EventItem = item.data(Qt.UserRole)
             if eventObj.AssignedAction:
-                # For now, add a dummy step to test
-                newStep = MacroStep(MacroStep.InputType.Delay, 500, "Wait 500ms")
-                eventObj.AssignedAction.AddStep(newStep)
-                self.RefreshMacroStepList(eventObj.AssignedAction)
+                stepTypeName = self.stepDropDown.currentText()
+                if stepTypeName in MacroStep.InputType.__members__:
+                    stepType = MacroStep.InputType[stepTypeName]
+                    # Create a default step based on type
+                    if stepType == MacroStep.InputType.Mouse:
+                        nx, ny = float(self.MouseXEdit.text()), float(self.MouseYEdit.text())
+                        newStep = MacroStep(MacroStep.InputType.Mouse, (nx, ny), f"Click at ({nx:7f}, {ny:7f})")
+                    elif stepType == MacroStep.InputType.Keyboard:
+                        dialog = HotkeyCaptureDialog(self)
+                        if dialog.exec() == QDialog.Accepted:
+                            # We take the first key from the captured list
+                            if dialog.CapturedVks:
+                                vk = dialog.CapturedVks[0]
+                                newStep = MacroStep(MacroStep.InputType.Keyboard, vk, f"Press \"{KeyNameFromVk(vk)}\"")
+                    elif stepType == MacroStep.InputType.Delay:
+                        ms, ok = QInputDialog.getInt(self, "Add Delay", "Milliseconds (ms):", 100, 1, 60000, 10)
+                        if ok:
+                            newStep = MacroStep(MacroStep.InputType.Delay, ms, f"Wait {ms}ms")
+                    else:
+                        return
+                    
+                    eventObj.AssignedAction.AddStep(newStep)
+                    self.RefreshMacroStepList(eventObj.AssignedAction)
 
     def OnRemoveStepClicked(self):
         currentRow = self.MacroStepListWidget.currentRow()
@@ -684,6 +708,7 @@ class DashboardView(QWidget):
             self.EventNameEdit.setEnabled(False)
             self.ActivationDropdown.setEnabled(False)
             self.ActivationHotkeyBtn.setEnabled(False)
+            self.stepDropDown.setEnabled(False)
             self.BtnAddStep.setEnabled(False)
             self.BtnDelStep.setEnabled(False)
             return
@@ -702,6 +727,7 @@ class DashboardView(QWidget):
 
         self.RefreshMacroStepList(eventObj.AssignedAction)
         
+        self.stepDropDown.setEnabled(True)
         self.BtnAddStep.setEnabled(True)
         self.BtnDelStep.setEnabled(True)
         
