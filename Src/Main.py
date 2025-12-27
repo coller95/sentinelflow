@@ -7,6 +7,7 @@ Naming Convention: Microsoft CamelCase Guidelines.
 import os
 import sys
 import time
+import json
 from enum import Enum, auto
 from typing import List, Optional
 
@@ -31,7 +32,39 @@ os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 # MODELS
 # =========================
 
-class MacroStep:
+class BaseSerializable:
+    def ToDictionary(self) -> dict:
+        """Generic reflection to convert attributes to a dictionary."""
+        data = {}
+        for key, value in self.__dict__.items():
+            # Clean up private variable prefixes (e.g., _Name -> Name)
+            publicName = key.lstrip('_')
+            publicName = publicName[0].upper() + publicName[1:]
+            
+            if isinstance(value, list):
+                data[publicName] = [item.ToDictionary() if hasattr(item, "ToDictionary") else item for item in value]
+            elif hasattr(value, "ToDictionary"):
+                data[publicName] = value.ToDictionary()
+            elif hasattr(value, "name") and hasattr(value, "value"): # Handle Enums
+                data[publicName] = value.name
+            else:
+                data[publicName] = value
+        return data
+
+    def FromDictionary(self, data: dict):
+        """Generic reflection to populate attributes from a dictionary."""
+        for key, value in data.items():
+            attrName = f"_{key[0].lower() + key[1:]}"
+            if hasattr(self, attrName):
+                currentAttr = getattr(self, attrName)
+                
+                # If the attribute is a nested object, let it handle its own data
+                if hasattr(currentAttr, "FromDictionary"):
+                    currentAttr.FromDictionary(value)
+                else:
+                    setattr(self, attrName, value)
+
+class MacroStep(BaseSerializable):
     class InputType(Enum):
         Mouse = auto()
         Keyboard = auto()
@@ -73,18 +106,9 @@ class MacroStep:
         sendMouseClickToWindow(hwnd, xN, yN)
         pass
 
-class ActionItem:
-    def __init__(self, name: str):
-        self._name = name
+class ActionItem(BaseSerializable):
+    def __init__(self):
         self._macroSteps: List[MacroStep] = []
-
-    @property
-    def Name(self) -> str:
-        return self._name
-
-    @Name.setter
-    def Name(self, value: str):
-        self._name = value
 
     @property
     def MacroSteps(self) -> List[MacroStep]:
@@ -104,7 +128,7 @@ class ActionItem:
         for step in self._macroSteps:
             step.Execute(windowHandle)
 
-class EventItem:
+class EventItem(BaseSerializable):
     class ActivationType(Enum):
         NotSet = auto()
         Hotkey = auto()
@@ -250,7 +274,6 @@ class DashboardViewModel(QObject):
     def __init__(self):
         super().__init__()
         self.EventItems: List[EventItem] = []
-        self.ActionItems: List[ActionItem] = []
         self.CurrentHwnd = None
         self.LiveThread: Optional[LiveCaptureThread] = None
         self.LastLiveImg = None
@@ -259,7 +282,7 @@ class DashboardViewModel(QObject):
         self.StartSentinel()
 
     def AddNewEvent(self):
-        newAction = ActionItem(name="") 
+        newAction = ActionItem()
         newEvent = EventItem(name="New Event", action=newAction)
         
         self.EventItems.append(newEvent)
@@ -269,15 +292,6 @@ class DashboardViewModel(QObject):
         if 0 <= index < len(self.EventItems):
             self.EventItems.pop(index)
             self.EventRemoved.emit(index)
-
-    def AddNewAction(self):
-        newAction = ActionItem(name="New Action")
-        self.ActionItems.append(newAction)
-        return newAction
-    
-    def DeleteAction(self, index: int):
-        if 0 <= index < len(self.ActionItems):
-            self.ActionItems.pop(index)
 
     def FindWindow(self, title: str):
         hwnd = findHwndByTitle(title)
@@ -322,6 +336,47 @@ class DashboardViewModel(QObject):
         print(f"Event Triggered: {event.Name}")
         if self.CurrentHwnd:
             event.Trigger(self.CurrentHwnd)
+
+    def SaveState(self, filePath: str):
+        try:
+            # Generate dictionary list using the generic method
+            eventDataList = [event.ToDictionary() for event in self.EventItems]
+            with open(filePath, 'w') as f:
+                json.dump(eventDataList, f, indent=4)
+        except Exception as e:
+            print(f"SaveState Error: {e}")
+
+    def LoadState(self, filePath: str):
+        if not os.path.exists(filePath):
+            return
+
+        try:
+            with open(filePath, 'r') as f:
+                data = json.load(f)
+
+            self.EventItems.clear()
+            for eventData in data:
+                # 1. Create the shell objects
+                action = ActionItem()
+                event = EventItem(name=eventData.get("Name", ""), action=action)
+                
+                # 2. Reconstruct MacroSteps manually if they are in a list
+                # This is the one part that needs a hint because of the Enum types
+                if "AssignedAction" in eventData and "Steps" in eventData["AssignedAction"]:
+                    for stepData in eventData["AssignedAction"]["Steps"]:
+                        # Convert string back to Enum
+                        sType = MacroStep.InputType[stepData["Type"]]
+                        step = MacroStep(sType, stepData["Value"], stepData["Description"])
+                        action.AddStep(step)
+
+                # 3. Fill the remaining primitive attributes (Enabled, VkList, etc.)
+                event.FromDictionary(eventData)
+                
+                self.EventItems.append(event)
+                self.EventAdded.emit(event)
+                
+        except Exception as e:
+            print(f"LoadState Error: {e}")
 
 
 # =========================
@@ -416,9 +471,17 @@ class DashboardView(QWidget):
         self.BtnDelEvent = QPushButton("-")
         self.BtnAddEvent.setFixedWidth(30)
         self.BtnDelEvent.setFixedWidth(30)
+        self.BtnSaveEvent = QPushButton("Save")
+        self.BtnLoadEvent = QPushButton("Load")
+        self.BtnSaveEvent.setFixedWidth(40)
+        self.BtnLoadEvent.setFixedWidth(40)
         btnLayout.addWidget(self.BtnAddEvent)
         btnLayout.addWidget(self.BtnDelEvent)
         btnLayout.addStretch()
+        btnLayout.addWidget(self.BtnSaveEvent)
+        btnLayout.addWidget(self.BtnLoadEvent)
+
+
 
         self.EventListWidget = QListWidget()
         self.EventListWidget.setFixedWidth(200)
@@ -593,6 +656,9 @@ class DashboardView(QWidget):
         # --- View to ViewModel ---
         self.BtnAddEvent.clicked.connect(self.ViewModel.AddNewEvent)
         self.BtnDelEvent.clicked.connect(lambda: self.ViewModel.DeleteEvent(self.EventListWidget.currentRow()))
+        
+        self.BtnSaveEvent.clicked.connect(self.OnSaveEvent)
+        self.BtnLoadEvent.clicked.connect(self.OnLoadEvent)
         self.BtnFindHwnd.clicked.connect(lambda: self.ViewModel.FindWindow(self.TitleEdit.text().strip()))
         self.BtnBrowse.clicked.connect(self.OnBrowseExecutable)
         self.BtnLaunch.clicked.connect(self.OnLaunchExecutable)
@@ -624,6 +690,40 @@ class DashboardView(QWidget):
         self.ViewModel.CaptureImageReady.connect(self.UpdateUiImage)
 
     # --- Interaction Handlers ---
+    def OnSaveEvent(self):
+        # Parameters: parent, title, default directory/filename, filter
+        filePath, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Save Macro Configuration", 
+            "", 
+            "JSON Files (*.json);;All Files (*)"
+        )
+        
+        if filePath:
+            try:
+                self.ViewModel.SaveState(filePath)
+                QMessageBox.information(self, "Success", "Configuration saved successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save file: {e}")
+
+    def OnLoadEvent(self):
+        filePath, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Load Macro Configuration", 
+            "", 
+            "JSON Files (*.json);;All Files (*)"
+        )
+        
+        if filePath:
+            try:
+                # Clear existing UI list before loading new data
+                self.EventListWidget.clear()
+                self.MacroStepListWidget.clear()
+                
+                self.ViewModel.LoadState(filePath)
+                QMessageBox.information(self, "Success", "Configuration loaded successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to load file: {e}")
 
     def OnBrowseExecutable(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select EXE", "", "Executables (*.exe)")
@@ -744,7 +844,12 @@ class DashboardView(QWidget):
         self.EventNameEdit.setText(eventObj.Name)
         self.EventNameEdit.setEnabled(True)
 
-        idx = self.ActivationDropdown.findText(eventObj.SelectedActivationType.name)
+        activation = eventObj.SelectedActivationType
+        typeName = activation.name if hasattr(activation, 'name') else str(activation)
+
+        idx = self.ActivationDropdown.findText(typeName)
+        if idx >= 0:
+            self.ActivationDropdown.setCurrentIndex(idx)
         self.ActivationDropdown.setCurrentIndex(idx)
         self.ActivationDropdown.setEnabled(True)
 
@@ -769,8 +874,15 @@ class DashboardView(QWidget):
         """Refreshes the UI list based on the ActionItem's steps."""
         self.MacroStepListWidget.clear()
         for step in actionObj.MacroSteps:
-            # We use the 'Description' property we defined earlier
-            item = QListWidgetItem(step.Description)
+            # Check if it's a dict (raw data) or an object
+            description = ""
+            if isinstance(step, dict):
+                description = step.get("Description", "Unknown Step")
+            else:
+                description = step.Description
+                
+            item = QListWidgetItem(description)
+            item.setData(Qt.UserRole, step) # Store the step data/object
             self.MacroStepListWidget.addItem(item)
 
     def OnCommitEventName(self):
