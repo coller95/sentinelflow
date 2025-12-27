@@ -1,21 +1,16 @@
 """
 SentinelFlow Main Dashboard
-Description: PySide6 GUI for live capture, launcher, and window management.
-Refactored to Microsoft CamelCase guidelines.
+Description: PySide6 GUI refactored using MVVM pattern.
+Naming Convention: Microsoft CamelCase Guidelines.
 """
 
-# -------------------------
-# Standard library imports
-# -------------------------
 import os
 import sys
 import time
 from enum import Enum, auto
+from typing import List, Optional
 
-# -------------------------
-# Third-party imports
-# -------------------------
-from PySide6.QtCore import Signal, QThread, Qt, QPoint
+from PySide6.QtCore import Signal, QThread, Qt, QPoint, QObject
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox, 
@@ -32,7 +27,12 @@ from Src.Helper import *
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
+# =========================
+# MODELS
+# =========================
+
 class EventItem:
+    # The Enum (The Type)
     class ActivationType(Enum):
         NotSet = auto()
         ImageMatch = auto()
@@ -47,472 +47,452 @@ class EventItem:
     def __init__(self, name: str, enabled: bool = False, activationType: ActivationType = ActivationType.NotSet):
         self._name = name
         self._enabled = enabled
-        self._activationType = activationType
+        self._selectedActivationType = activationType # Internal field
 
     @property
-    def name(self) -> str:
+    def Name(self) -> str:
         return self._name
 
-    @name.setter
-    def name(self, value: str):
-        if not value:
-            raise ValueError("Name cannot be empty")
+    @Name.setter
+    def Name(self, value: str):
         self._name = value
 
     @property
-    def enabled(self) -> bool:
+    def Enabled(self) -> bool:
         return self._enabled
 
-    @enabled.setter
-    def enabled(self, value: bool):
+    @Enabled.setter
+    def Enabled(self, value: bool):
         self._enabled = value
 
+    # Renamed property to avoid shadowing the Enum class name
     @property
-    def activationType(self) -> ActivationType:
-        return self._activationType
+    def SelectedActivationType(self) -> ActivationType:
+        return self._selectedActivationType
 
-    @activationType.setter
-    def activationType(self, value: ActivationType):
-        self._activationType = value
+    @SelectedActivationType.setter
+    def SelectedActivationType(self, value: ActivationType):
+        self._selectedActivationType = value
 
-# -------------------------
-# Live Capture Thread
-# -------------------------
+# =========================
+# VIEWMODEL
+# =========================
+
 class LiveCaptureThread(QThread):
-    imageCaptured = Signal(object)
+    ImageCaptured = Signal(object)
 
     def __init__(self, hwnd, intervalMs=200, parent=None):
         super().__init__(parent)
-        self.hwnd = hwnd
-        self.intervalMs = intervalMs
-        self._running = True
+        self.Hwnd = hwnd
+        self.IntervalMs = intervalMs
+        self._isRunning = True
 
     def run(self):
-        """Main loop: periodically capture the target window."""
-        self._running = True
-        while self._running:
+        self._isRunning = True
+        while self._isRunning:
             try:
-                img = captureWindowByHwnd(self.hwnd)
-                
+                img = captureWindowByHwnd(self.Hwnd)
                 if img is not None:
-                    self.imageCaptured.emit(img)
+                    self.ImageCaptured.emit(img)
                 else:
-                    # Case where function returns None (e.g., window minimized or handle invalid)
                     print("Failed to capture image: Window might be closed or hidden.")
-                    self._running = False  # Optional: stop the thread on failure
-            
+                    self._isRunning = False 
             except Exception as e:
-                # Catching unexpected system errors during capture
                 print(f"Live capture error: {e}")
-                self.imageCaptured.emit(None)
-                self._running = False
+                self.ImageCaptured.emit(None)
+                self._isRunning = False
             
-            time.sleep(self.intervalMs / 1000.0)
+            time.sleep(self.IntervalMs / 1000.0)
 
-    def stop(self):
-        self._running = False
+    def Stop(self):
+        self._isRunning = False
         self.wait()
 
+class DashboardViewModel(QObject):
+    """Handles the business logic and state management."""
+    EventAdded = Signal(EventItem)
+    EventRemoved = Signal(int)
+    HwndUpdated = Signal(object) # HWND
+    CaptureImageReady = Signal(object) # Image data
+
+    def __init__(self):
+        super().__init__()
+        self.EventItems: List[EventItem] = []
+        self.CurrentHwnd = None
+        self.LiveThread: Optional[LiveCaptureThread] = None
+        self.LastLiveImg = None
+
+    def AddNewEvent(self):
+        newEvent = EventItem(name="New Event")
+        self.EventItems.append(newEvent)
+        self.EventAdded.emit(newEvent)
+
+    def DeleteEvent(self, index: int):
+        if 0 <= index < len(self.EventItems):
+            self.EventItems.pop(index)
+            self.EventRemoved.emit(index)
+
+    def FindWindow(self, title: str):
+        hwnd = findHwndByTitle(title)
+        self.CurrentHwnd = hwnd
+        self.HwndUpdated.emit(hwnd)
+        return hwnd
+
+    def LaunchApp(self, path: str):
+        if path:
+            return launchHwndByExecutable(path)
+        return None
+
+    def ResizeTargetWindow(self, width: int, height: int):
+        if self.CurrentHwnd:
+            ResizeWindow(self.CurrentHwnd, width, height)
+
+    def ToggleCapture(self, active: bool):
+        if active and self.CurrentHwnd:
+            self.StopCapture()
+            self.LiveThread = LiveCaptureThread(self.CurrentHwnd)
+            self.LiveThread.ImageCaptured.connect(self._HandleImageCaptured)
+            self.LiveThread.start()
+        else:
+            self.StopCapture()
+
+    def _HandleImageCaptured(self, img):
+        self.LastLiveImg = img
+        self.CaptureImageReady.emit(img)
+
+    def StopCapture(self):
+        if self.LiveThread:
+            self.LiveThread.Stop()
+            self.LiveThread = None
+
+# =========================
+# VIEW COMPONENTS
+# =========================
+
 class ClickableImageLabel(QLabel):
-    clicked = Signal(QPoint)
+    Clicked = Signal(QPoint)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.nxValue = None
-        self.nyValue = None
+        self.NxValue = None
+        self.NyValue = None
         self.setMouseTracking(True)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            w = self.width()
-            h = self.height()
+            w, h = self.width(), self.height()
             if w > 0 and h > 0:
-                self.nxValue = event.position().x() / w
-                self.nyValue = event.position().y() / h
-                self.clicked.emit(event.position().toPoint())
+                self.NxValue = event.position().x() / w
+                self.NyValue = event.position().y() / h
+                self.Clicked.emit(event.position().toPoint())
                 self.update()
 
-    def setMarkerNormalized(self, nx: float, ny: float):
-        self.nxValue = nx
-        self.nyValue = ny
+    def SetMarkerNormalized(self, nx: float, ny: float):
+        self.NxValue = nx
+        self.NyValue = ny
         self.update()
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        if self.nxValue is None or self.nyValue is None:
+        if self.NxValue is None or self.NyValue is None:
             return
-
-        x = int(self.nxValue * self.width())
-        y = int(self.nyValue * self.height())
+        x = int(self.NxValue * self.width())
+        y = int(self.NyValue * self.height())
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(QPen(Qt.red, 2))
-
         size = 10
         painter.drawLine(x - size, y, x + size, y)
         painter.drawLine(x, y - size, x, y + size)
 
-class Dashboard(QWidget):
-    def __init__(self):
+class DashboardView(QWidget):
+    def __init__(self, viewModel: DashboardViewModel):
         super().__init__()
-        # Data/State
-        self.eventItems = []
-        self.currentHwnd = None
-        self.liveThread = None
-        self.lastLiveImg = None
-        
-        # UI Initialization
+        self.ViewModel = viewModel
         self.InitializeComponents()
-        self.WireUpSignals()
-
-    def CreateSeparator(self) -> QFrame:
-        """Creates a thin vertical line to separate panels."""
-        line = QFrame()
-        line.setFrameShape(QFrame.VLine)
-        line.setFrameShadow(QFrame.Plain)
-        # This color (Dark Gray) matches most modern 'Dark Mode' apps
-        line.setStyleSheet("color: #3f3f46;") 
-        line.setFixedWidth(1) # Keeps the line very thin
-        return line
+        self.WireUpBindings()
 
     def InitializeComponents(self):
-        """Primary entry point for UI setup."""
         self.setWindowTitle("SentinelFlow Dashboard")
         self.resize(1000, 650)
-
         self.MainLayout = QHBoxLayout(self)
         self.MainLayout.setContentsMargins(0, 0, 0, 0)
-        self.MainLayout.setSpacing(5) # We want the line to touch the panels
+        self.MainLayout.setSpacing(5)
 
-        # Build Panels via specialized methods
+        # Panels
         self.MainLayout.addLayout(self.SetupLeftPanel(), 0)
-        # self.MainLayout.addWidget(self.CreateSeparator())
         self.MainLayout.addLayout(self.SetupCenterPanel(), 1)
-        # self.MainLayout.addWidget(self.CreateSeparator())
         self.MainLayout.addLayout(self.SetupRightPanel(), 0)
 
-    # --- Panel Builders ---
-
     def SetupLeftPanel(self) -> QVBoxLayout:
-        """Logic for the Event List and Management buttons."""
         layout = QVBoxLayout()
-        
-        # Toolbar
         btnLayout = QHBoxLayout()
-        self.btnAddEvent = QPushButton("+")
-        self.btnDelEvent = QPushButton("-")
-        self.btnAddEvent.setFixedWidth(30)
-        self.btnDelEvent.setFixedWidth(30)
-        
-        btnLayout.addWidget(self.btnAddEvent)
-        btnLayout.addWidget(self.btnDelEvent)
+        self.BtnAddEvent = QPushButton("+")
+        self.BtnDelEvent = QPushButton("-")
+        self.BtnAddEvent.setFixedWidth(30)
+        self.BtnDelEvent.setFixedWidth(30)
+        btnLayout.addWidget(self.BtnAddEvent)
+        btnLayout.addWidget(self.BtnDelEvent)
         btnLayout.addStretch()
 
-        # List
-        self.eventListWidget = QListWidget()
-        self.eventListWidget.setFixedWidth(200)
-        self.eventListWidget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.EventListWidget = QListWidget()
+        self.EventListWidget.setFixedWidth(200)
+        self.EventListWidget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
 
         layout.addLayout(btnLayout)
-        layout.addWidget(self.eventListWidget)
+        layout.addWidget(self.EventListWidget)
         return layout
-    
+
     def SetupCenterPanel(self) -> QVBoxLayout:
-        """Main interaction area: Management Group, Live View, and Manual Controls."""
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(5) # Space between the GroupBox and the Image
+        layout.setSpacing(5)
 
-        managementGroupBox = QGroupBox("Target Application Management")
-        managementGroupBox.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-
-        # Master layout for the group
+        mgmtGroupBox = QGroupBox("Target Application Management")
+        mgmtGroupBox.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         groupMasterLayout = QVBoxLayout()
-        groupMasterLayout.setSpacing(0)  # Reduce space between rows
-        groupMasterLayout.setContentsMargins(10, 15, 10, 10) # Adjust internal padding
-        
+        groupMasterLayout.setContentsMargins(10, 15, 10, 10)
 
-        # --- Row 1: Executable Management ---
+        # Row 1: Exe
         exeLayout = QHBoxLayout()
-        self.exePathEdit = QLineEdit(r"C:\Users\HONG\Desktop\frozenthrone1.26\war3.exe -window")
-        self.btnBrowse = QPushButton("Browse")
-        self.btnLaunch = QPushButton("Launch")
+        self.ExePathEdit = QLineEdit(r"C:\Users\HONG\Desktop\frozenthrone1.26\war3.exe -window")
+        self.BtnBrowse = QPushButton("Browse")
+        self.BtnLaunch = QPushButton("Launch")
         exeLayout.addWidget(QLabel("Path:"))
-        exeLayout.addWidget(self.exePathEdit)
-        exeLayout.addWidget(self.btnBrowse)
-        exeLayout.addWidget(self.btnLaunch)
-        groupMasterLayout.addLayout(exeLayout) # Add row to master
+        exeLayout.addWidget(self.ExePathEdit)
+        exeLayout.addWidget(self.BtnBrowse)
+        exeLayout.addWidget(self.BtnLaunch)
+        groupMasterLayout.addLayout(exeLayout)
 
-        # --- Row 2: Process Management ---
+        # Row 2: Proc
         procLayout = QHBoxLayout()
-        self.titleEdit = QLineEdit("Warcraft III")
-        self.btnFindHwnd = QPushButton("Find Process")
-        self.pidLabel = QLabel("Pid: -")
+        self.TitleEdit = QLineEdit("Warcraft III")
+        self.BtnFindHwnd = QPushButton("Find Process")
+        self.PidLabel = QLabel("Pid: -")
         procLayout.addWidget(QLabel("Title:"))
-        procLayout.addWidget(self.titleEdit)
-        procLayout.addWidget(self.btnFindHwnd)
-        procLayout.addWidget(self.pidLabel)
-        groupMasterLayout.addLayout(procLayout) # Add row to master
+        procLayout.addWidget(self.TitleEdit)
+        procLayout.addWidget(self.BtnFindHwnd)
+        procLayout.addWidget(self.PidLabel)
+        groupMasterLayout.addLayout(procLayout)
 
-        # --- Row 3: Window Metrics ---
+        # Row 3: Metrics
         resLayout = QHBoxLayout()
-        self.resizeWidthEdit = QLineEdit("800")
-        self.resizeHeightEdit = QLineEdit("600")
-        self.btnResize = QPushButton("Resize Window")
+        self.ResizeWidthEdit = QLineEdit("800")
+        self.ResizeHeightEdit = QLineEdit("600")
+        self.BtnResize = QPushButton("Resize Window")
         resLayout.addWidget(QLabel("W:"))
-        resLayout.addWidget(self.resizeWidthEdit)
+        resLayout.addWidget(self.ResizeWidthEdit)
         resLayout.addWidget(QLabel("H:"))
-        resLayout.addWidget(self.resizeHeightEdit)
-        resLayout.addWidget(self.btnResize)
-        groupMasterLayout.addLayout(resLayout) # Add row to master
+        resLayout.addWidget(self.ResizeHeightEdit)
+        resLayout.addWidget(self.BtnResize)
+        groupMasterLayout.addLayout(resLayout)
 
-        # VITAL: This pushes everything up and removes the big gaps
         groupMasterLayout.addStretch(1)
+        mgmtGroupBox.setLayout(groupMasterLayout)
 
-        # Set the master layout into the GroupBox
-        managementGroupBox.setLayout(groupMasterLayout)
+        # Live View
+        self.BtnLiveCapture = QPushButton("Start Live Capture")
+        self.BtnLiveCapture.setCheckable(True)
+        self.LiveImageLabel = ClickableImageLabel()
+        self.LiveImageLabel.setScaledContents(True)
+        self.LiveImageLabel.setMinimumSize(640, 480)
+        self.LiveImageLabel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.LiveImageLabel.setAlignment(Qt.AlignCenter)
 
-        # --- Group 4: Live Viewport ---
-        self.liveCaptureBtn = QPushButton("Start Live Capture")
-        self.liveCaptureBtn.setCheckable(True)
-        self.liveImageLabel = ClickableImageLabel()
-        self.liveImageLabel.setScaledContents(True)
-
-        self.liveImageLabel.setMinimumSize(640, 480)
-        self.liveImageLabel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
-        self.liveImageLabel.setAlignment(Qt.AlignCenter)
-
-        # --- Group 5: Interaction Controls ---
+        # Interaction
         interactLayout = QHBoxLayout()
-        self.keystrokeEdit = QLineEdit()
-        self.btnSendKeystroke = QPushButton("Send Key")
-        self.mouseXEdit = QLineEdit()
-        self.mouseYEdit = QLineEdit()
-        self.btnSendClick = QPushButton("Send Click")
-        
-        interactLayout.addWidget(self.keystrokeEdit)
-        interactLayout.addWidget(self.btnSendKeystroke)
+        self.KeystrokeEdit = QLineEdit()
+        self.BtnSendKeystroke = QPushButton("Send Key")
+        self.MouseXEdit = QLineEdit()
+        self.MouseYEdit = QLineEdit()
+        self.BtnSendClick = QPushButton("Send Click")
+        interactLayout.addWidget(self.KeystrokeEdit)
+        interactLayout.addWidget(self.BtnSendKeystroke)
         interactLayout.addSpacing(10)
         interactLayout.addWidget(QLabel("X:"))
-        interactLayout.addWidget(self.mouseXEdit)
+        interactLayout.addWidget(self.MouseXEdit)
         interactLayout.addWidget(QLabel("Y:"))
-        interactLayout.addWidget(self.mouseYEdit)
-        interactLayout.addWidget(self.btnSendClick)
+        interactLayout.addWidget(self.MouseYEdit)
+        interactLayout.addWidget(self.BtnSendClick)
 
-        # Add components to the Center Panel layout
-        layout.addWidget(managementGroupBox)
-        layout.addWidget(self.liveCaptureBtn)
-        layout.addWidget(self.liveImageLabel)
+        layout.addWidget(mgmtGroupBox)
+        layout.addWidget(self.BtnLiveCapture)
+        layout.addWidget(self.LiveImageLabel)
         layout.addLayout(interactLayout)
-        
         return layout
 
     def SetupRightPanel(self) -> QVBoxLayout:
-        """Property Editor for the selected event."""
         layout = QVBoxLayout()
-        
-        self.eventNameEdit = QLineEdit()
-        self.eventNameEdit.setEnabled(False)
-        self.activationDropdown = QComboBox()
-        self.activationDropdown.setEnabled(False)
-        self.activationDropdown.addItems([at.name for at in EventItem.ActivationType])
+        self.EventNameEdit = QLineEdit()
+        self.EventNameEdit.setEnabled(False)
+        self.ActivationDropdown = QComboBox()
+        self.ActivationDropdown.setEnabled(False)
+        self.ActivationDropdown.addItems([at.name for at in EventItem.ActivationType])
 
         layout.addWidget(QLabel("<b>Event Settings</b>"))
         layout.addWidget(QLabel("Name:"))
-        layout.addWidget(self.eventNameEdit)
+        layout.addWidget(self.EventNameEdit)
         layout.addWidget(QLabel("Trigger Type:"))
-        layout.addWidget(self.activationDropdown)
+        layout.addWidget(self.ActivationDropdown)
         layout.addStretch()
-        
         return layout
 
-    def WireUpSignals(self):
-        """Dedicated method for all event connections."""
-        # Management
-        self.btnAddEvent.clicked.connect(self.handleAddEvent)
-        self.btnDelEvent.clicked.connect(self.handleDeleteEvent)
-        self.eventListWidget.currentItemChanged.connect(self.onEventSelected)
+    def WireUpBindings(self):
+        """Connects UI signals to ViewModel and ViewModel signals to UI updates."""
+        # --- View to ViewModel ---
+        self.BtnAddEvent.clicked.connect(self.ViewModel.AddNewEvent)
+        self.BtnDelEvent.clicked.connect(lambda: self.ViewModel.DeleteEvent(self.EventListWidget.currentRow()))
+        self.BtnFindHwnd.clicked.connect(lambda: self.ViewModel.FindWindow(self.TitleEdit.text().strip()))
+        self.BtnBrowse.clicked.connect(self.OnBrowseExecutable)
+        self.BtnLaunch.clicked.connect(self.OnLaunchExecutable)
+        self.BtnResize.clicked.connect(self.OnResizeRequested)
+        self.BtnLiveCapture.toggled.connect(self.OnToggleCapture)
+        
+        # Interaction
+        self.LiveImageLabel.Clicked.connect(self.OnImageClicked)
+        self.BtnSendClick.clicked.connect(self.OnSendMouseClick)
+        self.BtnSendKeystroke.clicked.connect(self.OnSendKeystroke)
+        self.MouseXEdit.textChanged.connect(self.OnManualCoordsChanged)
+        self.MouseYEdit.textChanged.connect(self.OnManualCoordsChanged)
 
-        # Launcher/Binding
-        self.btnBrowse.clicked.connect(self.browseExecutable)
-        self.btnLaunch.clicked.connect(self.launchExecutable)
-        self.btnFindHwnd.clicked.connect(self.findWindowHandle)
-        self.btnResize.clicked.connect(self.handleResizeWindow)
+        # Property Editing
+        self.EventListWidget.currentItemChanged.connect(self.OnSelectionChanged)
+        self.EventNameEdit.editingFinished.connect(self.OnCommitEventName)
+        self.ActivationDropdown.currentIndexChanged.connect(self.OnCommitActivationType)
 
-        # Capture & Input
-        self.liveCaptureBtn.toggled.connect(self.toggleLiveCapture)
-        self.liveImageLabel.clicked.connect(self.handleImageClick)
-        self.btnSendKeystroke.clicked.connect(self.handleSendKeystroke)
-        self.btnSendClick.clicked.connect(self.handleSendMouseClick)
-        self.mouseXEdit.textChanged.connect(self.handleMouseTextChanged)
-        self.mouseYEdit.textChanged.connect(self.handleMouseTextChanged)
+        # --- ViewModel to View ---
+        self.ViewModel.EventAdded.connect(self.UpdateUiAddEvent)
+        self.ViewModel.EventRemoved.connect(self.UpdateUiRemoveEvent)
+        self.ViewModel.HwndUpdated.connect(self.UpdateUiHwndInfo)
+        self.ViewModel.CaptureImageReady.connect(self.UpdateUiImage)
 
-        # Property Editor
-        self.eventNameEdit.editingFinished.connect(self.handleEventNameEdit)
-        self.activationDropdown.currentIndexChanged.connect(self.handleActivationTypeChange)
+    # --- Interaction Handlers ---
 
-    # --- Event Management Methods ---
-    def handleAddEvent(self):
-        newEvent = EventItem(name="New Event")
-        self.addEventToUi(newEvent)
-
-    def addEventToUi(self, eventObj: EventItem):
-        item = QListWidgetItem(eventObj.name)
-        item.setData(Qt.UserRole, eventObj)
-        item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-        item.setCheckState(Qt.Checked if eventObj.enabled else Qt.Unchecked)
-        self.eventListWidget.addItem(item)
-        self.eventItems.append(eventObj)
-
-    def handleDeleteEvent(self):
-        row = self.eventListWidget.currentRow()
-        if row >= 0:
-            item = self.eventListWidget.takeItem(row)
-            eventObj = item.data(Qt.UserRole)
-            if eventObj in self.eventItems:
-                self.eventItems.remove(eventObj)
-
-    def onEventSelected(self, current: 'QListWidgetItem | None', previous: 'QListWidgetItem | None'):
-        if current:
-            eventObj: EventItem = current.data(Qt.UserRole)
-            self.eventNameEdit.setText(eventObj.name)
-            self.eventNameEdit.setEnabled(True)
-            
-            idx = self.activationDropdown.findText(eventObj.activationType.name)
-            self.activationDropdown.setCurrentIndex(idx)
-            self.activationDropdown.setEnabled(True)
-        else:
-            self.eventNameEdit.clear()
-            self.eventNameEdit.setEnabled(False)
-            self.activationDropdown.setEnabled(False)
-
-    def handleEventNameEdit(self):
-        item = self.eventListWidget.currentItem()
-        if item:
-            eventObj: EventItem = item.data(Qt.UserRole)
-            newName = self.eventNameEdit.text().strip()
-            if newName:
-                eventObj.name = newName
-                item.setText(newName)
-
-    def handleActivationTypeChange(self, index):
-        item = self.eventListWidget.currentItem()
-        if item and index >= 0:
-            eventObj: EventItem = item.data(Qt.UserRole)
-            typeName = self.activationDropdown.currentText()
-            # Direct lookup from Enum (First Principle)
-            eventObj.activationType = EventItem.ActivationType[typeName]
-
-    # --- Window & Process Control ---
-    def findWindowHandle(self):
-        title = self.titleEdit.text().strip()
-        hwnd = findHwndByTitle(title)
-        if hwnd:
-            self.currentHwnd = hwnd
-            self.pidLabel.setText(f"PID: {findPidByHwnd(hwnd)}")
-        else:
-            self.currentHwnd = None
-            self.pidLabel.setText("PID: -")
-            QMessageBox.warning(self, "Error", "Window not found.")
-
-    def browseExecutable(self):
+    def OnBrowseExecutable(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select EXE", "", "Executables (*.exe)")
-        if path:
-            self.exePathEdit.setText(path)
+        if path: self.ExePathEdit.setText(path)
 
-    def launchExecutable(self):
-        path = self.exePathEdit.text().strip()
-        if path:
-            pid = launchHwndByExecutable(path)
-            QMessageBox.information(self, "Success", f"Launched PID: {pid}")
+    def OnLaunchExecutable(self):
+        pid = self.ViewModel.LaunchApp(self.ExePathEdit.text().strip())
+        if pid: QMessageBox.information(self, "Success", f"Launched PID: {pid}")
 
-    def handleResizeWindow(self):
-        if not self.currentHwnd:
+    def OnResizeRequested(self):
+        try:
+            w, h = int(self.ResizeWidthEdit.text()), int(self.ResizeHeightEdit.text())
+            self.ViewModel.ResizeTargetWindow(w, h)
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid dimensions.")
+
+    def OnToggleCapture(self, checked):
+        if checked and not self.ViewModel.CurrentHwnd:
+            self.BtnLiveCapture.setChecked(False)
             QMessageBox.warning(self, "Error", "Please find a window first.")
             return
+        self.ViewModel.ToggleCapture(checked)
+
+    def OnImageClicked(self, pos: QPoint):
+        nx = float(pos.x()) / self.LiveImageLabel.width()
+        ny = float(pos.y()) / self.LiveImageLabel.height()
+        self.MouseXEdit.setText(f"{nx:.7f}")
+        self.MouseYEdit.setText(f"{ny:.7f}")
+
+    def OnManualCoordsChanged(self):
         try:
-            width = int(self.resizeWidthEdit.text())
-            height = int(self.resizeHeightEdit.text())
-            ResizeWindow(self.currentHwnd, width, height)
-        except ValueError:
-            QMessageBox.warning(self, "Error", "Invalid width or height.")            
+            nx = float(self.MouseXEdit.text()) if self.MouseXEdit.text() else 0.0
+            ny = float(self.MouseYEdit.text()) if self.MouseYEdit.text() else 0.0
+            self.LiveImageLabel.SetMarkerNormalized(nx, ny)
+        except ValueError: pass
 
-    # --- Capture Logic ---
-    def toggleLiveCapture(self, checked):
-        if checked:
-            if not self.currentHwnd:
-                self.liveCaptureBtn.setChecked(False)
-                QMessageBox.warning(self, "Error", "Please find a window first.")
-                return
-            self.startLiveThread()
-        else:
-            self.stopLiveThread()
-
-    def startLiveThread(self):
-        self.stopLiveThread()
-        self.liveThread = LiveCaptureThread(self.currentHwnd)
-        self.liveThread.imageCaptured.connect(self.updateLiveImage)
-        self.liveThread.start()
-
-    def stopLiveThread(self):
-        if self.liveThread:
-            self.liveThread.stop()
-            self.liveThread = None
-
-    def updateLiveImage(self, img):
-        if img is not None:
-            self.lastLiveImg = img
-            h, w, ch = img.shape
-            bytesPerLine = ch * w
-            qImg = QImage(img.data, w, h, bytesPerLine, QImage.Format_BGR888)
-            pix = QPixmap.fromImage(qImg).scaled(
-                self.liveImageLabel.width(), self.liveImageLabel.height(), 
-                Qt.KeepAspectRatio, Qt.SmoothTransformation
-            )
-            self.liveImageLabel.setPixmap(pix)
-        else:
-            self.liveImageLabel.clear()
-
-    # --- Interaction Logic ---
-    def handleImageClick(self, pos: QPoint):
-        nx = float(pos.x()) / self.liveImageLabel.width()
-        ny = float(pos.y()) / self.liveImageLabel.height()
-        self.mouseXEdit.setText(f"{nx:.7f}")
-        self.mouseYEdit.setText(f"{ny:.7f}")
-
-    def handleMouseTextChanged(self):
-        try:
-            nx = float(self.mouseXEdit.text()) if self.mouseXEdit.text() else 0.0
-            ny = float(self.mouseYEdit.text()) if self.mouseYEdit.text() else 0.0
-            self.liveImageLabel.setMarkerNormalized(nx, ny)
-        except ValueError:
-            pass
-
-    def handleSendMouseClick(self):
-        if self.currentHwnd:
+    def OnSendMouseClick(self):
+        if self.ViewModel.CurrentHwnd:
             try:
-                nx = float(self.mouseXEdit.text())
-                ny = float(self.mouseYEdit.text())
-                sendMouseClickToWindow(self.currentHwnd, nx, ny)
+                nx, ny = float(self.MouseXEdit.text()), float(self.MouseYEdit.text())
+                sendMouseClickToWindow(self.ViewModel.CurrentHwnd, nx, ny)
             except ValueError:
                 QMessageBox.warning(self, "Error", "Invalid coordinates.")
 
-    def handleSendKeystroke(self):
-        macroName = self.keystrokeNameEdit.text().strip()
-        if not macroName or not self.currentHwnd:
-            return
-        vk = vkFromKeyName(macroName)
-        if vk:
-            sendKeystrokeToWindow(self.currentHwnd, vk)
+    def OnSendKeystroke(self):
+        keyName = self.KeystrokeEdit.text().strip()
+        if keyName and self.ViewModel.CurrentHwnd:
+            vk = vkFromKeyName(keyName)
+            if vk: sendKeystrokeToWindow(self.ViewModel.CurrentHwnd, vk)
+            else: QMessageBox.warning(self, "Error", f"Unknown key: {keyName}")
+
+    def OnSelectionChanged(self, current: QListWidgetItem, previous: QListWidgetItem):
+        if current:
+            eventObj: EventItem = current.data(Qt.UserRole)
+            self.EventNameEdit.setText(eventObj.Name)
+            self.EventNameEdit.setEnabled(True)
+            idx = self.ActivationDropdown.findText(eventObj.SelectedActivationType.name)
+            self.ActivationDropdown.setCurrentIndex(idx)
+            self.ActivationDropdown.setEnabled(True)
         else:
-            QMessageBox.warning(self, "Error", f"Unknown key: {macroName}")
+            self.EventNameEdit.clear()
+            self.EventNameEdit.setEnabled(False)
+            self.ActivationDropdown.setEnabled(False)
+
+    def OnCommitEventName(self):
+        item = self.EventListWidget.currentItem()
+        if item:
+            eventObj: EventItem = item.data(Qt.UserRole)
+            newName = self.EventNameEdit.text().strip()
+            if newName:
+                eventObj.Name = newName
+                item.setText(newName)
+
+    def OnCommitActivationType(self, index):
+        item = self.EventListWidget.currentItem()
+        if item and index >= 0:
+            eventObj: EventItem = item.data(Qt.UserRole)
+            typeName = self.ActivationDropdown.currentText()
+            # Update via the new property name
+            eventObj.SelectedActivationType = EventItem.ActivationType[typeName]
+
+    # --- UI Update Slots ---
+
+    def UpdateUiAddEvent(self, eventObj: EventItem):
+        item = QListWidgetItem(eventObj.Name)
+        item.setData(Qt.UserRole, eventObj)
+        item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+        item.setCheckState(Qt.Checked if eventObj.Enabled else Qt.Unchecked)
+        self.EventListWidget.addItem(item)
+
+    def UpdateUiRemoveEvent(self, index: int):
+        self.EventListWidget.takeItem(index)
+
+    def UpdateUiHwndInfo(self, hwnd):
+        if hwnd:
+            self.PidLabel.setText(f"PID: {findPidByHwnd(hwnd)}")
+        else:
+            self.PidLabel.setText("PID: -")
+            QMessageBox.warning(self, "Error", "Window not found.")
+
+    def UpdateUiImage(self, img):
+        if img is not None:
+            h, w, ch = img.shape
+            qImg = QImage(img.data, w, h, ch * w, QImage.Format_BGR888)
+            pix = QPixmap.fromImage(qImg).scaled(
+                self.LiveImageLabel.width(), self.LiveImageLabel.height(), 
+                Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+            self.LiveImageLabel.setPixmap(pix)
+        else:
+            self.LiveImageLabel.clear()
 
     def closeEvent(self, event):
-        self.stopLiveThread()
+        self.ViewModel.StopCapture()
         super().closeEvent(event)
+
+# =========================
+# MAIN ENTRY
+# =========================
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = Dashboard()
-    window.show()
+    
+    # MVVM Initialization
+    vm = DashboardViewModel()
+    view = DashboardView(vm)
+    
+    view.show()
     sys.exit(app.exec())
