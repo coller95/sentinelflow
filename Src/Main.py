@@ -11,13 +11,13 @@ import json
 from enum import Enum, auto
 from typing import List, Optional
 
-from PySide6.QtCore import Signal, QThread, Qt, QPoint, QObject
+from PySide6.QtCore import Signal, QThread, Qt, QPoint, QObject, QSize, QRect
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox, 
-    QSizePolicy, QListWidgetItem, QComboBox, QGroupBox, QFrame, QDialog, QInputDialog
+    QSizePolicy, QListWidgetItem, QComboBox, QGroupBox, QFrame, QDialog, QInputDialog, QRubberBand, 
 )
-from PySide6.QtGui import QPainter, QPen, QImage, QPixmap
+from PySide6.QtGui import QPainter, QPen, QImage, QPixmap, QIcon
 
 # -------------------------
 # Local imports
@@ -63,6 +63,45 @@ class BaseSerializable:
                     currentAttr.FromDictionary(value)
                 else:
                     setattr(self, attrName, value)
+
+class RectangleRegion(BaseSerializable):
+    def __init__(self, xN: float = 0.0, yN: float = 0.0, wN: float = 1.0, hN: float = 1.0):
+        self._xN = xN
+        self._yN = yN
+        self._wN = wN
+        self._hN = hN
+
+    @property
+    def XN(self) -> float:
+        return self._xN
+
+    @XN.setter
+    def XN(self, value: float):
+        self._xN = value
+
+    @property
+    def YN(self) -> float:
+        return self._yN
+
+    @YN.setter
+    def YN(self, value: float):
+        self._yN = value
+
+    @property
+    def WN(self) -> float:
+        return self._wN
+
+    @WN.setter
+    def WN(self, value: float):
+        self._wN = value
+
+    @property
+    def HN(self) -> float:
+        return self._hN
+
+    @HN.setter
+    def HN(self, value: float):
+        self._hN = value
 
 class MacroStep(BaseSerializable):
     class InputType(Enum):
@@ -133,17 +172,23 @@ class EventItem(BaseSerializable):
         NotSet = auto()
         Hotkey = auto()
         Loop = auto()
+        ImageMatchRoi = auto()
+        ProgessBar = auto()
 
-    def __init__(self, name: str, action: ActionItem, enabled: bool = False, activationType: ActivationType = ActivationType.NotSet, hotkeyVk: int = None):
+    def __init__(self, name: str, action: ActionItem, enabled: bool = False, activationType: ActivationType = ActivationType.NotSet, loopCount: int = 0, intervalMs: int = 1000, roi: RectangleRegion = RectangleRegion(0.0, 0.0, 1.0, 1.0), threshold: float = 0.9):
         self._name = name
         self._enabled = enabled
         self._selectedActivationType = activationType
         self._activationVkList: List[int] = []
-        self._isCurrentlyHeld = False
-        self._loopCount = 0
-        self._loopCounter = 0
-        self._intervalMs = 1000
-        self._timeOfLastTriggerMs = 0.0
+        self.__isCurrentlyHeld = False
+        self._loopCount = loopCount
+        self.__loopCounter = 0
+        self._intervalMs = intervalMs
+        self.__timeOfLastTriggerMs = 0.0
+        self._roi = roi  # Normalized ROI (xN, yN, wN, hN)
+        self._threshold = threshold  # Image match threshold
+        self.__templateImage = None  # Loaded template image for matching
+        self.__percentFilled = 0.0  # For progress bar
         self._assignedAction = action
 
     @property
@@ -180,11 +225,11 @@ class EventItem(BaseSerializable):
 
     @property
     def IsCurrentlyHeld(self) -> bool:
-        return self._isCurrentlyHeld
+        return self.__isCurrentlyHeld
 
     @IsCurrentlyHeld.setter
     def IsCurrentlyHeld(self, value: bool):
-        self._isCurrentlyHeld = value
+        self.__isCurrentlyHeld = value
 
     @property
     def LoopCount(self) -> int:
@@ -196,11 +241,11 @@ class EventItem(BaseSerializable):
 
     @property
     def LoopCounter(self) -> int:
-        return self._loopCounter
+        return self.__loopCounter
 
     @LoopCounter.setter
     def LoopCounter(self, value: int):
-        self._loopCounter = value
+        self.__loopCounter = value
 
     @property
     def IntervalMs(self) -> int:
@@ -212,11 +257,43 @@ class EventItem(BaseSerializable):
 
     @property
     def TimeOfLastTriggerMs(self) -> float:
-        return self._timeOfLastTriggerMs
+        return self.__timeOfLastTriggerMs
 
     @TimeOfLastTriggerMs.setter
     def TimeOfLastTriggerMs(self, value: float):
-        self._timeOfLastTriggerMs = value
+        self.__timeOfLastTriggerMs = value
+
+    @property
+    def Roi(self) -> RectangleRegion:
+        return self._roi
+    
+    @Roi.setter
+    def Roi(self, value: RectangleRegion):
+        self._roi = value
+
+    @property
+    def TemplateImage(self) -> np.ndarray:
+        return self.__templateImage
+
+    @TemplateImage.setter
+    def TemplateImage(self, value: np.ndarray):
+        self.__templateImage = value
+
+    @property
+    def Threshold(self) -> float:
+        return self._threshold
+
+    @Threshold.setter
+    def Threshold(self, value: float):
+        self._threshold = value
+
+    @property
+    def PercentFilled(self) -> float:
+        return self.__percentFilled
+
+    @PercentFilled.setter
+    def PercentFilled(self, value: float):
+        self.__percentFilled = value
 
     @property
     def AssignedAction(self) -> ActionItem:
@@ -410,32 +487,41 @@ class DashboardViewModel(QObject):
 
             self.EventItems.clear()
             for eventData in data:
-                # 1. Create the shell objects
+                # 1. Initialize Action and Event
+                # We use placeholder values; FromDictionary will overwrite them
                 action = ActionItem()
-                event = EventItem(name=eventData.get("Name", ""), action=action)
+                event = EventItem(name="", action=action)
                 
-                # 2. Reconstruct MacroSteps manually if they are in a list
-                # This is the one part that needs a hint because of the Enum types
-                if "AssignedAction" in eventData and "Steps" in eventData["AssignedAction"]:
-                    for stepData in eventData["AssignedAction"]["Steps"]:
-                        # Convert string back to Enum
-                        sType = MacroStep.InputType[stepData["Type"]]
-                        step = MacroStep(sType, stepData["Value"], stepData["Description"])
-                        action.AddStep(step)
+                # 2. Reconstruct MacroSteps
+                # Note: ToDictionary uses 'MacroSteps' (PascalCase) because of your lstrip/upper logic
+                action_data = eventData.get("AssignedAction", {})
+                steps_data = action_data.get("MacroSteps", [])
+                
+                for stepData in steps_data:
+                    # Convert string (e.g., "Keyboard") back to MacroStep.InputType.Keyboard
+                    input_type_str = stepData.get("InputType")
+                    input_type_enum = MacroStep.InputType[input_type_str]
+                    
+                    step = MacroStep(
+                        inputType=input_type_enum,
+                        value=stepData.get("Value"),
+                        description=stepData.get("Description", "")
+                    )
+                    action.AddStep(step)
 
-                # 3. Fill the remaining primitive attributes (Enabled, VkList, etc.)
+                # 3. Use reflection to fill the rest (ROI, Enabled, ActivationType, etc.)
                 event.FromDictionary(eventData)
                 
                 self.EventItems.append(event)
-                self.EventAdded.emit(event)
-                
+                if hasattr(self, 'EventAdded'): # Ensure signal exists before emitting
+                    self.EventAdded.emit(event)
+                    
         except Exception as e:
             print(f"LoadState Error: {e}")
 
     def EnableEvent(self, event: EventItem):
         event.Enabled = True
         event.LoopCounter = 0
-
 
 # =========================
 # VIEW COMPONENTS
@@ -503,6 +589,135 @@ class HotkeyCaptureDialog(QDialog):
             self.CapturedVks = list(self._currentVks)
             self.accept()
 
+class CropperWidget(QWidget):
+    """A PySide ROI selector that mimics the behavior of the Tkinter version."""
+    def __init__(self, image_data, on_crop):
+        super().__init__()
+        self.on_crop = on_crop
+        self.setMinimumSize(800, 600) # Give it a starting minimum size
+        
+        # 1. Setup Layout
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 2. Setup Label
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # This is critical: allows the label to shrink smaller than the image
+        self.image_label.setMinimumSize(1, 1) 
+        
+        # 3. Store the Original Pixmap
+        if isinstance(image_data, np.ndarray):
+            self.original_pixmap = self._ndarray_to_qpixmap(image_data)
+        else:
+            self.original_pixmap = QPixmap(image_data)
+            
+        self.layout.addWidget(self.image_label)
+        self.showMaximized()
+
+        self.rubber_band = QRubberBand(QRubberBand.Shape.Rectangle, self.image_label)
+        self.origin = QPoint()
+
+    def resizeEvent(self, event):
+        """This triggers every time the window is stretched."""
+        if not self.original_pixmap.isNull():
+            # Scale the original image to fit the current label size
+            scaled_pixmap = self.original_pixmap.scaled(
+                self.image_label.size(), 
+                Qt.AspectRatioMode.KeepAspectRatio, 
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.image_label.setPixmap(scaled_pixmap)
+        super().resizeEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.origin = event.position().toPoint()
+            self.rubber_band.setGeometry(QRect(self.origin, QSize()))
+            self.rubber_band.show()
+
+    def mouseMoveEvent(self, event):
+        if not self.origin.isNull():
+            # Update selection rectangle dynamically
+            self.rubber_band.setGeometry(QRect(self.origin, event.position().toPoint()).normalized())
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            # 1. Get the geometry of the rubber band (Screen Space)
+            selection_rect = self.rubber_band.geometry()
+            
+            # 2. Calculate the scaling ratio
+            # We compare the visual pixmap size to the original pixmap size
+            shown_pixmap_size = self.image_label.pixmap().size()
+            full_pixmap_size = self.original_pixmap.size()
+            
+            ratio_x = full_pixmap_size.width() / shown_pixmap_size.width()
+            ratio_y = full_pixmap_size.height() / shown_pixmap_size.height()
+            
+            # 3. Calculate the actual crop area on the ORIGINAL image
+            # Offset for alignment (centering padding)
+            offset_x = (self.image_label.width() - shown_pixmap_size.width()) / 2
+            offset_y = (self.image_label.height() - shown_pixmap_size.height()) / 2
+            
+            real_x = int((selection_rect.x() - offset_x) * ratio_x)
+            real_y = int((selection_rect.y() - offset_y) * ratio_y)
+            real_w = int(selection_rect.width() * ratio_x)
+            real_h = int(selection_rect.height() * ratio_y)
+            
+            real_rect = QRect(real_x, real_y, real_w, real_h)
+            
+            # 4. Crop from the high-res original
+            cropped_pixmap = self.original_pixmap.copy(real_rect)
+            cv_image = self._qpixmap_to_ndarray(cropped_pixmap)
+            
+            self.on_crop(cv_image)
+            self.close()
+
+    def _qpixmap_to_ndarray(self, pixmap):
+        """Converts QPixmap to NumPy, handling row padding (stride)."""
+        # 1. Convert to a reliable format
+        image = pixmap.toImage().convertToFormat(QImage.Format.Format_RGB888)
+        
+        width = image.width()
+        height = image.height()
+        bytes_per_line = image.bytesPerLine() # This is the "772" in your case
+        
+        # 2. Get the memoryview
+        ptr = image.bits()
+        
+        # 3. Create a 1D array first
+        arr = np.frombuffer(ptr, np.uint8)
+        
+        # 4. Reshape to (Height, BytesPerLine) to include padding
+        # This matches the 169068 size perfectly
+        arr = arr.reshape((height, bytes_per_line))
+        
+        # 5. Crop out the padding
+        # We only want the first (width * 3) bytes of every row
+        actual_data_width = width * 3
+        arr = arr[:, :actual_data_width]
+        
+        # 6. Final reshape to (Height, Width, Channels)
+        arr = arr.reshape((height, width, 3))
+        
+        # 7. Convert RGB to BGR and return a safe copy
+        return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR).copy()
+
+    def _ndarray_to_qpixmap(self, cv_img):
+        """Converts an OpenCV BGR array to a QPixmap."""
+        height, width, channel = cv_img.shape
+        bytes_per_line = 3 * width
+        
+        # Convert BGR to RGB
+        cv_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+        
+        # Create QImage
+        q_img = QImage(cv_rgb.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
+        
+        # Important: QImage uses the underlying buffer of the ndarray. 
+        # We must return a copy as a Pixmap to avoid memory access issues.
+        return QPixmap.fromImage(q_img)
+
 class DashboardView(QWidget):
     def __init__(self, viewModel: DashboardViewModel):
         super().__init__()
@@ -538,8 +753,6 @@ class DashboardView(QWidget):
         btnLayout.addStretch()
         btnLayout.addWidget(self.BtnSaveEvent)
         btnLayout.addWidget(self.BtnLoadEvent)
-
-
 
         self.EventListWidget = QListWidget()
         self.EventListWidget.setFixedWidth(200)
@@ -675,7 +888,58 @@ class DashboardView(QWidget):
         self.LoopCountEdit.setEnabled(False)
         self.LoopIntervalEdit.setEnabled(False)
         self.LoopWidget.hide()
-        
+
+        # Roi widget
+        self.RoiWidget = QWidget()
+        self.RoiWidgetLayout = QHBoxLayout()
+        self.RoiWidgetLayoutInner = QVBoxLayout()
+        self.RoiXEditLayout = QHBoxLayout()
+        self.RoiYEditLayout = QHBoxLayout()
+        self.RoiWEditLayout = QHBoxLayout()
+        self.RoiHEditLayout = QHBoxLayout()
+        self.RoiXEdit = QLineEdit("0.0")
+        self.RoiYEdit = QLineEdit("0.0")
+        self.RoiWEdit = QLineEdit("1.0")
+        self.RoiHEdit = QLineEdit("1.0")
+        self.RoiXEditLayout.addWidget(QLabel("X:"))
+        self.RoiXEditLayout.addWidget(self.RoiXEdit)
+        self.RoiYEditLayout.addWidget(QLabel("Y:"))
+        self.RoiYEditLayout.addWidget(self.RoiYEdit)
+        self.RoiWEditLayout.addWidget(QLabel("W:"))
+        self.RoiWEditLayout.addWidget(self.RoiWEdit)
+        self.RoiHEditLayout.addWidget(QLabel("H:"))
+        self.RoiHEditLayout.addWidget(self.RoiHEdit)
+        self.RoiWidgetLayoutInner.addWidget(QLabel("Roi:"))
+        self.RoiWidgetLayoutInner.addLayout(self.RoiXEditLayout)
+        self.RoiWidgetLayoutInner.addLayout(self.RoiYEditLayout)
+        self.RoiWidgetLayoutInner.addLayout(self.RoiWEditLayout)
+        self.RoiWidgetLayoutInner.addLayout(self.RoiHEditLayout)
+        self.RoiWidgetLayout.addLayout(self.RoiWidgetLayoutInner)
+
+        self.RoiButtonLayout = QVBoxLayout()
+        self.RoiButtonLayout.setContentsMargins(0, 0, 0, 0)
+        self.RoiButton = QPushButton("Select from Image")
+        self.RoiButton.setFixedSize(150,150)
+        self.RoiButtonLayout.addWidget(self.RoiButton)
+        self.RoiWidgetLayout.addLayout(self.RoiButtonLayout)
+        self.RoiButton.setEnabled(False)
+
+        self.RoiWidget.setLayout(self.RoiWidgetLayout)
+        self.RoiXEdit.setReadOnly(True)
+        self.RoiYEdit.setReadOnly(True)
+        self.RoiWEdit.setReadOnly(True)
+        self.RoiHEdit.setReadOnly(True)
+        self.RoiWidget.hide()
+
+        # Threshold widget
+        self.ThresholdWidget = QWidget()
+        self.ThresholdWidgetLayout = QHBoxLayout()
+        self.ThresholdWidgetLayout.addWidget(QLabel("Threshold:"))
+        self.ThresholdEdit = QLineEdit("0.9")
+        self.ThresholdWidgetLayout.addWidget(self.ThresholdEdit)
+        self.ThresholdWidget.setLayout(self.ThresholdWidgetLayout)
+        self.ThresholdEdit.setEnabled(False)
+        self.ThresholdWidget.hide()
 
         # Action Sequence Properties
         self.ActionNameLabel = QLabel("<b>Action Sequence</b>")
@@ -719,6 +983,8 @@ class DashboardView(QWidget):
         layout.addWidget(self.ActivationDropdown)
         layout.addWidget(self.ActivationHotkeyWidget)
         layout.addWidget(self.LoopWidget)
+        layout.addWidget(self.RoiWidget)
+        layout.addWidget(self.ThresholdWidget)
         
         layout.addWidget(self.CreateHorizontalLine()) # Optional visual separator
         
@@ -754,6 +1020,7 @@ class DashboardView(QWidget):
         self.BtnAddStep.clicked.connect(self.OnAddStepClicked)
         self.BtnDelStep.clicked.connect(self.OnRemoveStepClicked)
         self.ActivationHotkeyBtn.clicked.connect(self.OnCaptureHotkey)
+        self.RoiButton.clicked.connect(self.OnSelectRoi)
         
         # Interaction
         self.LiveImageLabel.Clicked.connect(self.OnImageClicked)
@@ -885,6 +1152,27 @@ class DashboardView(QWidget):
             # Show the raw VKs on the button for debugging/clarity
             self.ActivationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventObj.ActivationVkList)))
 
+    def OnSelectRoi(self):
+        self.cropper = CropperWidget(self.ViewModel.LastLiveImg, self.handleNewCrop)
+        self.cropper.show()
+
+    def handleNewCrop(self, cv_img):
+        item = self.EventListWidget.currentItem()
+        if item:
+            eventObj: EventItem = item.data(Qt.UserRole)
+            eventObj.TemplateImage = cv_img
+        
+        height, width, channel = cv_img.shape
+        bytesPerLine = 3 * width
+        cv_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+        q_img = QImage(cv_rgb.data, width, height, bytesPerLine, QImage.Format.Format_RGB888)
+        pixmap = QPixmap.fromImage(q_img)
+        icon = QIcon(pixmap)
+        self.RoiButton.setIcon(icon)
+        self.RoiButton.setIconSize(self.RoiButton.size())
+        self.RoiButton.setText("")
+
+
     def OnImageClicked(self, pos: QPoint):
         nx = float(pos.x()) / self.LiveImageLabel.width()
         ny = float(pos.y()) / self.LiveImageLabel.height()
@@ -927,6 +1215,8 @@ class DashboardView(QWidget):
             self.BtnDelStep.setEnabled(False)
             self.BtnMoveUp.setEnabled(False)
             self.BtnMoveDown.setEnabled(False)
+            self.ThresholdEdit.setEnabled(False)
+            self.RoiButton.setEnabled(False)
             return
 
         eventObj: EventItem = current.data(Qt.UserRole)
@@ -950,6 +1240,15 @@ class DashboardView(QWidget):
         self.LoopIntervalEdit.setText(str(eventObj.IntervalMs))
         self.LoopCountEdit.setEnabled(True)
         self.LoopIntervalEdit.setEnabled(True)
+
+        self.RoiXEdit.setText(f"{eventObj.Roi.XN:.4f}")
+        self.RoiYEdit.setText(f"{eventObj.Roi.YN:.4f}")
+        self.RoiWEdit.setText(f"{eventObj.Roi.WN:.4f}")
+        self.RoiHEdit.setText(f"{eventObj.Roi.HN:.4f}")
+        self.RoiButton.setEnabled(True)
+
+        self.ThresholdEdit.setText(f"{eventObj.Threshold:.2f}")
+        self.ThresholdEdit.setEnabled(True)
 
         self.RefreshMacroStepList(eventObj.AssignedAction)
         self.stepDropDown.setEnabled(True)
@@ -1007,6 +1306,16 @@ class DashboardView(QWidget):
                 self.LoopWidget.show()
             else:
                 self.LoopWidget.hide()
+
+            if eventObj.SelectedActivationType == EventItem.ActivationType.ImageMatchRoi:
+                self.RoiWidget.show()
+                self.ThresholdWidget.show()
+            elif eventObj.SelectedActivationType == EventItem.ActivationType.ProgessBar:
+                self.RoiWidget.show()
+                self.ThresholdWidget.hide()
+            else:
+                self.RoiWidget.hide()
+                self.ThresholdWidget.hide()
 
     def OnCommitLoopCount(self):
         item = self.EventListWidget.currentItem()
