@@ -91,8 +91,22 @@ class LiveCaptureThread(QThread):
         """Main loop: periodically capture the target window."""
         self._running = True
         while self._running:
-            img = captureWindowByHwnd(self.hwnd)
-            self.imageCaptured.emit(img)
+            try:
+                img = captureWindowByHwnd(self.hwnd)
+                
+                if img is not None:
+                    self.imageCaptured.emit(img)
+                else:
+                    # Case where function returns None (e.g., window minimized or handle invalid)
+                    print("Failed to capture image: Window might be closed or hidden.")
+                    self._running = False  # Optional: stop the thread on failure
+            
+            except Exception as e:
+                # Catching unexpected system errors during capture
+                print(f"Live capture error: {e}")
+                self.imageCaptured.emit(None)
+                self._running = False
+            
             time.sleep(self.intervalMs / 1000.0)
 
     def stop(self):
