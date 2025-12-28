@@ -143,7 +143,7 @@ class EventItem:
         ImageMatchRoi = auto()
         ProgessBar = auto()
 
-    def __init__(self, name: str, action: ActionItem, enabled: bool = False, activationType: ActivationType = ActivationType.NotSet, loopCount: int = 0, intervalMs: int = 1000, roi: RectangleRegion = RectangleRegion(0.0, 0.0, 1.0, 1.0), threshold: float = 0.9):
+    def __init__(self, name: str, action: ActionItem, enabled: bool = False, activationType: ActivationType = ActivationType.NotSet, loopCount: int = 0, intervalMs: int = 1000, roi: RectangleRegion = RectangleRegion(0.0, 0.0, 1.0, 1.0), threshold: float = 0.99):
         self._name = name
         self._enabled = enabled
         self._selectedActivationType = activationType
@@ -155,6 +155,7 @@ class EventItem:
         self.__timeOfLastTriggerMs = 0.0
         self._roi = roi  # Normalized ROI (xN, yN, wN, hN)
         self._threshold = threshold  # Image match threshold
+        self.__matchScore = 0.0  # Last match score
         self.__templateImage = None  # Loaded template image for matching
         self.__percentFilled = 0.0  # For progress bar
         self._assignedAction = action
@@ -256,6 +257,14 @@ class EventItem:
         self._threshold = value
 
     @property
+    def MatchScore(self) -> float:
+        return self.__matchScore
+    
+    @MatchScore.setter
+    def MatchScore(self, value: float):
+        self.__matchScore = value
+
+    @property
     def PercentFilled(self) -> float:
         return self.__percentFilled
 
@@ -284,6 +293,7 @@ class TriggerMonitorThread(QThread):
     EventDisabled = Signal(EventItem)
     FlowChanged = Signal(bool)
     FlowHotkeyChanged = Signal(list)
+    MatchScoreUpdated = Signal(EventItem)
 
     def __init__(self, viewModel, pollIntervalMs=50):
         super().__init__()
@@ -330,7 +340,7 @@ class TriggerMonitorThread(QThread):
                 local_img = self._current_img
                 self._current_img = None
 
-            for event in self._viewModel.EventItems:
+            for index, event in enumerate(self._viewModel.EventItems):
                 if not event.Enabled:
                     continue
 
@@ -362,10 +372,18 @@ class TriggerMonitorThread(QThread):
                     if local_img is None or event.TemplateImage is None:
                         continue
                     
-                    cropImage(local_img, (event.Roi.XN, event.Roi.YN, event.Roi.WN, event.Roi.HN))
-                    matchScore = matchTemplate(local_img, event.TemplateImage)
-                    if matchScore >= event.Threshold:
+                    local_img_roi = cropImage(local_img, (event.Roi.XN, event.Roi.YN, event.Roi.WN, event.Roi.HN))
+                    event.MatchScore = matchTemplate(local_img_roi, event.TemplateImage)
+                    isMatchNow = event.MatchScore >= event.Threshold
+                    self.MatchScoreUpdated.emit((index, event.MatchScore))
+
+                    # Rising Edge (Off -> On)
+                    if isMatchNow and not event.IsCurrentlyHeld or isMatchNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 2000):
+                        
                         self.EventTriggered.emit(event)
+                        event.TimeOfLastTriggerMs = int(time.time() * 1000)
+
+                    event.IsCurrentlyHeld = isMatchNow
 
             time.sleep(self._pollIntervalMs / 1000.0)
 
@@ -415,6 +433,7 @@ class DashboardViewModel(QObject):
     EventDisabled = Signal(int) # Index of changed event
     EventFlowChange = Signal(bool) # Flow state
     EventFlowHotkeyChange = Signal(list) # Flow hotkey list
+    EventMatchScoreUpdated = Signal(EventItem) # Event with updated match score
 
     def __init__(self):
         super().__init__()
@@ -485,6 +504,7 @@ class DashboardViewModel(QObject):
             self.TriggerThread.EventDisabled.connect(self._OnEventDisabled)
             self.TriggerThread.FlowChanged.connect(self._OnFlowChanged)
             self.TriggerThread.FlowHotkeyChanged.connect(self.EventFlowHotkeyChange)
+            self.TriggerThread.MatchScoreUpdated.connect(self.EventMatchScoreUpdated)
             self.TriggerThread.start()
 
     def _OnEventTriggered(self, event: EventItem):
@@ -1017,12 +1037,31 @@ class DashboardView(QWidget):
         self.RoiHEdit.setReadOnly(True)
         self.RoiWidget.hide()
 
+
         # Threshold widget
         self.ThresholdWidget = QWidget()
-        self.ThresholdWidgetLayout = QHBoxLayout()
-        self.ThresholdWidgetLayout.addWidget(QLabel("Threshold:"))
-        self.ThresholdEdit = QLineEdit("0.9")
-        self.ThresholdWidgetLayout.addWidget(self.ThresholdEdit)
+        self.ThresholdWidgetLayout = QVBoxLayout()
+        self.ThresholdWidgetMatchScoreLayout = QHBoxLayout()
+        self.ThresholdMatchScoreLabel = QLabel("0.000")
+        self.ThresholdWidgetMatchScoreLayout.addWidget(QLabel("Match Score:"))
+        self.ThresholdWidgetMatchScoreLayout.addWidget(self.ThresholdMatchScoreLabel)
+        
+        self.ThresholdWidgetMatchScoreBtnLayout = QHBoxLayout()
+        self.ThresholdMatchScoreCopyBtn = QPushButton("↓")
+        self.ThresholdMatchScoreCopyBtn.setFixedWidth(30)
+        self.ThresholdWidgetMatchScoreBtnLayout.addWidget(self.ThresholdMatchScoreCopyBtn)
+
+            
+        self.ThresholdWidgetThresholdLayout = QHBoxLayout()
+        self.ThresholdWidgetThresholdLayout.addWidget(QLabel("Threshold:"))
+        self.ThresholdEdit = QLineEdit("0.99")
+        self.ThresholdWidgetThresholdLayout.addWidget(self.ThresholdEdit)
+
+        self.ThresholdWidgetLayout.addLayout(self.ThresholdWidgetMatchScoreLayout)
+        self.ThresholdWidgetLayout.addLayout(self.ThresholdWidgetMatchScoreBtnLayout)
+        self.ThresholdWidgetLayout.addLayout(self.ThresholdWidgetThresholdLayout)
+
+
         self.ThresholdWidget.setLayout(self.ThresholdWidgetLayout)
         self.ThresholdEdit.setEnabled(False)
         self.ThresholdWidget.hide()
@@ -1116,6 +1155,7 @@ class DashboardView(QWidget):
         self.BtnSendKeystroke.clicked.connect(self.OnSendKeystroke)
         self.MouseXEdit.textChanged.connect(self.OnManualCoordsChanged)
         self.MouseYEdit.textChanged.connect(self.OnManualCoordsChanged)
+        self.ThresholdMatchScoreCopyBtn.clicked.connect(self.OnCopyMatchScoreToThreshold)
 
         # Property Editing
         self.EventListWidget.currentItemChanged.connect(self.OnSelectionChanged)
@@ -1134,6 +1174,7 @@ class DashboardView(QWidget):
         self.ViewModel.EventDisabled.connect(self.UpdateUiEventDisabled)
         self.ViewModel.EventFlowChange.connect(self.UpdateUiSentinelFlow)
         self.ViewModel.EventFlowHotkeyChange.connect(self.UpdateUiSentinelHotkey)
+        self.ViewModel.EventMatchScoreUpdated.connect(self.UpdateUiEventMatchScore)
 
     # --- Interaction Handlers ---
     def OnSaveEvent(self):
@@ -1301,6 +1342,10 @@ class DashboardView(QWidget):
             self.LiveImageLabel.SetMarkerNormalized(nx, ny)
         except ValueError: pass
 
+    def OnCopyMatchScoreToThreshold(self):
+        scoreText = self.ThresholdMatchScoreLabel.text()
+        self.ThresholdEdit.setText(scoreText)
+
     def OnSendMouseClick(self):
         if self.ViewModel.CurrentHwnd:
             try:
@@ -1363,7 +1408,7 @@ class DashboardView(QWidget):
         self.setButtonWithImage(self.RoiButton, eventObj.TemplateImage)
         self.RoiButton.setEnabled(True)
 
-        self.ThresholdEdit.setText(f"{eventObj.Threshold:.2f}")
+        self.ThresholdEdit.setText(f"{eventObj.Threshold}")
         self.ThresholdEdit.setEnabled(True)
 
         self.RefreshMacroStepList(eventObj.AssignedAction)
@@ -1568,6 +1613,12 @@ class DashboardView(QWidget):
 
     def UpdateUiSentinelHotkey(self, vkList):
         self.SentinalHotkeyEdit.setText(", ".join(map(KeyNameFromVk, vkList)))
+
+    def UpdateUiEventMatchScore(self, eventTuple):
+        index, score = eventTuple
+        if self.EventListWidget.currentRow() != index:
+            return
+        self.ThresholdMatchScoreLabel.setText(f"{score}")
 
     def closeEvent(self, event):
         self.ViewModel.StopCapture()
