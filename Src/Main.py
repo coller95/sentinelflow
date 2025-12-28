@@ -282,6 +282,7 @@ class EventItem:
 class TriggerMonitorThread(QThread):
     EventTriggered = Signal(EventItem)
     EventDisabled = Signal(EventItem)
+    FlowChanged = Signal(bool)
 
     def __init__(self, viewModel, pollIntervalMs=50):
         super().__init__()
@@ -293,13 +294,22 @@ class TriggerMonitorThread(QThread):
         self._image_mutex = QMutex()
         self._current_img = None
 
+        self._flow = True
+
     def SetImage(self, img):
         """Called by the Capture Thread to provide a new frame"""
         with QMutexLocker(self._image_mutex):
             self._current_img = img
 
+    def ToggleFlow(self):
+        self._flow = not self._flow
+        self.FlowChanged.emit(self._flow)
+
     def run(self):
         while self._isRunning:
+            if not self._flow:
+                time.sleep(self._pollIntervalMs / 1000.0)
+                continue
             with QMutexLocker(self._image_mutex):
                 local_img = self._current_img
                 self._current_img = None
@@ -387,6 +397,7 @@ class DashboardViewModel(QObject):
     HwndUpdated = Signal(object) # HWND
     CaptureImageReady = Signal(object) # Image data
     EventDisabled = Signal(int) # Index of changed event
+    EventFlowChange = Signal(bool) # Flow state
 
     def __init__(self):
         super().__init__()
@@ -441,20 +452,12 @@ class DashboardViewModel(QObject):
 
     def StopCapture(self):
         if self.LiveThread:
-            # 1. Stop the loop
             self.LiveThread.Stop()
-            
-            # 2. Break all connections immediately 
-            # This prevents the thread from sending any more images to 
-            # _HandleImageCaptured or TriggerThread while it's closing.
             try:
                 self.LiveThread.ImageCaptured.disconnect()
             except RuntimeError:
-                # If the thread object is already partially deleted, 
-                # disconnect might throw an error; we catch it to prevent a crash.
                 pass
 
-            # 3. Wait for the hardware/OS resources to be released
             self.LiveThread.wait()
             self.LiveThread = None
             
@@ -463,6 +466,7 @@ class DashboardViewModel(QObject):
             self.TriggerThread = TriggerMonitorThread(self)
             self.TriggerThread.EventTriggered.connect(self._OnEventTriggered)
             self.TriggerThread.EventDisabled.connect(self._OnEventDisabled)
+            self.TriggerThread.FlowChanged.connect(self._OnFlowChanged)
             self.TriggerThread.start()
 
     def _OnEventTriggered(self, event: EventItem):
@@ -473,6 +477,9 @@ class DashboardViewModel(QObject):
     def _OnEventDisabled(self, event: EventItem):
         print(f"Event Disabled: {event.Name}")
         self.EventDisabled.emit(self.EventItems.index(event))
+
+    def _OnFlowChanged(self, flow: bool):
+        self.EventFlowChange.emit(flow)
 
     def SaveState(self, filePath: str):
         """Serializes the EventItems list to a binary file using Pickle."""
@@ -515,6 +522,11 @@ class DashboardViewModel(QObject):
 
     def DisableEvent(self, event: EventItem):
         event.Enabled = False
+
+    def ToggleSentinelFlow(self):
+        if self.TriggerThread:
+            self.TriggerThread.ToggleFlow()
+        
 
 # =========================
 # VIEW COMPONENTS
@@ -761,6 +773,24 @@ class DashboardView(QWidget):
 
         layout.addLayout(btnLayout)
         layout.addWidget(self.EventListWidget)
+
+        # Sentinel Control
+        self.BtnStartSentinel = QPushButton("Stop Sentinel")
+        self.BtnStartSentinel.setStyleSheet("""
+            QPushButton {
+                background-color: #c0392b; /* Darker Red */
+                color: white;
+                border-radius: 6px;
+                font-weight: bold;
+                padding: 8px;
+            }
+            QPushButton:hover {
+                background-color: #e74c3c; /* Brighter Red */
+            }
+        """)
+        layout.addWidget(self.BtnStartSentinel)
+
+
         return layout
 
     def SetupCenterPanel(self) -> QVBoxLayout:
@@ -1008,6 +1038,7 @@ class DashboardView(QWidget):
         # --- View to ViewModel ---
         self.BtnAddEvent.clicked.connect(self.ViewModel.AddNewEvent)
         self.BtnDelEvent.clicked.connect(lambda: self.ViewModel.DeleteEvent(self.EventListWidget.currentRow()))
+        self.BtnStartSentinel.clicked.connect(self.ViewModel.ToggleSentinelFlow)
         
         self.BtnSaveEvent.clicked.connect(self.OnSaveEvent)
         self.BtnLoadEvent.clicked.connect(self.OnLoadEvent)
@@ -1045,6 +1076,7 @@ class DashboardView(QWidget):
         self.ViewModel.HwndUpdated.connect(self.UpdateUiHwndInfo)
         self.ViewModel.CaptureImageReady.connect(self.UpdateUiImage)
         self.ViewModel.EventDisabled.connect(self.UpdateUiEventDisabled)
+        self.ViewModel.EventFlowChange.connect(self.UpdateUiSentinelFlow)
 
     # --- Interaction Handlers ---
     def OnSaveEvent(self):
@@ -1439,6 +1471,38 @@ class DashboardView(QWidget):
             eventObj: EventItem = item.data(Qt.UserRole)
             # Update the check state to reflect Enabled status
             item.setCheckState(Qt.Checked if eventObj.Enabled else Qt.Unchecked)
+
+    def UpdateUiSentinelFlow(self, isRunning: bool):
+        if isRunning:
+            # State: RUNNING -> Provide option to STOP
+            self.BtnStartSentinel.setText("Stop Sentinel")
+            self.BtnStartSentinel.setStyleSheet("""
+                QPushButton {
+                    background-color: #c0392b; /* Darker Red */
+                    color: white;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    padding: 8px;
+                }
+                QPushButton:hover {
+                    background-color: #e74c3c; /* Brighter Red */
+                }
+            """)
+        else:
+            # State: IDLE -> Provide option to START
+            self.BtnStartSentinel.setText("Start Sentinel")
+            self.BtnStartSentinel.setStyleSheet("""
+                QPushButton {
+                    background-color: #27ae60; /* Darker Green */
+                    color: white;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    padding: 8px;
+                }
+                QPushButton:hover {
+                    background-color: #2ecc71; /* Brighter Green */
+                }
+            """)
 
     def closeEvent(self, event):
         self.ViewModel.StopCapture()
