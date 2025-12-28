@@ -283,6 +283,7 @@ class TriggerMonitorThread(QThread):
     EventTriggered = Signal(EventItem)
     EventDisabled = Signal(EventItem)
     FlowChanged = Signal(bool)
+    FlowHotkeyChanged = Signal(list)
 
     def __init__(self, viewModel, pollIntervalMs=50):
         super().__init__()
@@ -295,6 +296,8 @@ class TriggerMonitorThread(QThread):
         self._current_img = None
 
         self._flow = True
+        self._flowHotkeyVkList: List[int] = []
+        self._flowHotkeyIsCurrentlyHeld = False
 
     def SetImage(self, img):
         """Called by the Capture Thread to provide a new frame"""
@@ -305,8 +308,21 @@ class TriggerMonitorThread(QThread):
         self._flow = not self._flow
         self.FlowChanged.emit(self._flow)
 
+    def SetFlowHotkey(self, vkList: List[int]):
+        self._flowHotkeyVkList = vkList
+        print(f"Flow hotkey set to: {vkList}")
+        self.FlowHotkeyChanged.emit(vkList)
+
+    def GetFlowHotkey(self) -> List[int]:
+        return self._flowHotkeyVkList
+
     def run(self):
         while self._isRunning:
+            isDownNow = IsHotkeyActive(self._flowHotkeyVkList)
+            if self._flowHotkeyIsCurrentlyHeld and not isDownNow:
+                self.ToggleFlow()
+            self._flowHotkeyIsCurrentlyHeld = isDownNow
+
             if not self._flow:
                 time.sleep(self._pollIntervalMs / 1000.0)
                 continue
@@ -398,6 +414,7 @@ class DashboardViewModel(QObject):
     CaptureImageReady = Signal(object) # Image data
     EventDisabled = Signal(int) # Index of changed event
     EventFlowChange = Signal(bool) # Flow state
+    EventFlowHotkeyChange = Signal(list) # Flow hotkey list
 
     def __init__(self):
         super().__init__()
@@ -467,6 +484,7 @@ class DashboardViewModel(QObject):
             self.TriggerThread.EventTriggered.connect(self._OnEventTriggered)
             self.TriggerThread.EventDisabled.connect(self._OnEventDisabled)
             self.TriggerThread.FlowChanged.connect(self._OnFlowChanged)
+            self.TriggerThread.FlowHotkeyChanged.connect(self.EventFlowHotkeyChange)
             self.TriggerThread.start()
 
     def _OnEventTriggered(self, event: EventItem):
@@ -484,37 +502,60 @@ class DashboardViewModel(QObject):
     def SaveState(self, filePath: str):
         """Serializes the EventItems list to a binary file using Pickle."""
         try:
-            # Pickle can save the list of objects directly. 
-            # No need for ToDictionary() or manual Enum/Array handling.
+            flowHotkey = self.TriggerThread.GetFlowHotkey() if self.TriggerThread else []
+            data_to_save = {
+                "events": self.EventItems,
+                "settings": flowHotkey, # A second object
+                "version": "1.0.0"
+            }
+            
             with open(filePath, 'wb') as f:
-                pickle.dump(self.EventItems, f)
+                pickle.dump(data_to_save, f)
             print(f"State successfully saved to {filePath}")
         except Exception as e:
             print(f"SaveState Error: {e}")
-
+            raise e
+        
     def LoadState(self, filePath: str):
-        """Deserializes the EventItems list from a binary file."""
         if not os.path.exists(filePath):
             return
 
         try:
             with open(filePath, 'rb') as f:
-                # Pickle reconstructs the entire object tree perfectly
-                loadedItems = pickle.load(f)
+                data = pickle.load(f)
 
-            self.EventItems.clear()
+            # --- SMART LOADING LOGIC ---
+            if isinstance(data, dict):
+                # New Format: Dictionary containing events and settings
+                loaded_events = data.get("events", [])
+                loaded_hotkey = data.get("settings", [])
+                print(f"Loading new format (v{data.get('version', '1.0.0')})")
             
-            # We extend the list with the loaded objects
-            for event in loadedItems:
+            elif isinstance(data, list):
+                # Old Format: Just a list of events
+                loaded_events = data
+                loaded_hotkey = []
+                print("Loading legacy list format")
+            
+            else:
+                print("Unknown data format in save file.")
+                return
+            # ---------------------------
+
+            # Populate the UI/Model
+            self.EventItems.clear()
+            for event in loaded_events:
                 self.EventItems.append(event)
-                
-                # Emit signal if applicable
                 if hasattr(self, 'EventAdded'):
                     self.EventAdded.emit(event)
-                    
-            print(f"State successfully loaded from {filePath}")
+
+            # Apply settings if they exist
+            if self.TriggerThread and loaded_hotkey:
+                self.TriggerThread.SetFlowHotkey(loaded_hotkey)
+
         except Exception as e:
             print(f"LoadState Error: {e}")
+            raise e
 
     def EnableEvent(self, event: EventItem):
         event.Enabled = True
@@ -790,6 +831,20 @@ class DashboardView(QWidget):
         """)
         layout.addWidget(self.BtnStartSentinel)
 
+        # for Sentinel Control Hotkey capture dialog
+        self.SentinalHotkeyEdit = QLineEdit()
+        self.SentinalHotkeyEdit.setReadOnly(True)
+        self.SentinalHotkeyBtn = QPushButton("Capture Sentinel Hotkey")
+        layout.addWidget(self.SentinalHotkeyEdit)
+        layout.addWidget(self.SentinalHotkeyBtn)
+
+        # self.SentinalHotkeyDialog = HotkeyCaptureDialog(self)
+        # self.SentinalHotkeyDialog.setModal(True)
+        # self.SentinalHotkeyDialog.hide()
+        # self.SentinalHotkeyDialog.accepted.connect(self._OnSentinelHotkeyCaptured)
+        # self.SentinalHotkeyDialog.rejected.connect(self._OnSentinelHotkeyCaptureCancelled)
+
+
 
         return layout
 
@@ -1053,6 +1108,7 @@ class DashboardView(QWidget):
         self.BtnDelStep.clicked.connect(self.OnRemoveStepClicked)
         self.ActivationHotkeyBtn.clicked.connect(self.OnCaptureHotkey)
         self.RoiButton.clicked.connect(self.OnSelectRoi)
+        self.SentinalHotkeyBtn.clicked.connect(self.OnCaptureSentinelHotkey)
         
         # Interaction
         self.LiveImageLabel.Clicked.connect(self.OnImageClicked)
@@ -1077,6 +1133,7 @@ class DashboardView(QWidget):
         self.ViewModel.CaptureImageReady.connect(self.UpdateUiImage)
         self.ViewModel.EventDisabled.connect(self.UpdateUiEventDisabled)
         self.ViewModel.EventFlowChange.connect(self.UpdateUiSentinelFlow)
+        self.ViewModel.EventFlowHotkeyChange.connect(self.UpdateUiSentinelHotkey)
 
     # --- Interaction Handlers ---
     def OnSaveEvent(self):
@@ -1225,6 +1282,11 @@ class DashboardView(QWidget):
         button.setIcon(icon)
         button.setIconSize(button.size())
         button.setText("")
+
+    def OnCaptureSentinelHotkey(self):
+        dialog = HotkeyCaptureDialog(self)
+        if dialog.exec() == QDialog.Accepted:
+            self.ViewModel.TriggerThread.SetFlowHotkey(dialog.CapturedVks)
 
     def OnImageClicked(self, pos: QPoint):
         nx = float(pos.x()) / self.LiveImageLabel.width()
@@ -1503,6 +1565,9 @@ class DashboardView(QWidget):
                     background-color: #2ecc71; /* Brighter Green */
                 }
             """)
+
+    def UpdateUiSentinelHotkey(self, vkList):
+        self.SentinalHotkeyEdit.setText(", ".join(map(KeyNameFromVk, vkList)))
 
     def closeEvent(self, event):
         self.ViewModel.StopCapture()
