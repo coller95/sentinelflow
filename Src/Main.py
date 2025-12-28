@@ -338,7 +338,6 @@ class TriggerMonitorThread(QThread):
                     
                     cropImage(local_img, (event.Roi.XN, event.Roi.YN, event.Roi.WN, event.Roi.HN))
                     matchScore = matchTemplate(local_img, event.TemplateImage)
-                    print(f"Match Score for '{event.Name}': {matchScore}")
                     if matchScore >= event.Threshold:
                         self.EventTriggered.emit(event)
 
