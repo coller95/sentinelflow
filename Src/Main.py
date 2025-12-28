@@ -15,7 +15,8 @@ from PySide6.QtCore import Signal, QThread, Qt, QPoint, QObject, QSize, QRect, Q
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox, 
-    QSizePolicy, QListWidgetItem, QComboBox, QGroupBox, QFrame, QDialog, QInputDialog, QRubberBand, 
+    QSizePolicy, QListWidgetItem, QComboBox, QGroupBox, QFrame, 
+    QDialog, QInputDialog, QRubberBand, QCheckBox
 )
 from PySide6.QtGui import QPainter, QPen, QImage, QPixmap, QIcon
 
@@ -155,6 +156,7 @@ class EventItem:
         self.__timeOfLastTriggerMs = 0.0
         self._roi = roi  # Normalized ROI (xN, yN, wN, hN)
         self._threshold = threshold  # Image match threshold
+        self._triggerWhenMatch = True
         self.__matchScore = 0.0  # Last match score
         self.__templateImage = None  # Loaded template image for matching
         self.__percentFilled = 0.0  # For progress bar
@@ -255,6 +257,14 @@ class EventItem:
     @Threshold.setter
     def Threshold(self, value: float):
         self._threshold = value
+
+    @property
+    def TriggerWhenMatch(self) -> bool:
+        return self._triggerWhenMatch
+
+    @TriggerWhenMatch.setter
+    def TriggerWhenMatch(self, value: bool):
+        self._triggerWhenMatch = value
 
     @property
     def MatchScore(self) -> float:
@@ -374,7 +384,11 @@ class TriggerMonitorThread(QThread):
                     
                     local_img_roi = cropImage(local_img, (event.Roi.XN, event.Roi.YN, event.Roi.WN, event.Roi.HN))
                     event.MatchScore = matchTemplate(local_img_roi, event.TemplateImage)
-                    isMatchNow = event.MatchScore >= event.Threshold
+
+                    if event.TriggerWhenMatch:
+                        isMatchNow = event.MatchScore >= event.Threshold
+                    else:
+                        isMatchNow = event.MatchScore < event.Threshold
                     self.MatchScoreUpdated.emit((index, event.MatchScore))
 
                     # Rising Edge (Off -> On)
@@ -1066,6 +1080,17 @@ class DashboardView(QWidget):
         self.ThresholdEdit.setEnabled(False)
         self.ThresholdWidget.hide()
 
+        # Trigger Type Specific Widgets
+        # These will be shown/hidden based on the selected trigger type
+        self.TriggerWhenMatchLayout = QHBoxLayout()
+        self.TriggerWhenMatchWidget = QWidget()
+        self.TriggerWhenMatchCheckbox = QCheckBox("Trigger When Match")
+        self.TriggerWhenMatchCheckbox.setEnabled(False)
+        self.TriggerWhenMatchLayout.addWidget(self.TriggerWhenMatchCheckbox)
+        self.TriggerWhenMatchWidget.setLayout(self.TriggerWhenMatchLayout)
+        self.TriggerWhenMatchWidget.hide()
+        
+
         # Action Sequence Properties
         self.ActionNameLabel = QLabel("<b>Action Sequence</b>")
 
@@ -1110,6 +1135,7 @@ class DashboardView(QWidget):
         layout.addWidget(self.LoopWidget)
         layout.addWidget(self.RoiWidget)
         layout.addWidget(self.ThresholdWidget)
+        layout.addWidget(self.TriggerWhenMatchWidget)
         
         layout.addWidget(self.CreateHorizontalLine()) # Optional visual separator
         
@@ -1165,6 +1191,7 @@ class DashboardView(QWidget):
         self.LoopCountEdit.editingFinished.connect(self.OnCommitLoopCount)
         self.LoopIntervalEdit.editingFinished.connect(self.OnCommitLoopInterval)
         self.ThresholdEdit.editingFinished.connect(self.OnCommitThreshold)
+        self.TriggerWhenMatchCheckbox.stateChanged.connect(self.OnCommitTriggerWhenMatch)
 
         # --- ViewModel to View ---
         self.ViewModel.EventAdded.connect(self.UpdateUiAddEvent)
@@ -1376,6 +1403,7 @@ class DashboardView(QWidget):
             self.BtnMoveUp.setEnabled(False)
             self.BtnMoveDown.setEnabled(False)
             self.ThresholdEdit.setEnabled(False)
+            self.TriggerWhenMatchCheckbox.setEnabled(False)
             self.RoiButton.setEnabled(False)
             return
 
@@ -1410,6 +1438,9 @@ class DashboardView(QWidget):
 
         self.ThresholdEdit.setText(f"{eventObj.Threshold}")
         self.ThresholdEdit.setEnabled(True)
+
+        self.TriggerWhenMatchCheckbox.setChecked(eventObj.TriggerWhenMatch)
+        self.TriggerWhenMatchCheckbox.setEnabled(True)
 
         self.RefreshMacroStepList(eventObj.AssignedAction)
         self.stepDropDown.setEnabled(True)
@@ -1476,12 +1507,15 @@ class DashboardView(QWidget):
             if eventObj.SelectedActivationType == EventItem.ActivationType.ImageMatchRoi:
                 self.RoiWidget.show()
                 self.ThresholdWidget.show()
+                self.TriggerWhenMatchWidget.show()
             elif eventObj.SelectedActivationType == EventItem.ActivationType.ProgessBar:
                 self.RoiWidget.show()
                 self.ThresholdWidget.hide()
+                self.TriggerWhenMatchWidget.show()
             else:
                 self.RoiWidget.hide()
                 self.ThresholdWidget.hide()
+                self.TriggerWhenMatchWidget.hide()
 
     def OnCommitLoopCount(self):
         item = self.EventListWidget.currentItem()
@@ -1512,6 +1546,12 @@ class DashboardView(QWidget):
                 eventObj.Threshold = threshold
             except ValueError:
                 QMessageBox.warning(self, "Error", "Invalid threshold.")
+
+    def OnCommitTriggerWhenMatch(self, state: bool):
+        item = self.EventListWidget.currentItem()
+        if item:
+            eventObj: EventItem = item.data(Qt.UserRole)
+            eventObj.TriggerWhenMatch = state
 
     def MoveStep(self, direction: int):
         """direction: -1 for Up, 1 for Down"""
