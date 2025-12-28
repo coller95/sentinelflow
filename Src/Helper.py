@@ -102,14 +102,26 @@ def ResizeWindow(hwnd: int, width: int, height: int) -> None:
     )
 
 
-def cropImage(img: np.ndarray, roi: tuple[int, int, int, int]) -> np.ndarray:
+def cropImage(img: np.ndarray, roi_normalized: tuple[float, float, float, float]) -> np.ndarray:
     """
-    Given an image and ROI coordinates, return the cropped image.
-    ROI: (x, y, w, h)
+    roi_normalized: (xn, yn, wn, hn) as floats 0.0-1.0
     """
-    x, y, w, h = roi
+    h_max, w_max = img.shape[:2]
+    xn, yn, wn, hn = roi_normalized
+
+    # Convert normalized (0-1) to pixel coordinates
+    x = int(xn * w_max)
+    y = int(yn * h_max)
+    w = int(wn * w_max)
+    h = int(hn * h_max)
+
+    # Slice using integers
     return img[y:y+h, x:x+w]
 
+def matchTemplate(img: np.ndarray, template: np.ndarray) -> float:
+    result = cv2.matchTemplate(img, template, cv2.TM_SQDIFF_NORMED)
+    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+    return 1 - min_val
 
 def templateMatch(img: np.ndarray, template: np.ndarray, threshold: float = 0.8) -> list[tuple[int, int]]:
     """

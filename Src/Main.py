@@ -11,7 +11,7 @@ import pickle
 from enum import Enum, auto
 from typing import List, Optional
 
-from PySide6.QtCore import Signal, QThread, Qt, QPoint, QObject, QSize, QRect
+from PySide6.QtCore import Signal, QThread, Qt, QPoint, QObject, QSize, QRect, QMutexLocker, QMutex
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox, 
@@ -289,8 +289,21 @@ class TriggerMonitorThread(QThread):
         self._pollIntervalMs = pollIntervalMs
         self._isRunning = True
 
+        # New additions for image injection
+        self._image_mutex = QMutex()
+        self._current_img = None
+
+    def SetImage(self, img):
+        """Called by the Capture Thread to provide a new frame"""
+        with QMutexLocker(self._image_mutex):
+            self._current_img = img
+
     def run(self):
         while self._isRunning:
+            with QMutexLocker(self._image_mutex):
+                local_img = self._current_img
+                self._current_img = None
+
             for event in self._viewModel.EventItems:
                 if not event.Enabled:
                     continue
@@ -318,6 +331,16 @@ class TriggerMonitorThread(QThread):
                     event.LoopCounter += 1
                     event.TimeOfLastTriggerMs = time.time()*1000
                     self.EventTriggered.emit(event)
+                
+                elif event.SelectedActivationType == EventItem.ActivationType.ImageMatchRoi:
+                    if local_img is None or event.TemplateImage is None:
+                        continue
+                    
+                    cropImage(local_img, (event.Roi.XN, event.Roi.YN, event.Roi.WN, event.Roi.HN))
+                    matchScore = matchTemplate(local_img, event.TemplateImage)
+                    print(f"Match Score for '{event.Name}': {matchScore}")
+                    if matchScore >= event.Threshold:
+                        self.EventTriggered.emit(event)
 
             time.sleep(self._pollIntervalMs / 1000.0)
 
@@ -333,6 +356,7 @@ class LiveCaptureThread(QThread):
         self.Hwnd = hwnd
         self.IntervalMs = intervalMs
         self._isRunning = True
+        self._imageCount = 0
 
     def run(self):
         self._isRunning = True
@@ -407,6 +431,7 @@ class DashboardViewModel(QObject):
             self.StopCapture()
             self.LiveThread = LiveCaptureThread(self.CurrentHwnd)
             self.LiveThread.ImageCaptured.connect(self._HandleImageCaptured)
+            self.LiveThread.ImageCaptured.connect(self.TriggerThread.SetImage)
             self.LiveThread.start()
         else:
             self.StopCapture()
@@ -417,7 +442,21 @@ class DashboardViewModel(QObject):
 
     def StopCapture(self):
         if self.LiveThread:
+            # 1. Stop the loop
             self.LiveThread.Stop()
+            
+            # 2. Break all connections immediately 
+            # This prevents the thread from sending any more images to 
+            # _HandleImageCaptured or TriggerThread while it's closing.
+            try:
+                self.LiveThread.ImageCaptured.disconnect()
+            except RuntimeError:
+                # If the thread object is already partially deleted, 
+                # disconnect might throw an error; we catch it to prevent a crash.
+                pass
+
+            # 3. Wait for the hardware/OS resources to be released
+            self.LiveThread.wait()
             self.LiveThread = None
             
     def StartSentinel(self):
@@ -474,6 +513,9 @@ class DashboardViewModel(QObject):
     def EnableEvent(self, event: EventItem):
         event.Enabled = True
         event.LoopCounter = 0
+
+    def DisableEvent(self, event: EventItem):
+        event.Enabled = False
 
 # =========================
 # VIEW COMPONENTS
@@ -996,6 +1038,7 @@ class DashboardView(QWidget):
         self.ActivationDropdown.currentIndexChanged.connect(self.OnCommitActivationType)
         self.LoopCountEdit.editingFinished.connect(self.OnCommitLoopCount)
         self.LoopIntervalEdit.editingFinished.connect(self.OnCommitLoopInterval)
+        self.ThresholdEdit.editingFinished.connect(self.OnCommitThreshold)
 
         # --- ViewModel to View ---
         self.ViewModel.EventAdded.connect(self.UpdateUiAddEvent)
@@ -1239,11 +1282,16 @@ class DashboardView(QWidget):
         
     def OnEventItemChanged(self, item: QListWidgetItem):
         """Triggered when an item is renamed or check state changes."""
+        # ui
         eventObj: EventItem = item.data(Qt.UserRole)
         if not eventObj:
             return
+        
+        # model
         if item.checkState() == Qt.Checked:
             self.ViewModel.EnableEvent(eventObj)
+        else:
+            self.ViewModel.DisableEvent(eventObj)
             
     def RefreshMacroStepList(self, actionObj: ActionItem):
         """Refreshes the UI list based on the ActionItem's steps."""
@@ -1316,6 +1364,16 @@ class DashboardView(QWidget):
                 eventObj.IntervalMs = interval
             except ValueError:
                 QMessageBox.warning(self, "Error", "Invalid interval.")
+
+    def OnCommitThreshold(self):
+        item = self.EventListWidget.currentItem()
+        if item:
+            eventObj: EventItem = item.data(Qt.UserRole)
+            try:
+                threshold = float(self.ThresholdEdit.text())
+                eventObj.Threshold = threshold
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Invalid threshold.")
 
     def MoveStep(self, direction: int):
         """direction: -1 for Up, 1 for Down"""
