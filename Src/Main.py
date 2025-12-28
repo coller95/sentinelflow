@@ -7,7 +7,7 @@ Naming Convention: Microsoft CamelCase Guidelines.
 import os
 import sys
 import time
-import json
+import pickle
 from enum import Enum, auto
 from typing import List, Optional
 
@@ -32,39 +32,7 @@ os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 # MODELS
 # =========================
 
-class BaseSerializable:
-    def ToDictionary(self) -> dict:
-        """Generic reflection to convert attributes to a dictionary."""
-        data = {}
-        for key, value in self.__dict__.items():
-            # Clean up private variable prefixes (e.g., _Name -> Name)
-            publicName = key.lstrip('_')
-            publicName = publicName[0].upper() + publicName[1:]
-            
-            if isinstance(value, list):
-                data[publicName] = [item.ToDictionary() if hasattr(item, "ToDictionary") else item for item in value]
-            elif hasattr(value, "ToDictionary"):
-                data[publicName] = value.ToDictionary()
-            elif hasattr(value, "name") and hasattr(value, "value"): # Handle Enums
-                data[publicName] = value.name
-            else:
-                data[publicName] = value
-        return data
-
-    def FromDictionary(self, data: dict):
-        """Generic reflection to populate attributes from a dictionary."""
-        for key, value in data.items():
-            attrName = f"_{key[0].lower() + key[1:]}"
-            if hasattr(self, attrName):
-                currentAttr = getattr(self, attrName)
-                
-                # If the attribute is a nested object, let it handle its own data
-                if hasattr(currentAttr, "FromDictionary"):
-                    currentAttr.FromDictionary(value)
-                else:
-                    setattr(self, attrName, value)
-
-class RectangleRegion(BaseSerializable):
+class RectangleRegion:
     def __init__(self, xN: float = 0.0, yN: float = 0.0, wN: float = 1.0, hN: float = 1.0):
         self._xN = xN
         self._yN = yN
@@ -103,7 +71,7 @@ class RectangleRegion(BaseSerializable):
     def HN(self, value: float):
         self._hN = value
 
-class MacroStep(BaseSerializable):
+class MacroStep:
     class InputType(Enum):
         Mouse = auto()
         Keyboard = auto()
@@ -145,7 +113,7 @@ class MacroStep(BaseSerializable):
         sendMouseClickToWindow(hwnd, xN, yN)
         pass
 
-class ActionItem(BaseSerializable):
+class ActionItem:
     def __init__(self):
         self._macroSteps: List[MacroStep] = []
 
@@ -167,7 +135,7 @@ class ActionItem(BaseSerializable):
         for step in self._macroSteps:
             step.Execute(windowHandle)
 
-class EventItem(BaseSerializable):
+class EventItem:
     class ActivationType(Enum):
         NotSet = auto()
         Hotkey = auto()
@@ -469,53 +437,37 @@ class DashboardViewModel(QObject):
         self.EventDisabled.emit(self.EventItems.index(event))
 
     def SaveState(self, filePath: str):
+        """Serializes the EventItems list to a binary file using Pickle."""
         try:
-            # Generate dictionary list using the generic method
-            eventDataList = [event.ToDictionary() for event in self.EventItems]
-            with open(filePath, 'w') as f:
-                json.dump(eventDataList, f, indent=4)
+            # Pickle can save the list of objects directly. 
+            # No need for ToDictionary() or manual Enum/Array handling.
+            with open(filePath, 'wb') as f:
+                pickle.dump(self.EventItems, f)
+            print(f"State successfully saved to {filePath}")
         except Exception as e:
             print(f"SaveState Error: {e}")
 
     def LoadState(self, filePath: str):
+        """Deserializes the EventItems list from a binary file."""
         if not os.path.exists(filePath):
             return
 
         try:
-            with open(filePath, 'r') as f:
-                data = json.load(f)
+            with open(filePath, 'rb') as f:
+                # Pickle reconstructs the entire object tree perfectly
+                loadedItems = pickle.load(f)
 
             self.EventItems.clear()
-            for eventData in data:
-                # 1. Initialize Action and Event
-                # We use placeholder values; FromDictionary will overwrite them
-                action = ActionItem()
-                event = EventItem(name="", action=action)
-                
-                # 2. Reconstruct MacroSteps
-                # Note: ToDictionary uses 'MacroSteps' (PascalCase) because of your lstrip/upper logic
-                action_data = eventData.get("AssignedAction", {})
-                steps_data = action_data.get("MacroSteps", [])
-                
-                for stepData in steps_data:
-                    # Convert string (e.g., "Keyboard") back to MacroStep.InputType.Keyboard
-                    input_type_str = stepData.get("InputType")
-                    input_type_enum = MacroStep.InputType[input_type_str]
-                    
-                    step = MacroStep(
-                        inputType=input_type_enum,
-                        value=stepData.get("Value"),
-                        description=stepData.get("Description", "")
-                    )
-                    action.AddStep(step)
-
-                # 3. Use reflection to fill the rest (ROI, Enabled, ActivationType, etc.)
-                event.FromDictionary(eventData)
-                
+            
+            # We extend the list with the loaded objects
+            for event in loadedItems:
                 self.EventItems.append(event)
-                if hasattr(self, 'EventAdded'): # Ensure signal exists before emitting
+                
+                # Emit signal if applicable
+                if hasattr(self, 'EventAdded'):
                     self.EventAdded.emit(event)
                     
+            print(f"State successfully loaded from {filePath}")
         except Exception as e:
             print(f"LoadState Error: {e}")
 
@@ -644,33 +596,41 @@ class CropperWidget(QWidget):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             # 1. Get the geometry of the rubber band (Screen Space)
-            selection_rect = self.rubber_band.geometry()
+            selectionRect = self.rubber_band.geometry()
             
             # 2. Calculate the scaling ratio
-            # We compare the visual pixmap size to the original pixmap size
-            shown_pixmap_size = self.image_label.pixmap().size()
-            full_pixmap_size = self.original_pixmap.size()
+            shownPixmapSize = self.image_label.pixmap().size()
+            fullPixmapSize = self.original_pixmap.size()
             
-            ratio_x = full_pixmap_size.width() / shown_pixmap_size.width()
-            ratio_y = full_pixmap_size.height() / shown_pixmap_size.height()
+            fullWidth = fullPixmapSize.width()
+            fullHeight = fullPixmapSize.height()
+            
+            ratioX = fullWidth / shownPixmapSize.width()
+            ratioY = fullHeight / shownPixmapSize.height()
             
             # 3. Calculate the actual crop area on the ORIGINAL image
-            # Offset for alignment (centering padding)
-            offset_x = (self.image_label.width() - shown_pixmap_size.width()) / 2
-            offset_y = (self.image_label.height() - shown_pixmap_size.height()) / 2
+            offsetX = (self.image_label.width() - shownPixmapSize.width()) / 2
+            offsetY = (self.image_label.height() - shownPixmapSize.height()) / 2
             
-            real_x = int((selection_rect.x() - offset_x) * ratio_x)
-            real_y = int((selection_rect.y() - offset_y) * ratio_y)
-            real_w = int(selection_rect.width() * ratio_x)
-            real_h = int(selection_rect.height() * ratio_y)
+            realX = int((selectionRect.x() - offsetX) * ratioX)
+            realY = int((selectionRect.y() - offsetY) * ratioY)
+            realW = int(selectionRect.width() * ratioX)
+            realH = int(selectionRect.height() * ratioY)
             
-            real_rect = QRect(real_x, real_y, real_w, real_h)
+            realRect = QRect(realX, realY, realW, realH)
+
+            # --- Normalized Coordinates ---
+            normX = float(realX) / float(fullWidth)
+            normY = float(realY) / float(fullHeight)
+            normW = float(realW) / float(fullWidth)
+            normH = float(realH) / float(fullHeight)
             
             # 4. Crop from the high-res original
-            cropped_pixmap = self.original_pixmap.copy(real_rect)
-            cv_image = self._qpixmap_to_ndarray(cropped_pixmap)
+            croppedPixmap = self.original_pixmap.copy(realRect)
+            cvImage = self._qpixmap_to_ndarray(croppedPixmap)
             
-            self.on_crop(cv_image)
+            # Passing normalized values to the callback
+            self.on_crop(cvImage, normX, normY, normW, normH)
             self.close()
 
     def _qpixmap_to_ndarray(self, pixmap):
@@ -1046,27 +1006,29 @@ class DashboardView(QWidget):
 
     # --- Interaction Handlers ---
     def OnSaveEvent(self):
-        # Parameters: parent, title, default directory/filename, filter
+        # Updated filter to show Data/Pickle files instead of JSON
         filePath, _ = QFileDialog.getSaveFileName(
             self, 
             "Save Macro Configuration", 
             "", 
-            "JSON Files (*.json);;All Files (*)"
+            "Data Files (*.dat);;Pickle Files (*.pkl);;All Files (*)"
         )
         
         if filePath:
             try:
+                # ViewModel.SaveState now handles binary Pickle serialization
                 self.ViewModel.SaveState(filePath)
                 QMessageBox.information(self, "Success", "Configuration saved successfully!")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to save file: {e}")
 
     def OnLoadEvent(self):
+        # Updated filter to look for binary files
         filePath, _ = QFileDialog.getOpenFileName(
             self, 
             "Load Macro Configuration", 
             "", 
-            "JSON Files (*.json);;All Files (*)"
+            "Data Files (*.dat);;Pickle Files (*.pkl);;All Files (*)"
         )
         
         if filePath:
@@ -1075,6 +1037,7 @@ class DashboardView(QWidget):
                 self.EventListWidget.clear()
                 self.MacroStepListWidget.clear()
                 
+                # ViewModel.LoadState now handles binary Pickle deserialization
                 self.ViewModel.LoadState(filePath)
                 QMessageBox.information(self, "Success", "Configuration loaded successfully!")
             except Exception as e:
@@ -1153,25 +1116,41 @@ class DashboardView(QWidget):
             self.ActivationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventObj.ActivationVkList)))
 
     def OnSelectRoi(self):
+        if self.ViewModel.LastLiveImg is None:
+            # Handle the case where there is no image
+            QMessageBox.warning(self, "Error", "Please start the capture before selecting an ROI.")
+            return
         self.cropper = CropperWidget(self.ViewModel.LastLiveImg, self.handleNewCrop)
         self.cropper.show()
 
-    def handleNewCrop(self, cv_img):
+    def handleNewCrop(self, cv_img, normX, normY, normW, normH):
+        # set model
         item = self.EventListWidget.currentItem()
         if item:
             eventObj: EventItem = item.data(Qt.UserRole)
             eventObj.TemplateImage = cv_img
+            eventObj.Roi = RectangleRegion(normX, normY, normW, normH)
         
+        # set view
+        self.setButtonWithImage(self.RoiButton, cv_img)
+
+        self.RoiXEdit.setText(f"{normX:.4f}")
+        self.RoiYEdit.setText(f"{normY:.4f}")
+        self.RoiWEdit.setText(f"{normW:.4f}")
+        self.RoiHEdit.setText(f"{normH:.4f}")
+
+    def setButtonWithImage(self, button, cv_img):
+        if cv_img is None:
+            return
         height, width, channel = cv_img.shape
         bytesPerLine = 3 * width
         cv_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
         q_img = QImage(cv_rgb.data, width, height, bytesPerLine, QImage.Format.Format_RGB888)
         pixmap = QPixmap.fromImage(q_img)
         icon = QIcon(pixmap)
-        self.RoiButton.setIcon(icon)
-        self.RoiButton.setIconSize(self.RoiButton.size())
-        self.RoiButton.setText("")
-
+        button.setIcon(icon)
+        button.setIconSize(button.size())
+        button.setText("")
 
     def OnImageClicked(self, pos: QPoint):
         nx = float(pos.x()) / self.LiveImageLabel.width()
@@ -1244,7 +1223,8 @@ class DashboardView(QWidget):
         self.RoiXEdit.setText(f"{eventObj.Roi.XN:.4f}")
         self.RoiYEdit.setText(f"{eventObj.Roi.YN:.4f}")
         self.RoiWEdit.setText(f"{eventObj.Roi.WN:.4f}")
-        self.RoiHEdit.setText(f"{eventObj.Roi.HN:.4f}")
+        self.RoiHEdit.setText(f"{eventObj.Roi.HN:.4f}")        
+        self.setButtonWithImage(self.RoiButton, eventObj.TemplateImage)
         self.RoiButton.setEnabled(True)
 
         self.ThresholdEdit.setText(f"{eventObj.Threshold:.2f}")
