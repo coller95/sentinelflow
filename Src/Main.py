@@ -625,7 +625,7 @@ class TriggerMonitorThread(QThread):
                     
                     # Rising Edge (Off -> On)
                     if isMatchNow and not event.IsCurrentlyHeld or \
-                       isMatchNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 2000):
+                       isMatchNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 5000):
                         self.EventTriggered.emit(event)
                         event.TimeOfLastTriggerMs = int(time.time() * 1000)
                         event.IsCurrentlyHeld = isMatchNow
@@ -646,7 +646,7 @@ class TriggerMonitorThread(QThread):
                     
                     # Rising Edge (Off -> On)
                     if isFilledNow and not event.IsCurrentlyHeld or \
-                       isFilledNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 2000):
+                       isFilledNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 5000):
                         self.EventTriggered.emit(event)
                         event.TimeOfLastTriggerMs = int(time.time() * 1000)
                         event.IsCurrentlyHeld = isFilledNow
