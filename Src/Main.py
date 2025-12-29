@@ -1676,7 +1676,6 @@ class DashboardView(QWidget):
         layout.addWidget(self.thresholdWidget)
         layout.addWidget(self.triggerOnThresholdExceedWidget)
         layout.addWidget(self.retriggerTimeWidget)
-        layout.addWidget(self._createHorizontalLine())  # Optional visual separator
         layout.addWidget(self.actionNameLabel)
         layout.addLayout(self.macroStepListWidgetLayout)
         layout.addWidget(self.stepDropDown)
@@ -1684,14 +1683,7 @@ class DashboardView(QWidget):
         layout.addStretch()
         
         return rightPanelContainer
-
-    def _createHorizontalLine(self) -> QFrame:
-        """Create a horizontal separator line."""
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        return line
-
+    
     def _wireUpBindings(self) -> None:
         """Connect UI signals to ViewModel methods and ViewModel signals to UI updates."""
         # --- View to ViewModel ---
