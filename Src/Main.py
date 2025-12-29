@@ -310,7 +310,7 @@ class EventItem:
         self._roi: RectangleRegion = roi
         self._threshold: float = threshold
         self._triggerOnThresholdExceed: bool = True
-        self._retriggerTimeMilliseconds: float = 2000
+        self._retriggerTimeMilliseconds: float = retriggerTimeMilliseconds
         self._matchScore: float = 0.0
         self._templateImage: Optional[np.ndarray[Any, Any]] = None
         self._percentFilled: float = 0.0
