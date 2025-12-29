@@ -15,7 +15,7 @@ import time
 import pickle
 from enum import Enum, auto
 from typing import (
-    cast, List, Optional, Tuple, Any, Callable, Dict, Final
+    cast, List, Optional, Any, Callable, Dict, Final
 )
 # Third-party imports
 import numpy as np
@@ -27,7 +27,7 @@ from PySide6.QtCore import (
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QFileDialog, QListWidget, QMessageBox,
-    QSizePolicy, QListWidgetItem, QComboBox, QGroupBox, QFrame,
+    QSizePolicy, QListWidgetItem, QComboBox, QGroupBox,
     QDialog, QInputDialog, QRubberBand, QCheckBox
 )
 from PySide6.QtGui import (
@@ -505,7 +505,7 @@ class TriggerMonitorThread(QThread):
     EventDisabled = Signal(EventItem)
     FlowStateChanged = Signal(bool)
     FlowHotkeyChanged = Signal(list)
-    MatchScoreUpdated = Signal(tuple)  # (index, score)
+    MatchScoreUpdated = Signal(float)  # score
 
     def __init__(self, viewModel: "DashboardViewModel", pollIntervalMs: int = 50) -> None:
         """
@@ -627,7 +627,7 @@ class TriggerMonitorThread(QThread):
                     ))
                     
                     event.MatchScore = MatchTemplate(localImageRoi, event.TemplateImage)
-                    self.MatchScoreUpdated.emit((index, event.MatchScore))
+                    self.MatchScoreUpdated.emit(event.MatchScore)
                     
                     if event.TriggerOnThresholdExceed:
                         isConditionMet = event.MatchScore >= event.Threshold
@@ -748,15 +748,16 @@ class DashboardViewModel(QObject):
         FlowHotkeyChanged: Emitted when the flow hotkey changes
         MatchScoreUpdated: Emitted when a match score is updated
     """
-    EventAdded = Signal(EventItem)
-    EventRemoved = Signal(int)
-    EventSelected = Signal(EventItem)
+    EventItemAddedSignal = Signal(EventItem)
+    EventItemRemovedSignal = Signal(int)
+    EventItemSelectedSignal = Signal(EventItem)
+    EventExecutionStateChangedSignal = Signal(bool)  # Flow state
+    EventExecutionStateHotkeyChangedSignal = Signal(list)  # Flow hotkey list
+    EventItemChangedSignal = Signal(EventItem)
+
     WindowHandleUpdated = Signal(object)  # HWND
-    CaptureImageReady = Signal(object)  # Image data
-    EventDisabled = Signal(int)  # Index of changed event
-    FlowStateChanged = Signal(bool)  # Flow state
-    FlowHotkeyChanged = Signal(list)  # Flow hotkey list
-    MatchScoreUpdated = Signal(tuple)  # (index, score)
+    CaptureImageReady = Signal(object)  # Image data\
+    MatchScoreUpdated = Signal(float)  # score
 
     def __init__(self) -> None:
         """Initialize the dashboard view model."""
@@ -767,27 +768,24 @@ class DashboardViewModel(QObject):
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
         self.TriggerThread: Optional[TriggerMonitorThread] = None
 
-        self._selectedEvent : Optional[EventItem] = None
+        self._selectedEventItem : Optional[EventItem] = None
         
         self.StartSentinel()  # Initialize the sentinel monitoring
 
-    def AddNewEvent(self) -> None:
+    def AddEvent(self) -> None:
         """Add a new event to the model."""
         newAction = ActionItem()
         newEvent = EventItem(name="New Event", action=newAction)
         self.EventItems.append(newEvent)
-        self.EventAdded.emit(newEvent)
+        self.EventItemAddedSignal.emit(newEvent)
 
-    def DeleteEvent(self, index: int) -> None:
-        """
-        Delete an event at the specified index.
-        
-        Args:
-            index: Index of the event to delete
-        """
+    def RemoveEvent(self) -> None:
+        if self._selectedEventItem is None:
+            return
+        index = self.EventItems.index(self._selectedEventItem)
         if 0 <= index < len(self.EventItems):
             self.EventItems.pop(index)
-            self.EventRemoved.emit(index)
+            self.EventItemRemovedSignal.emit(index)
 
     def FindWindow(self, title: str) -> Optional[int]:
         """
@@ -875,9 +873,9 @@ class DashboardViewModel(QObject):
         if not self.TriggerThread:
             self.TriggerThread = TriggerMonitorThread(self)
             self.TriggerThread.EventTriggered.connect(self._onEventTriggered)
-            self.TriggerThread.EventDisabled.connect(self._onEventDisabled)
-            self.TriggerThread.FlowStateChanged.connect(self._onFlowStateChanged)
-            self.TriggerThread.FlowHotkeyChanged.connect(self.FlowHotkeyChanged)
+            self.TriggerThread.EventDisabled.connect(self.EventItemChangedSignal)
+            self.TriggerThread.FlowStateChanged.connect(self.EventExecutionStateChangedSignal)
+            self.TriggerThread.FlowHotkeyChanged.connect(self.EventExecutionStateHotkeyChangedSignal)
             self.TriggerThread.MatchScoreUpdated.connect(self.MatchScoreUpdated)
             self.TriggerThread.start()
 
@@ -891,29 +889,6 @@ class DashboardViewModel(QObject):
         print(f"Event Triggered: {event.Name}")
         if self.CurrentWindowHandle:
             event.Trigger(self.CurrentWindowHandle)
-
-    def _onEventDisabled(self, event: EventItem) -> None:
-        """
-        Handle an event being disabled.
-        
-        Args:
-            event: Event that was disabled
-        """
-        print(f"Event Disabled: {event.Name}")
-        try:
-            index = self.EventItems.index(event)
-            self.EventDisabled.emit(index)
-        except ValueError:
-            pass
-
-    def _onFlowStateChanged(self, isEnabled: bool) -> None:
-        """
-        Handle a flow state change.
-        
-        Args:
-            isEnabled: New flow state
-        """
-        self.FlowStateChanged.emit(isEnabled)
 
     def SaveState(self, filePath: str) -> None:
         """
@@ -975,7 +950,7 @@ class DashboardViewModel(QObject):
             for event in loadedEvents:
                 self.EventItems.append(event)
             if hasattr(self, 'EventAdded') and loadedEvents:
-                self.EventAdded.emit(loadedEvents[-1])
+                self.EventItemAddedSignal.emit(loadedEvents[-1])
                 
             # Apply settings if they exist
             if self.TriggerThread and loadedHotkey:
@@ -984,40 +959,21 @@ class DashboardViewModel(QObject):
             print(f"LoadState Error: {e}")
             raise e
 
-    def EnableEvent(self, event: EventItem) -> None:
-        """
-        Enable an event.
-        
-        Args:
-            event: Event to enable
-        """
-        event.IsEnabled = True
-        event.LoopCounter = 0
-
-    def DisableEvent(self, event: EventItem) -> None:
-        """
-        Disable an event.
-        
-        Args:
-            event: Event to disable
-        """
-        event.IsEnabled = False
-
     def ToggleSentinelFlow(self) -> None:
         """Toggle the sentinel flow state."""
         if self.TriggerThread:
             self.TriggerThread.ToggleFlowEnabled()
 
     @property
-    def SelectedEvent(self) -> Optional[EventItem]:
-        """Get the currently selected event."""
-        return self._selectedEvent
+    def SelectedEventItem(self) -> Optional[EventItem]:\
+        return self._selectedEventItem
     
-    @SelectedEvent.setter
-    def SelectedEvent(self, event: Optional[EventItem]) -> None:
-        """Set the currently selected event."""
-        self._selectedEvent = event
-        self.EventSelected.emit(event)
+    @SelectedEventItem.setter
+    def SelectedEventItem(self, event: Optional[EventItem]) -> None:        
+        self._selectedEventItem = event
+        self.EventItemSelectedSignal.emit(event)
+
+
 
 # =============================================================================
 # VIEW CLASSES
@@ -1336,15 +1292,165 @@ class CropperWidget(QWidget):
         return QPixmap.fromImage(qImage)
 
 
-class EventListWidget(QListWidget):
-    def mousePressEvent(self, event : QMouseEvent) -> None:
-        item = self.itemAt(event.position().toPoint())
-        previousItem = self.currentItem()
-        self.clearSelection()
-        if not item:
-            item = QListWidgetItem()
-        self.currentItemChanged.emit(item, previousItem)
-        super().mousePressEvent(event)
+class LeftPanelWidget(QWidget):    
+    """
+    Left panel widget containing event management controls.
+    """
+    def __init__(self, viewModel : DashboardViewModel) -> None:
+        super().__init__()
+        self.ViewModel = viewModel
+        self._setupLeftPanel()
+        self._wireUpBindings()
+
+    def _setupLeftPanel(self) -> None:
+        """Set up the left panel with event management controls."""
+
+        layout = QVBoxLayout(self)
+        buttonLayout = QHBoxLayout()
+        
+        self.addEventButton = QPushButton("+")
+        self.removeEventButton = QPushButton("-")
+        self.addEventButton.setFixedWidth(30)
+        self.removeEventButton.setFixedWidth(30)
+        
+        self.saveEventButton = QPushButton("Save")
+        self.loadEventButton = QPushButton("Load")
+        self.saveEventButton.setFixedWidth(40)
+        self.loadEventButton.setFixedWidth(40)
+        
+        buttonLayout.addWidget(self.addEventButton)
+        buttonLayout.addWidget(self.removeEventButton)
+        buttonLayout.addStretch()
+        buttonLayout.addWidget(self.saveEventButton)
+        buttonLayout.addWidget(self.loadEventButton)
+        
+        self.eventListWidget = QListWidget()
+        self.eventListWidget.setFixedWidth(200)
+        self.eventListWidget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        
+        layout.addLayout(buttonLayout)
+        layout.addWidget(self.eventListWidget)
+        
+        # Sentinel Control
+        self.EventExecutionStateButton = QPushButton("Stop Sentinel")
+        self.EventExecutionStateButton.setStyleSheet(BUTTON_STYLE_RUNNING)
+        layout.addWidget(self.EventExecutionStateButton)
+        
+        # for Sentinel Control Hotkey capture dialog
+        self.EventExecutionStateHotkeyEdit = QLineEdit()
+        self.EventExecutionStateHotkeyEdit.setReadOnly(True)
+        self.EventExecutionStateHotkeyButton = QPushButton("Capture Sentinel Hotkey")
+        layout.addWidget(self.EventExecutionStateHotkeyEdit)
+        layout.addWidget(self.EventExecutionStateHotkeyButton)
+
+    def _wireUpBindings(self) -> None:
+        """Wire up the UI components to the view model."""
+        # to view model
+        self.addEventButton.clicked.connect(self._onEventAddedClicked)
+        self.removeEventButton.clicked.connect(self._onRemoveEventClicked)
+        self.saveEventButton.clicked.connect(self._onSaveEventClicked)
+        self.loadEventButton.clicked.connect(self._onLoadEventClicked)
+        self.eventListWidget.currentItemChanged.connect(self._onEventListCurrentItemChanged)
+        self.EventExecutionStateButton.clicked.connect(self._onEventExecutionStateClicked)
+        self.EventExecutionStateHotkeyButton.clicked.connect(self._onEventExecutionStateHotkeyClicked)
+
+        # Property Editing
+        self.eventListWidget.itemChanged.connect(self._onEventItemChanged)
+
+        # from view model
+        self.ViewModel.EventItemAddedSignal.connect(self._onEventAddedSignal)
+        self.ViewModel.EventItemRemovedSignal.connect(self._onRemoveEventSignal)
+        self.ViewModel.EventItemSelectedSignal.connect(self._onEventItemSelectedSignal)
+        self.ViewModel.EventItemChangedSignal.connect(self._onEventItemChangedSignal)
+        self.ViewModel.EventExecutionStateChangedSignal.connect(self._onEventExecutionStateChangedSignal)
+        self.ViewModel.EventExecutionStateHotkeyChangedSignal.connect(self._onEventExecutionStateHotkeyChangedSignal)
+
+    def _onEventAddedClicked(self) -> None:
+        self.ViewModel.AddEvent()
+
+    def _onRemoveEventClicked(self) -> None:
+        self.ViewModel.RemoveEvent()
+
+    def _onSaveEventClicked(self) -> None:
+        filePath, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Macro Configuration",
+            "",
+            "Data Files (*.dat);;Pickle Files (*.pkl);;All Files (*)"
+        )
+        if filePath:
+            try:
+                self.ViewModel.SaveState(filePath)
+                QMessageBox.information(self, "Success", "Configuration saved successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save file: {e}")
+
+    def _onLoadEventClicked(self) -> None:
+        filePath, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Macro Configuration",
+            "",
+            "Data Files (*.dat);;Pickle Files (*.pkl);;All Files (*)"
+        )
+        if filePath:
+            try:
+                self.eventListWidget.clear()
+                self.ViewModel.LoadState(filePath)
+                QMessageBox.information(self, "Success", "Configuration loaded successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to load file: {e}")
+
+    def _onEventListCurrentItemChanged(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
+        eventItem: EventItem = current.data(Qt.ItemDataRole.UserRole)
+        self.ViewModel.SelectedEventItem = eventItem
+
+    def _onEventExecutionStateClicked(self) -> None:
+        self.ViewModel.ToggleSentinelFlow()
+
+    def _onEventExecutionStateHotkeyClicked(self) -> None:
+        dialog = HotkeyCaptureDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            if self.ViewModel.TriggerThread is not None:
+                self.ViewModel.TriggerThread.SetFlowHotkey(dialog.CapturedVirtualKeyCodes)
+    
+    # Property Editing
+    def _onEventItemChanged(self, item: QListWidgetItem) -> None:
+        eventItem: EventItem = item.data(Qt.ItemDataRole.UserRole)
+        eventItem.IsEnabled = item.checkState() == Qt.CheckState.Checked
+        eventItem.LoopCounter = 0 # TODO: need to move to view model
+
+    # from view model
+    def _onEventAddedSignal(self, eventItem: EventItem) -> None:
+        item = QListWidgetItem(eventItem.Name)
+        item.setData(Qt.ItemDataRole.UserRole, eventItem)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Checked if eventItem.IsEnabled else Qt.CheckState.Unchecked)
+        self.eventListWidget.addItem(item)
+
+    def _onRemoveEventSignal(self, index: int) -> None:
+        self.eventListWidget.takeItem(index)
+
+    def _onEventItemSelectedSignal(self, eventItem: EventItem) -> None:
+        self.eventListWidget.currentItem().setText(eventItem.Name)
+
+    def _onEventItemChangedSignal(self, eventItem: EventItem) -> None:
+        for index in range(self.eventListWidget.count()):
+            item = self.eventListWidget.item(index)
+            storedEventItem: EventItem = item.data(Qt.ItemDataRole.UserRole)
+            if storedEventItem == eventItem:
+                item.setCheckState(Qt.CheckState.Checked if eventItem.IsEnabled else Qt.CheckState.Unchecked)
+                break
+
+    def _onEventExecutionStateChangedSignal(self, isRunning: bool) -> None:
+        if isRunning:
+            self.EventExecutionStateButton.setText("Stop Sentinel")
+            self.EventExecutionStateButton.setStyleSheet(BUTTON_STYLE_RUNNING)
+        else:
+            self.EventExecutionStateButton.setText("Start Sentinel")
+            self.EventExecutionStateButton.setStyleSheet(BUTTON_STYLE_STOPPED)
+
+    def _onEventExecutionStateHotkeyChangedSignal(self, hotkeyList: List[int]) -> None:
+        self.EventExecutionStateHotkeyEdit.setText(", ".join(map(KeyNameFromVk, hotkeyList)))
 
 
 class DashboardView(QWidget):
@@ -1376,51 +1482,9 @@ class DashboardView(QWidget):
         self.mainLayout.setSpacing(5)
         
         # Panels
-        self.mainLayout.addLayout(self._setupLeftPanel(), 0)
+        self.mainLayout.addWidget(LeftPanelWidget(self.ViewModel), 0)
         self.mainLayout.addLayout(self._setupCenterPanel(), 1)
-        self.mainLayout.addWidget(self._setupRightPanel())
-
-    def _setupLeftPanel(self) -> QVBoxLayout:
-        """Set up the left panel with event management controls."""
-        layout = QVBoxLayout()
-        buttonLayout = QHBoxLayout()
-        
-        self.addButtonEvent = QPushButton("+")
-        self.deleteButtonEvent = QPushButton("-")
-        self.addButtonEvent.setFixedWidth(30)
-        self.deleteButtonEvent.setFixedWidth(30)
-        
-        self.saveButtonEvent = QPushButton("Save")
-        self.loadButtonEvent = QPushButton("Load")
-        self.saveButtonEvent.setFixedWidth(40)
-        self.loadButtonEvent.setFixedWidth(40)
-        
-        buttonLayout.addWidget(self.addButtonEvent)
-        buttonLayout.addWidget(self.deleteButtonEvent)
-        buttonLayout.addStretch()
-        buttonLayout.addWidget(self.saveButtonEvent)
-        buttonLayout.addWidget(self.loadButtonEvent)
-        
-        self.eventListWidget = EventListWidget()
-        self.eventListWidget.setFixedWidth(200)
-        self.eventListWidget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
-        
-        layout.addLayout(buttonLayout)
-        layout.addWidget(self.eventListWidget)
-        
-        # Sentinel Control
-        self.startSentinelButton = QPushButton("Stop Sentinel")
-        self.startSentinelButton.setStyleSheet(BUTTON_STYLE_RUNNING)
-        layout.addWidget(self.startSentinelButton)
-        
-        # for Sentinel Control Hotkey capture dialog
-        self.sentinelHotkeyEdit = QLineEdit()
-        self.sentinelHotkeyEdit.setReadOnly(True)
-        self.sentinelHotkeyButton = QPushButton("Capture Sentinel Hotkey")
-        layout.addWidget(self.sentinelHotkeyEdit)
-        layout.addWidget(self.sentinelHotkeyButton)
-        
-        return layout
+        self.mainLayout.addWidget(self._setupRightPanel(), 0)
 
     def _setupCenterPanel(self) -> QVBoxLayout:
         """Set up the center panel with application management and live view."""
@@ -1712,11 +1776,6 @@ class DashboardView(QWidget):
     def _wireUpBindings(self) -> None:
         """Connect UI signals to ViewModel methods and ViewModel signals to UI updates."""
         # --- View to ViewModel ---
-        self.addButtonEvent.clicked.connect(self.ViewModel.AddNewEvent)
-        self.deleteButtonEvent.clicked.connect(lambda: self.ViewModel.DeleteEvent(self.eventListWidget.currentRow()))
-        self.startSentinelButton.clicked.connect(self.ViewModel.ToggleSentinelFlow)
-        self.saveButtonEvent.clicked.connect(self._onSaveEvent)
-        self.loadButtonEvent.clicked.connect(self._onLoadEvent)
         
         self.findWindowButton.clicked.connect(lambda: self.ViewModel.FindWindow(self.titleEdit.text().strip()))
         self.browseButton.clicked.connect(self._onBrowseExecutable)
@@ -1733,7 +1792,6 @@ class DashboardView(QWidget):
         
         self.activationHotkeyButton.clicked.connect(self._onCaptureHotkey)
         self.roiButton.clicked.connect(self._onSelectRoi)
-        self.sentinelHotkeyButton.clicked.connect(self._onCaptureSentinelHotkey)
         
         # Interaction
         self.liveImageLabel.Clicked.connect(self._onImageClicked)
@@ -1746,9 +1804,6 @@ class DashboardView(QWidget):
         self.thresholdMatchScoreCopyButton.clicked.connect(self._onCopyMatchScoreToThreshold)
         
         # Property Editing
-        self.eventListWidget.currentItemChanged.connect(self._onSelectionChanged)
-        self.eventListWidget.itemChanged.connect(self._onEventItemChanged)
-        
         self.eventNameEdit.editingFinished.connect(self._onCommitEventName)
         self.activationDropdown.currentIndexChanged.connect(self._onCommitActivationType)
         
@@ -1760,53 +1815,10 @@ class DashboardView(QWidget):
         self.retriggerTimeEdit.editingFinished.connect(self._onCommitRetriggerTime)
         
         # --- ViewModel to View ---
-        self.ViewModel.EventAdded.connect(self._updateUiAddEvent)
-        self.ViewModel.EventRemoved.connect(self._updateUiRemoveEvent)
         self.ViewModel.WindowHandleUpdated.connect(self._updateUiWindowHandleInfo)
         self.ViewModel.CaptureImageReady.connect(self._updateUiImage)
-        self.ViewModel.EventDisabled.connect(self._updateUiEventDisabled)
-        self.ViewModel.FlowStateChanged.connect(self._updateUiSentinelFlow)
-        self.ViewModel.FlowHotkeyChanged.connect(self._updateUiSentinelHotkey)
         self.ViewModel.MatchScoreUpdated.connect(self._updateUiEventMatchScore)
-
-    # UI event handlers (prefixed with '_on')
-    def _onSaveEvent(self) -> None:
-        """Handle save event button click."""
-        # Updated filter to show Data/Pickle files instead of JSON
-        filePath, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Macro Configuration",
-            "",
-            "Data Files (*.dat);;Pickle Files (*.pkl);;All Files (*)"
-        )
-        if filePath:
-            try:
-                # ViewModel.SaveState now handles binary Pickle serialization
-                self.ViewModel.SaveState(filePath)
-                QMessageBox.information(self, "Success", "Configuration saved successfully!")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to save file: {e}")
-
-    def _onLoadEvent(self) -> None:
-        """Handle load event button click."""
-        # Updated filter to look for binary files
-        filePath, _ = QFileDialog.getOpenFileName(
-            self,
-            "Load Macro Configuration",
-            "",
-            "Data Files (*.dat);;Pickle Files (*.pkl);;All Files (*)"
-        )
-        if filePath:
-            try:
-                # Clear existing UI list before loading new data
-                self.eventListWidget.clear()
-                self.macroStepListWidget.clear()
-                
-                # ViewModel.LoadState now handles binary Pickle deserialization
-                self.ViewModel.LoadState(filePath)
-                QMessageBox.information(self, "Success", "Configuration loaded successfully!")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to load file: {e}")
+        self.ViewModel.EventItemSelectedSignal.connect(self._onEventItemSelectedSignal)
 
     def _onBrowseExecutable(self) -> None:
         """Handle browse executable button click."""
@@ -1844,66 +1856,65 @@ class DashboardView(QWidget):
 
     def _onAddStepClicked(self) -> None:
         """Handle add step button click."""
-        item = self.eventListWidget.currentItem()
-        if item:
-            eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            if eventObj.AssignedAction:
-                stepTypeName = self.stepDropDown.currentText()
-                if stepTypeName in InputType.__members__:
-                    stepType = InputType[stepTypeName]
-                    # Create a default step based on type
-                    newStep = None
-                    if stepType == InputType.Mouse:
-                        try:
-                            normalizedX, normalizedY = float(self.mouseXEdit.text()), float(self.mouseYEdit.text())
-                            newStep = MacroStep(InputType.Mouse, (normalizedX, normalizedY), f"Click at ({normalizedX:.7f}, {normalizedY:.7f})")
-                        except ValueError:
-                            QMessageBox.warning(self, "Error", "Invalid coordinates.")
-                            return
-                    elif stepType == InputType.Keyboard:
-                        dialog = HotkeyCaptureDialog(self)
-                        if dialog.exec() == QDialog.DialogCode.Accepted:
-                            # We take the first key from the captured list
-                            if dialog.CapturedVirtualKeyCodes:
-                                virtualKeyCode = dialog.CapturedVirtualKeyCodes[0]
-                                newStep = MacroStep(InputType.Keyboard, virtualKeyCode, f"Press \"{KeyNameFromVk(virtualKeyCode)}\"")
-                            else:
-                                return
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        
+        if eventItem.AssignedAction:
+            stepTypeName = self.stepDropDown.currentText()
+            if stepTypeName in InputType.__members__:
+                stepType = InputType[stepTypeName]
+                # Create a default step based on type
+                newStep = None
+                if stepType == InputType.Mouse:
+                    try:
+                        normalizedX, normalizedY = float(self.mouseXEdit.text()), float(self.mouseYEdit.text())
+                        newStep = MacroStep(InputType.Mouse, (normalizedX, normalizedY), f"Click at ({normalizedX:.7f}, {normalizedY:.7f})")
+                    except ValueError:
+                        QMessageBox.warning(self, "Error", "Invalid coordinates.")
+                        return
+                elif stepType == InputType.Keyboard:
+                    dialog = HotkeyCaptureDialog(self)
+                    if dialog.exec() == QDialog.DialogCode.Accepted:
+                        # We take the first key from the captured list
+                        if dialog.CapturedVirtualKeyCodes:
+                            virtualKeyCode = dialog.CapturedVirtualKeyCodes[0]
+                            newStep = MacroStep(InputType.Keyboard, virtualKeyCode, f"Press \"{KeyNameFromVk(virtualKeyCode)}\"")
                         else:
                             return
-                    elif stepType == InputType.Delay:
-                        milliseconds, ok = QInputDialog.getInt(self, "Add Delay", "Milliseconds (ms):", 100, 1, 60000, 10)
-                        if ok:
-                            newStep = MacroStep(InputType.Delay, milliseconds, f"Wait {milliseconds}ms")
-                        else:
-                            return
-                    
-                    if newStep is not None:
-                        eventObj.AssignedAction.AddStep(newStep)
-                        self._refreshMacroStepList(eventObj.AssignedAction)
+                    else:
+                        return
+                elif stepType == InputType.Delay:
+                    milliseconds, ok = QInputDialog.getInt(self, "Add Delay", "Milliseconds (ms):", 100, 1, 60000, 10)
+                    if ok:
+                        newStep = MacroStep(InputType.Delay, milliseconds, f"Wait {milliseconds}ms")
+                    else:
+                        return
+                
+                if newStep is not None:
+                    eventItem.AssignedAction.AddStep(newStep)
+                    self._refreshMacroStepList(eventItem.AssignedAction)
 
     def _onRemoveStepClicked(self) -> None:
         """Handle remove step button click."""
         currentRow = self.macroStepListWidget.currentRow()
-        item = self.eventListWidget.currentItem()
-        if item and currentRow >= 0:
-            eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            if eventObj.AssignedAction:
-                eventObj.AssignedAction.RemoveStep(currentRow)
-                self._refreshMacroStepList(eventObj.AssignedAction)
+        eventItem = self.ViewModel.SelectedEventItem
+        if eventItem and currentRow >= 0:
+            if eventItem.AssignedAction:
+                eventItem.AssignedAction.RemoveStep(currentRow)
+                self._refreshMacroStepList(eventItem.AssignedAction)
 
     def _onCaptureHotkey(self) -> None:
         """Handle capture hotkey button click."""
-        item = self.eventListWidget.currentItem()
-        if not item:
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
             return
             
-        eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
         dialog = HotkeyCaptureDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            eventObj.ActivationVirtualKeyCodes = dialog.CapturedVirtualKeyCodes
+            eventItem.ActivationVirtualKeyCodes = dialog.CapturedVirtualKeyCodes
             # Show the raw VKs on the button for debugging/clarity
-            self.activationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventObj.ActivationVirtualKeyCodes)))
+            self.activationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventItem.ActivationVirtualKeyCodes)))
 
     def _onSelectRoi(self) -> None:
         """Handle select ROI button click."""
@@ -1934,11 +1945,10 @@ class DashboardView(QWidget):
             normalizedHeight: Normalized height
         """
         # set model
-        item = self.eventListWidget.currentItem()
-        if item:
-            eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            eventObj.TemplateImage = cvImage
-            eventObj.Roi = RectangleRegion(normalizedX, normalizedY, normalizedWidth, normalizedHeight)
+        eventItem = self.ViewModel.SelectedEventItem
+        if eventItem:
+            eventItem.TemplateImage = cvImage
+            eventItem.Roi = RectangleRegion(normalizedX, normalizedY, normalizedWidth, normalizedHeight)
             
             # set view
             self._setButtonWithImage(self.roiButton, cvImage)
@@ -2017,17 +2027,7 @@ class DashboardView(QWidget):
             else:
                 QMessageBox.warning(self, "Error", f"Unknown key: {keyName}")
 
-    def _onSelectionChanged(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
-        """
-        Handle event selection changes.
-        
-        Args:
-            current: Currently selected item
-            previous: Previously selected item
-        """
-        eventItem: EventItem = current.data(Qt.ItemDataRole.UserRole)
-        self.ViewModel.SelectedEvent = eventItem
-
+    def _onEventItemSelectedSignal(self, eventItem: EventItem) -> None:
         if not eventItem:
             self.eventNameEdit.clear()
             self.macroStepListWidget.clear()
@@ -2097,24 +2097,6 @@ class DashboardView(QWidget):
         self.buttonMoveUp.setEnabled(True)
         self.buttonMoveDown.setEnabled(True)
 
-    def _onEventItemChanged(self, item: QListWidgetItem) -> None:
-        """
-        Handle event item changes (renaming, check state).
-        
-        Args:
-            item: Changed item
-        """
-        # ui
-        eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-        if not eventObj:
-            return
-            
-        # model
-        if item.checkState() == Qt.CheckState.Checked:
-            self.ViewModel.EnableEvent(eventObj)
-        else:
-            self.ViewModel.DisableEvent(eventObj)
-
     def _refreshMacroStepList(self, actionObj: ActionItem) -> None:
         """
         Refresh the macro step list UI.
@@ -2137,13 +2119,11 @@ class DashboardView(QWidget):
 
     def _onCommitEventName(self) -> None:
         """Commit event name changes."""
-        item = self.eventListWidget.currentItem()
-        if item:
-            eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            newName = self.eventNameEdit.text().strip()
-            if newName:
-                eventObj.Name = newName
-                item.setText(newName)
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        eventItem.Name = self.eventNameEdit.text().strip()
+        self.ViewModel.SelectedEventItem = eventItem  # Trigger update
 
     def _onCommitActivationType(self, index: int) -> None:
         """
@@ -2152,71 +2132,71 @@ class DashboardView(QWidget):
         Args:
             index: Selected index
         """
-        item = self.eventListWidget.currentItem()
-        if item and index >= 0:
-            eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            typeName = self.activationDropdown.currentText()
-            # Update via the new property name
-            eventObj.SelectedActivationType = ActivationType[typeName]
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        typeName = self.activationDropdown.currentText()
+        # Update via the new property name
+        eventItem.SelectedActivationType = ActivationType[typeName]
+        
+        if eventItem.SelectedActivationType == ActivationType.Hotkey:
+            self.activationHotkeyWidget.show()
+        else:
+            self.activationHotkeyWidget.hide()
             
-            if eventObj.SelectedActivationType == ActivationType.Hotkey:
-                self.activationHotkeyWidget.show()
-            else:
-                self.activationHotkeyWidget.hide()
-                
-            if eventObj.SelectedActivationType == ActivationType.Loop:
-                self.loopWidget.show()
-            else:
-                self.loopWidget.hide()
-                
-            if eventObj.SelectedActivationType == ActivationType.ImageMatchRoi:
-                self.roiWidget.show()
-                self.thresholdWidget.show()
-                self.triggerOnThresholdExceedWidget.show()
-                self.retriggerTimeWidget.show()
-            elif eventObj.SelectedActivationType == ActivationType.ProgessBar:
-                self.roiWidget.show()
-                self.thresholdWidget.show()
-                self.triggerOnThresholdExceedWidget.show()
-                self.retriggerTimeWidget.show()
-            else:
-                self.roiWidget.hide()
-                self.thresholdWidget.hide()
-                self.triggerOnThresholdExceedWidget.hide()
-                self.retriggerTimeWidget.hide()
+        if eventItem.SelectedActivationType == ActivationType.Loop:
+            self.loopWidget.show()
+        else:
+            self.loopWidget.hide()
+            
+        if eventItem.SelectedActivationType == ActivationType.ImageMatchRoi:
+            self.roiWidget.show()
+            self.thresholdWidget.show()
+            self.triggerOnThresholdExceedWidget.show()
+            self.retriggerTimeWidget.show()
+        elif eventItem.SelectedActivationType == ActivationType.ProgessBar:
+            self.roiWidget.show()
+            self.thresholdWidget.show()
+            self.triggerOnThresholdExceedWidget.show()
+            self.retriggerTimeWidget.show()
+        else:
+            self.roiWidget.hide()
+            self.thresholdWidget.hide()
+            self.triggerOnThresholdExceedWidget.hide()
+            self.retriggerTimeWidget.hide()
 
     def _onCommitLoopCount(self) -> None:
         """Commit loop count changes."""
-        item = self.eventListWidget.currentItem()
-        if item:
-            eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            try:
-                count = int(self.loopCountEdit.text())
-                eventObj.LoopCount = count
-            except ValueError:
-                QMessageBox.warning(self, "Error", "Invalid loop count.")
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        try:
+            count = int(self.loopCountEdit.text())
+            eventItem.LoopCount = count
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid loop count.")
 
     def _onCommitLoopInterval(self) -> None:
         """Commit loop interval changes."""
-        item = self.eventListWidget.currentItem()
-        if item:
-            eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            try:
-                interval = int(self.loopIntervalEdit.text())
-                eventObj.IntervalMilliseconds = interval
-            except ValueError:
-                QMessageBox.warning(self, "Error", "Invalid interval.")
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        try:
+            interval = int(self.loopIntervalEdit.text())
+            eventItem.IntervalMilliseconds = interval
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid interval.")
 
     def _onCommitThreshold(self) -> None:
         """Commit threshold changes."""
-        item = self.eventListWidget.currentItem()
-        if item:
-            eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            try:
-                threshold = float(self.thresholdEdit.text())
-                eventObj.Threshold = threshold
-            except ValueError:
-                QMessageBox.warning(self, "Error", "Invalid threshold.")
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        try:
+            threshold = float(self.thresholdEdit.text())
+            eventItem.Threshold = threshold
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid threshold.")
 
     def _onCommitTriggerOnThresholdExceed(self, checked: bool) -> None:
         """
@@ -2225,21 +2205,21 @@ class DashboardView(QWidget):
         Args:
             checked: Check state
         """
-        item = self.eventListWidget.currentItem()
-        if item:
-            eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            eventObj.TriggerOnThresholdExceed = checked
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        eventItem.TriggerOnThresholdExceed = checked
 
     def _onCommitRetriggerTime(self) -> None:
         """Commit retrigger time changes."""
-        item = self.eventListWidget.currentItem()
-        if item:
-            eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            try:
-                retriggerTime = float(self.retriggerTimeEdit.text())
-                eventObj.RetriggerTimeMilliseconds = retriggerTime
-            except ValueError:
-                QMessageBox.warning(self, "Error", "Invalid retrigger time.")
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        try:
+            retriggerTime = float(self.retriggerTimeEdit.text())
+            eventItem.RetriggerTimeMilliseconds = retriggerTime
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid retrigger time.")
 
     def _moveStep(self, direction: int) -> None:
         """
@@ -2259,12 +2239,11 @@ class DashboardView(QWidget):
             return
             
         # 3. Get the Action object from the selected Event
-        eventItem = self.eventListWidget.currentItem()
+        eventItem = self.ViewModel.SelectedEventItem
         if not eventItem:
             return
             
-        eventObj: EventItem = eventItem.data(Qt.ItemDataRole.UserRole)
-        steps = eventObj.AssignedAction.MacroSteps
+        steps = eventItem.AssignedAction.MacroSteps
         
         # 4. Swap in the Python List (The Data Model)
         steps[currentRow], steps[targetRow] = steps[targetRow], steps[currentRow]
@@ -2277,28 +2256,6 @@ class DashboardView(QWidget):
         # 6. Keep the moved item selected so the user can click multiple times
         self.macroStepListWidget.setCurrentRow(targetRow)
 
-    # UI update methods (prefixed with '_update')
-    def _updateUiAddEvent(self, eventObj: EventItem) -> None:
-        """
-        Update UI when an event is added.
-        
-        Args:
-            eventObj: Added event
-        """
-        item = QListWidgetItem(eventObj.Name)
-        item.setData(Qt.ItemDataRole.UserRole, eventObj)
-        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-        item.setCheckState(Qt.CheckState.Checked if eventObj.IsEnabled else Qt.CheckState.Unchecked)
-        self.eventListWidget.addItem(item)
-
-    def _updateUiRemoveEvent(self, index: int) -> None:
-        """
-        Update UI when an event is removed.
-        
-        Args:
-            index: Index of removed event
-        """
-        self.eventListWidget.takeItem(index)
 
     def _updateUiWindowHandleInfo(self, windowHandle: Optional[int]) -> None:
         """
@@ -2331,55 +2288,13 @@ class DashboardView(QWidget):
         else:
             self.liveImageLabel.clear()
 
-    def _updateUiEventDisabled(self, index: int) -> None:
-        """
-        Update UI when an event is disabled.
-        
-        Args:
-            index: Index of disabled event
-        """
-        item = self.eventListWidget.item(index)
-        if item:
-            eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            # Update the check state to reflect IsEnabled status
-            item.setCheckState(Qt.CheckState.Checked if eventObj.IsEnabled else Qt.CheckState.Unchecked)
-
-    def _updateUiSentinelFlow(self, isEnabled: bool) -> None:
-        """
-        Update UI when sentinel flow state changes.
-        
-        Args:
-            isEnabled: New flow state
-        """
-        if isEnabled:
-            # State: RUNNING -> Provide option to STOP
-            self.startSentinelButton.setText("Stop Sentinel")
-            self.startSentinelButton.setStyleSheet(BUTTON_STYLE_RUNNING)
-        else:
-            # State: IDLE -> Provide option to START
-            self.startSentinelButton.setText("Start Sentinel")
-            self.startSentinelButton.setStyleSheet(BUTTON_STYLE_STOPPED)
-
-    def _updateUiSentinelHotkey(self, virtualKeyCodes: List[int]) -> None:
-        """
-        Update UI with sentinel hotkey information.
-        
-        Args:
-            virtualKeyCodes: List of virtual key codes
-        """
-        self.sentinelHotkeyEdit.setText(", ".join(map(KeyNameFromVk, virtualKeyCodes)))
-
-    def _updateUiEventMatchScore(self, eventTuple: Tuple[int, float]) -> None:
+    def _updateUiEventMatchScore(self, score: float) -> None:
         """
         Update UI with event match score.
         
         Args:
             eventTuple: Tuple containing (index, score)
         """
-        index, score = eventTuple
-        if self.eventListWidget.currentRow() != index:
-            return
-            
         self.thresholdMatchScoreLabel.setText(f"{score}")
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -2391,6 +2306,10 @@ class DashboardView(QWidget):
         """
         self.ViewModel.StopCapture()
         super().closeEvent(event)
+
+
+
+
 # =============================================================================
 # MAIN ENTRY POINT
 # =============================================================================
