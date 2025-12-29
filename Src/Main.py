@@ -1134,7 +1134,7 @@ class CropperWidget(QWidget):
         """
         super().__init__()
         self.on_crop = on_crop
-        self.setMinimumSize(800, 600)  # Give it a starting minimum size
+        self.setMinimumSize(640, 480)  # Give it a starting minimum size
         
         # 1. Setup Layout
         layout = QVBoxLayout()
@@ -1419,8 +1419,8 @@ class DashboardView(QWidget):
         
         # Row 3: Metrics
         resLayout = QHBoxLayout()
-        self.ResizeWidthEdit = QLineEdit("800")
-        self.ResizeHeightEdit = QLineEdit("600")
+        self.ResizeWidthEdit = QLineEdit("640")
+        self.ResizeHeightEdit = QLineEdit("480")
         self.BtnResize = QPushButton("Resize Window")
         
         resLayout.addWidget(QLabel("W:"))
