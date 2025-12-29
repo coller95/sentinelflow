@@ -615,20 +615,26 @@ class TriggerMonitorThread(QThread):
                     ))
                     
                     event.MatchScore = MatchTemplate(localImageRoi, event.TemplateImage)
-                    
-                    if event.TriggerWhenMatch:
-                        isMatchNow = event.MatchScore >= event.Threshold
-                    else:
-                        isMatchNow = event.MatchScore < event.Threshold
-                        
                     self.MatchScoreUpdated.emit((index, event.MatchScore))
                     
-                    # Rising Edge (Off -> On)
-                    if isMatchNow and not event.IsCurrentlyHeld or \
-                       isMatchNow and (time.time() * 1000 - event.TimeOfLastTriggerMilliseconds > 5000):
+                    if event.TriggerWhenMatch:
+                        isConditionMet = event.MatchScore >= event.Threshold
+                    else:
+                        isConditionMet = event.MatchScore < event.Threshold
+                        
+                    currentTimeMs = int(time.time() * 1000)
+                    timeSinceLastTrigger = currentTimeMs - event.TimeOfLastTriggerMilliseconds
+
+                    # Logic Gates
+                    isRisingEdge = isConditionMet and not event.IsCurrentlyHeld
+                    isRetrigger = isConditionMet and (timeSinceLastTrigger > 5000)
+
+                    if isRisingEdge or isRetrigger:
                         self.EventTriggered.emit(event)
-                        event.TimeOfLastTriggerMilliseconds = int(time.time() * 1000)
-                        event.IsCurrentlyHeld = isMatchNow
+                        event.TimeOfLastTriggerMilliseconds = currentTimeMs
+
+                    # Sync state
+                    event.IsCurrentlyHeld = isConditionMet
                         
                 elif event.SelectedActivationType == ActivationType.ProgessBar:
                     if localImage is None:
@@ -643,18 +649,26 @@ class TriggerMonitorThread(QThread):
                     
                     event.PercentFilled = EstimateProgressBarPercentage(localImageRoi)
                     self.MatchScoreUpdated.emit((index, event.PercentFilled))
+
                     
                     if event.TriggerWhenMatch:
-                        isFilledNow = event.PercentFilled >= event.Threshold
+                        isConditionMet = event.PercentFilled >= event.Threshold
                     else:
-                        isFilledNow = event.PercentFilled < event.Threshold
+                        isConditionMet = event.PercentFilled < event.Threshold
                         
-                    # Rising Edge (Off -> On)
-                    if isFilledNow and not event.IsCurrentlyHeld or \
-                       isFilledNow and (time.time() * 1000 - event.TimeOfLastTriggerMilliseconds > 5000):
+                    currentTimeMs = int(time.time() * 1000)
+                    timeSinceLastTrigger = currentTimeMs - event.TimeOfLastTriggerMilliseconds
+
+                    # Logic Gates
+                    isRisingEdge = isConditionMet and not event.IsCurrentlyHeld
+                    isRetrigger = isConditionMet and (timeSinceLastTrigger > 5000)
+
+                    if isRisingEdge or isRetrigger:
                         self.EventTriggered.emit(event)
-                        event.TimeOfLastTriggerMilliseconds = int(time.time() * 1000)
-                        event.IsCurrentlyHeld = isFilledNow
+                        event.TimeOfLastTriggerMilliseconds = currentTimeMs
+
+                    # Sync state
+                    event.IsCurrentlyHeld = isConditionMet
             
             time.sleep(self._pollIntervalMs / 1000.0)
 
@@ -2151,17 +2165,17 @@ class DashboardView(QWidget):
             except ValueError:
                 QMessageBox.warning(self, "Error", "Invalid threshold.")
 
-    def _onCommitTriggerWhenMatch(self, state: int) -> None:
+    def _onCommitTriggerWhenMatch(self, checked: bool) -> None:
         """
         Commit trigger when match changes.
         
         Args:
-            state: Check state
+            checked: Check state
         """
         item = self.eventListWidget.currentItem()
         if item:
             eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            eventObj.TriggerWhenMatch = (state == Qt.CheckState.Checked)
+            eventObj.TriggerWhenMatch = checked
 
     def _moveStep(self, direction: int) -> None:
         """
