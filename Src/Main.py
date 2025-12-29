@@ -1561,7 +1561,7 @@ class DashboardView(QWidget):
         self.thresholdWidgetLayout = QVBoxLayout()
         
         self.thresholdWidgetMatchScoreLayout = QHBoxLayout()
-        self.thresholdMatchScoreLabel = QLabel("0.000")
+        self.thresholdMatchScoreLabel = QLabel("0.0")
         self.thresholdWidgetMatchScoreLayout.addWidget(QLabel("Match Score:"))
         self.thresholdWidgetMatchScoreLayout.addWidget(self.thresholdMatchScoreLabel)
         
@@ -2302,7 +2302,7 @@ class DashboardView(QWidget):
         if self.eventListWidget.currentRow() != index:
             return
             
-        self.thresholdMatchScoreLabel.setText(f"{score:.3f}")
+        self.thresholdMatchScoreLabel.setText(f"{score}")
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """
