@@ -402,7 +402,7 @@ class TriggerMonitorThread(QThread):
                     self.MatchScoreUpdated.emit((index, event.MatchScore))
 
                     # Rising Edge (Off -> On)
-                    if isMatchNow and not event.IsCurrentlyHeld or isMatchNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 2000):
+                    if isMatchNow and not event.IsCurrentlyHeld or isMatchNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 5000):
                         self.EventTriggered.emit(event)
                         event.TimeOfLastTriggerMs = int(time.time() * 1000)
 
@@ -423,7 +423,7 @@ class TriggerMonitorThread(QThread):
                     except Exception as e:
                         print(f"Progress bar estimation error for event '{event.Name}': {e}")
                         continue
-                    
+
                     self.MatchScoreUpdated.emit((index, event.PercentFilled))
 
                     if event.TriggerWhenMatch:
@@ -433,7 +433,7 @@ class TriggerMonitorThread(QThread):
 
                     # Rising Edge (Off -> On)
                     # Rising Edge (Off -> On)
-                    if isFilledNow and not event.IsCurrentlyHeld or isFilledNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 2000):
+                    if isFilledNow and not event.IsCurrentlyHeld or isFilledNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 5000):
                         self.EventTriggered.emit(event)
                         event.TimeOfLastTriggerMs = int(time.time() * 1000)
 
