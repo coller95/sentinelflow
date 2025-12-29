@@ -1,19 +1,31 @@
 """
 SentinelFlow Main Dashboard
-Description: PySide6 GUI refactored using MVVM pattern.
-Naming Convention: Microsoft CamelCase Guidelines.
+Description: PySide6 GUI application for window automation using MVVM pattern.
+Author: SentinelFlow Team
+Version: 1.0.0
 """
+# pylint: disable=too-many-lines
+
+# =============================================================================
+# IMPORTS
+# =============================================================================
+
+# Standard library imports
 import os
 import sys
 import time
 import pickle
 from enum import Enum, auto
-from typing import cast, List, Optional, Tuple, Any, Callable
+from typing import (
+    cast, List, Optional, Tuple, Any, Callable, Dict, Final
+)
+
+# Third-party imports
 import numpy as np
 import cv2
 from PySide6.QtCore import (
-    Signal, QThread, Qt, QPoint, QObject, QSize, QRect, 
-    QMutexLocker, QMutex
+    Signal, QThread, Qt, QPoint, QObject, QSize, QRect,
+    QMutex, QMutexLocker
 )
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -22,92 +34,190 @@ from PySide6.QtWidgets import (
     QDialog, QInputDialog, QRubberBand, QCheckBox
 )
 from PySide6.QtGui import (
-    QPainter, QPen, QImage, QPixmap, QIcon, QKeyEvent, 
+    QPainter, QPen, QImage, QPixmap, QIcon, QKeyEvent,
     QMouseEvent, QPaintEvent, QResizeEvent, QCloseEvent
 )
 
-# -------------------------
 # Local imports
-# -------------------------
 from Src.Helper import (
     sendKeystrokeToWindow, sendMouseClickToWindow, captureWindowByHwnd,
     findHwndByTitle, launchHwndByExecutable, ResizeWindow, IsHotkeyActive,
-    KeyNameFromVk, vkFromKeyName, cropImage, matchTemplate, 
+    KeyNameFromVk, vkFromKeyName, cropImage, matchTemplate,
     estimateProgressBarPercentage, findPidByHwnd
 )
+
+# =============================================================================
+# CONSTANTS AND GLOBAL CONFIGURATION
+# =============================================================================
 
 # High DPI Scaling setup
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
-# =========================
-# MODELS
-# =========================
+# UI styling constants
+BUTTON_STYLE_RUNNING: Final[str] = """
+QPushButton {
+    background-color: #c0392b; /* Darker Red */
+    color: white;
+    border-radius: 6px;
+    font-weight: bold;
+    padding: 8px;
+}
+QPushButton:hover {
+    background-color: #e74c3c; /* Brighter Red */
+}
+"""
+
+BUTTON_STYLE_STOPPED: Final[str] = """
+QPushButton {
+    background-color: #27ae60; /* Darker Green */
+    color: white;
+    border-radius: 6px;
+    font-weight: bold;
+    padding: 8px;
+}
+QPushButton:hover {
+    background-color: #2ecc71; /* Brighter Green */
+}
+"""
+
+# =============================================================================
+# ENUMERATIONS
+# =============================================================================
+
+class ActivationType(Enum):
+    """Types of event activation mechanisms."""
+    NotSet = auto()
+    Hotkey = auto()
+    Loop = auto()
+    ImageMatchRoi = auto()
+    ProgessBar = auto()
+
+class InputType(Enum):
+    """Types of macro input steps."""
+    Mouse = auto()
+    Keyboard = auto()
+    Delay = auto()
+
+# =============================================================================
+# MODEL CLASSES
+# =============================================================================
+
 class RectangleRegion:
-    """Represents a normalized rectangle region with x, y, width and height values between 0-1."""
+    """
+    Represents a normalized rectangle region with x, y, width and height values between 0-1.
+    
+    Properties:
+        XN: Normalized X coordinate (0.0 to 1.0)
+        YN: Normalized Y coordinate (0.0 to 1.0)
+        WN: Normalized width (0.0 to 1.0)
+        HN: Normalized height (0.0 to 1.0)
+    """
     
     def __init__(self, xN: float = 0.0, yN: float = 0.0, wN: float = 1.0, hN: float = 1.0) -> None:
+        """
+        Initialize a normalized rectangle region.
+        
+        Args:
+            xN: Normalized X coordinate (0.0 to 1.0)
+            yN: Normalized Y coordinate (0.0 to 1.0)
+            wN: Normalized width (0.0 to 1.0)
+            hN: Normalized height (0.0 to 1.0)
+        """
         self._xN: float = xN
         self._yN: float = yN
         self._wN: float = wN
         self._hN: float = hN
-    
+
     @property
     def XN(self) -> float:
+        """Get the normalized X coordinate."""
         return self._xN
-    
+
     @XN.setter
     def XN(self, value: float) -> None:
+        """Set the normalized X coordinate."""
         self._xN = value
-    
+
     @property
     def YN(self) -> float:
+        """Get the normalized Y coordinate."""
         return self._yN
-    
+
     @YN.setter
     def YN(self, value: float) -> None:
+        """Set the normalized Y coordinate."""
         self._yN = value
-    
+
     @property
     def WN(self) -> float:
+        """Get the normalized width."""
         return self._wN
-    
+
     @WN.setter
     def WN(self, value: float) -> None:
+        """Set the normalized width."""
         self._wN = value
-    
+
     @property
     def HN(self) -> float:
+        """Get the normalized height."""
         return self._hN
-    
+
     @HN.setter
     def HN(self, value: float) -> None:
+        """Set the normalized height."""
         self._hN = value
 
 
 class MacroStep:
-    """Represents a single step in a macro sequence."""
+    """
+    Represents a single step in a macro sequence.
     
-    class InputType(Enum):
-        Mouse = auto()
-        Keyboard = auto()
-        Delay = auto()
-    
+    Attributes:
+        InputType: Enumeration of supported input types
+    """
+
     def __init__(self, inputType: InputType, value: Any = None, description: str = "") -> None:
-        self._inputType: MacroStep.InputType = inputType
+        """
+        Initialize a macro step.
+        
+        Args:
+            inputType: Type of input (Mouse, Keyboard, Delay)
+            value: Value specific to the input type
+            description: Human-readable description of the step
+        """
+        self._inputType: InputType = inputType
         self._value: Any = value
         self._description: str = description
-    
+
     @property
     def Description(self) -> str:
+        """Get the description of this macro step."""
         return self._description
-    
+
     @Description.setter
     def Description(self, value: str) -> None:
+        """Set the description of this macro step."""
         self._description = value
-    
+
+    @property
+    def InputType(self) -> InputType:
+        """Get the input type of this macro step."""
+        return self._inputType
+
+    @property
+    def Value(self) -> Any:
+        """Get the value of this macro step."""
+        return self._value
+
     def Execute(self, windowHandle: int) -> None:
-        """Public entry point to run this specific step."""
+        """
+        Execute this macro step on the specified window.
+        
+        Args:
+            windowHandle: Handle to the target window
+        """
         if self._inputType == self.InputType.Keyboard:
             self._sendKeystroke(windowHandle, self._value)
         elif self._inputType == self.InputType.Mouse:
@@ -116,210 +226,329 @@ class MacroStep:
         elif self._inputType == self.InputType.Delay:
             # self._value is milliseconds
             time.sleep(self._value / 1000.0)
-    
+
     def _sendKeystroke(self, hwnd: int, vk: int) -> None:
-        """Private: Handles low-level background keyboard input."""
+        """
+        Send a keyboard keystroke to the specified window.
+        
+        Args:
+            hwnd: Window handle
+            vk: Virtual key code
+        """
         sendKeystrokeToWindow(hwnd, vk)
-    
+
     def _sendMouseClick(self, hwnd: int, xN: float, yN: float) -> None:
-        """Private: Handles low-level background mouse input."""
+        """
+        Send a mouse click to normalized coordinates in the specified window.
+        
+        Args:
+            hwnd: Window handle
+            xN: Normalized X coordinate (0.0 to 1.0)
+            yN: Normalized Y coordinate (0.0 to 1.0)
+        """
         sendMouseClickToWindow(hwnd, xN, yN)
 
 
 class ActionItem:
-    """Represents a sequence of macro steps to be executed."""
+    """
+    Represents a sequence of macro steps to be executed.
+    
+    Properties:
+        MacroSteps: List of macro steps in this action
+    """
     
     def __init__(self) -> None:
+        """Initialize an empty action item."""
         self._macroSteps: List[MacroStep] = []
-    
+
     @property
     def MacroSteps(self) -> List[MacroStep]:
+        """Get the list of macro steps in this action."""
         return self._macroSteps
-    
+
     def AddStep(self, macroStep: MacroStep) -> None:
+        """
+        Add a macro step to this action.
+        
+        Args:
+            macroStep: Step to add
+        """
         self._macroSteps.append(macroStep)
-    
+
     def RemoveStep(self, index: int) -> None:
+        """
+        Remove a macro step at the specified index.
+        
+        Args:
+            index: Index of the step to remove
+        """
         if 0 <= index < len(self._macroSteps):
             self._macroSteps.pop(index)
-    
+
     def Execute(self, windowHandle: int) -> None:
+        """
+        Execute all macro steps in this action on the specified window.
+        
+        Args:
+            windowHandle: Handle to the target window
+        """
         if not self._macroSteps:
             return
+        
         for step in self._macroSteps:
             step.Execute(windowHandle)
 
 
 class EventItem:
-    """Represents an event that can trigger an action."""
+    """
+    Represents an event that can trigger an action based on various conditions.
     
-    class ActivationType(Enum):
-        NotSet = auto()
-        Hotkey = auto()
-        Loop = auto()
-        ImageMatchRoi = auto()
-        ProgessBar = auto()
-    
-    def __init__(self, name: str, action: ActionItem, enabled: bool = False, 
-                 activationType: ActivationType = ActivationType.NotSet, 
-                 loopCount: int = 0, intervalMs: int = 1000, 
-                 roi: RectangleRegion = RectangleRegion(0.0, 0.0, 1.0, 1.0), 
-                 threshold: float = 0.99) -> None:
+    Properties:
+        Name: Name of the event
+        Enabled: Whether the event is active
+        SelectedActivationType: Type of activation mechanism
+        ActivationVkList: List of virtual key codes for hotkey activation
+        IsCurrentlyHeld: Current state of hotkey activation
+        LoopCount: Number of times to loop (0 = infinite, -1 = disabled)
+        LoopCounter: Current loop iteration count
+        IntervalMs: Interval between loop executions in milliseconds
+        TimeOfLastTriggerMs: Timestamp of last trigger in milliseconds
+        Roi: Region of interest for image matching
+        TemplateImage: Template image for image matching
+        Threshold: Threshold for image matching or progress bar
+        TriggerWhenMatch: Whether to trigger when match is found or not found
+        MatchScore: Last match score from image matching
+        PercentFilled: Last percentage filled from progress bar detection
+        AssignedAction: Action to execute when triggered
+    """
+
+    def __init__(
+        self,
+        name: str,
+        action: ActionItem,
+        enabled: bool = False,
+        activationType: ActivationType = ActivationType.NotSet,
+        loopCount: int = 0,
+        intervalMs: int = 1000,
+        roi: RectangleRegion = RectangleRegion(0.0, 0.0, 1.0, 1.0),
+        threshold: float = 0.99
+    ) -> None:
+        """
+        Initialize an event item.
+        
+        Args:
+            name: Name of the event
+            action: Action to execute when triggered
+            enabled: Whether the event is active
+            activationType: Type of activation mechanism
+            loopCount: Number of times to loop (0 = infinite, -1 = disabled)
+            intervalMs: Interval between loop executions in milliseconds
+            roi: Region of interest for image matching
+            threshold: Threshold for image matching or progress bar
+        """
         self._name: str = name
         self._enabled: bool = enabled
-        self._selectedActivationType: EventItem.ActivationType = activationType
+        self._selectedActivationType: ActivationType = activationType
         self._activationVkList: List[int] = []
         self.__isCurrentlyHeld: bool = False
         self._loopCount: int = loopCount
         self.__loopCounter: int = 0
         self._intervalMs: int = intervalMs
         self.__timeOfLastTriggerMs: float = 0.0
-        self._roi: RectangleRegion = roi  # Normalized ROI (xN, yN, wN, hN)
-        self._threshold: float = threshold  # Image match threshold
+        self._roi: RectangleRegion = roi
+        self._threshold: float = threshold
         self._triggerWhenMatch: bool = True
-        self.__matchScore: float = 0.0  # Last match score
-        self.__templateImage: Optional[np.ndarray[Any, Any]] = None  # Loaded template image for matching
-        self.__percentFilled: float = 0.0  # For progress bar
+        self.__matchScore: float = 0.0
+        self.__templateImage: Optional[np.ndarray[Any, Any]] = None
+        self.__percentFilled: float = 0.0
         self._assignedAction: ActionItem = action
-    
+
     @property
     def Name(self) -> str:
+        """Get the name of this event."""
         return self._name
-    
+
     @Name.setter
     def Name(self, value: str) -> None:
+        """Set the name of this event."""
         self._name = value
-    
+
     @property
     def Enabled(self) -> bool:
+        """Get whether this event is enabled."""
         return self._enabled
-    
+
     @Enabled.setter
     def Enabled(self, value: bool) -> None:
+        """Set whether this event is enabled."""
         self._enabled = value
-    
+
     @property
     def SelectedActivationType(self) -> ActivationType:
+        """Get the activation type for this event."""
         return self._selectedActivationType
-    
+
     @SelectedActivationType.setter
     def SelectedActivationType(self, value: ActivationType) -> None:
+        """Set the activation type for this event."""
         self._selectedActivationType = value
-    
+
     @property
     def ActivationVkList(self) -> List[int]:
+        """Get the list of virtual key codes for hotkey activation."""
         return self._activationVkList
-    
+
     @ActivationVkList.setter
     def ActivationVkList(self, value: List[int]) -> None:
+        """Set the list of virtual key codes for hotkey activation."""
         self._activationVkList = value
-    
+
     @property
     def IsCurrentlyHeld(self) -> bool:
+        """Get the current state of hotkey activation."""
         return self.__isCurrentlyHeld
-    
+
     @IsCurrentlyHeld.setter
     def IsCurrentlyHeld(self, value: bool) -> None:
+        """Set the current state of hotkey activation."""
         self.__isCurrentlyHeld = value
-    
+
     @property
     def LoopCount(self) -> int:
+        """Get the number of times to loop."""
         return self._loopCount
-    
+
     @LoopCount.setter
     def LoopCount(self, value: int) -> None:
+        """Set the number of times to loop."""
         self._loopCount = value
-    
+
     @property
     def LoopCounter(self) -> int:
+        """Get the current loop iteration count."""
         return self.__loopCounter
-    
+
     @LoopCounter.setter
     def LoopCounter(self, value: int) -> None:
+        """Set the current loop iteration count."""
         self.__loopCounter = value
-    
+
     @property
     def IntervalMs(self) -> int:
+        """Get the interval between loop executions in milliseconds."""
         return self._intervalMs
-    
+
     @IntervalMs.setter
     def IntervalMs(self, value: int) -> None:
+        """Set the interval between loop executions in milliseconds."""
         self._intervalMs = value
-    
+
     @property
     def TimeOfLastTriggerMs(self) -> float:
+        """Get the timestamp of last trigger in milliseconds."""
         return self.__timeOfLastTriggerMs
-    
+
     @TimeOfLastTriggerMs.setter
     def TimeOfLastTriggerMs(self, value: float) -> None:
+        """Set the timestamp of last trigger in milliseconds."""
         self.__timeOfLastTriggerMs = value
-    
+
     @property
     def Roi(self) -> RectangleRegion:
+        """Get the region of interest for image matching."""
         return self._roi
-    
+
     @Roi.setter
     def Roi(self, value: RectangleRegion) -> None:
+        """Set the region of interest for image matching."""
         self._roi = value
-    
+
     @property
     def TemplateImage(self) -> Optional[np.ndarray[Any, Any]]:
+        """Get the template image for image matching."""
         return self.__templateImage
-    
+
     @TemplateImage.setter
     def TemplateImage(self, value: Optional[np.ndarray[Any, Any]]) -> None:
+        """Set the template image for image matching."""
         self.__templateImage = value
-    
+
     @property
     def Threshold(self) -> float:
+        """Get the threshold for image matching or progress bar."""
         return self._threshold
-    
+
     @Threshold.setter
     def Threshold(self, value: float) -> None:
+        """Set the threshold for image matching or progress bar."""
         self._threshold = value
-    
+
     @property
     def TriggerWhenMatch(self) -> bool:
+        """Get whether to trigger when match is found or not found."""
         return self._triggerWhenMatch
-    
+
     @TriggerWhenMatch.setter
     def TriggerWhenMatch(self, value: bool) -> None:
+        """Set whether to trigger when match is found or not found."""
         self._triggerWhenMatch = value
-    
+
     @property
     def MatchScore(self) -> float:
+        """Get the last match score from image matching."""
         return self.__matchScore
-    
+
     @MatchScore.setter
     def MatchScore(self, value: float) -> None:
+        """Set the last match score from image matching."""
         self.__matchScore = value
-    
+
     @property
     def PercentFilled(self) -> float:
+        """Get the last percentage filled from progress bar detection."""
         return self.__percentFilled
-    
+
     @PercentFilled.setter
     def PercentFilled(self, value: float) -> None:
+        """Set the last percentage filled from progress bar detection."""
         self.__percentFilled = value
-    
+
     @property
     def AssignedAction(self) -> ActionItem:
+        """Get the action assigned to this event."""
         return self._assignedAction
-    
+
     @AssignedAction.setter
     def AssignedAction(self, value: ActionItem) -> None:
+        """Set the action assigned to this event."""
         self._assignedAction = value
-    
+
     def Trigger(self, windowHandle: int) -> None:
+        """
+        Trigger the event's assigned action on the specified window.
+        
+        Args:
+            windowHandle: Handle to the target window
+        """
         if self._enabled and self._assignedAction:
             self._assignedAction.Execute(windowHandle)
 
 
-# =========================
-# VIEWMODEL
-# =========================
+# =============================================================================
+# VIEWMODEL CLASSES
+# =============================================================================
+
 class TriggerMonitorThread(QThread):
-    """Monitors for trigger conditions and emits signals when events are triggered."""
+    """
+    Monitors for trigger conditions and emits signals when events are triggered.
+    
+    Signals:
+        EventTriggered: Emitted when an event is triggered
+        EventDisabled: Emitted when an event is disabled
+        FlowChanged: Emitted when the flow state changes
+        FlowHotkeyChanged: Emitted when the flow hotkey changes
+        MatchScoreUpdated: Emitted when a match score is updated
+    """
     
     EventTriggered = Signal(EventItem)
     EventDisabled = Signal(EventItem)
@@ -328,6 +557,13 @@ class TriggerMonitorThread(QThread):
     MatchScoreUpdated = Signal(tuple)  # (index, score)
 
     def __init__(self, viewModel: "DashboardViewModel", pollIntervalMs: int = 50) -> None:
+        """
+        Initialize the trigger monitor thread.
+        
+        Args:
+            viewModel: Reference to the dashboard view model
+            pollIntervalMs: Polling interval in milliseconds
+        """
         super().__init__()
         self._viewModel: DashboardViewModel = viewModel
         self._pollIntervalMs: int = pollIntervalMs
@@ -343,28 +579,46 @@ class TriggerMonitorThread(QThread):
         self._flowHotkeyIsCurrentlyHeld: bool = False
 
     def SetImage(self, img: Optional[np.ndarray[Any, Any]]) -> None:
-        """Called by the Capture Thread to provide a new frame"""
+        """
+        Set the current image for processing.
+        
+        Args:
+            img: Image data to process
+        """
         with QMutexLocker(self._image_mutex):
             self._current_img = img
 
     def SetFlow(self, flow: bool) -> None:
-        """Sets the flow state directly."""
+        """
+        Set the flow state directly.
+        
+        Args:
+            flow: New flow state
+        """
         self._flow = flow
         self.FlowChanged.emit(self._flow)
 
     def ToggleFlow(self) -> None:
+        """Toggle the flow state."""
         self.SetFlow(not self._flow)
-        self.FlowChanged.emit(self._flow)
 
     def SetFlowHotkey(self, vkList: List[int]) -> None:
+        """
+        Set the hotkey to toggle flow state.
+        
+        Args:
+            vkList: List of virtual key codes
+        """
         self._flowHotkeyVkList = vkList
         print(f"Flow hotkey set to: {vkList}")
         self.FlowHotkeyChanged.emit(vkList)
 
     def GetFlowHotkey(self) -> List[int]:
+        """Get the current flow hotkey virtual key codes."""
         return self._flowHotkeyVkList
 
     def run(self) -> None:
+        """Main thread execution loop."""
         while self._isRunning:
             # Check flow hotkey
             isDownNow = IsHotkeyActive(self._flowHotkeyVkList)
@@ -377,6 +631,7 @@ class TriggerMonitorThread(QThread):
                 continue
             
             # Copy image for processing
+            local_img: Optional[np.ndarray[Any, Any]] = None
             with QMutexLocker(self._image_mutex):
                 local_img = self._current_img
                 self._current_img = None
@@ -388,29 +643,32 @@ class TriggerMonitorThread(QThread):
                 
                 event: EventItem = eventObj  # For easier reference
                 
-                if event.SelectedActivationType == EventItem.ActivationType.Hotkey:
+                if event.SelectedActivationType == ActivationType.Hotkey:
                     if len(event.ActivationVkList) == 0:
                         continue
+                    
                     isDownNow = IsHotkeyActive(event.ActivationVkList)
                     if event.IsCurrentlyHeld and not isDownNow:
                         self.EventTriggered.emit(event)
                     event.IsCurrentlyHeld = isDownNow
                 
-                elif event.SelectedActivationType == EventItem.ActivationType.Loop:
+                elif event.SelectedActivationType == ActivationType.Loop:
                     if event.LoopCount < 0:
                         continue
                     elif event.LoopCount > 0:
                         if event.LoopCounter >= event.LoopCount:
                             event.Enabled = False
                             self.EventDisabled.emit(event)
+                    
                     # Handle loop timing
                     if time.time() * 1000 - event.TimeOfLastTriggerMs < event.IntervalMs:
                         continue
+                    
                     event.LoopCounter += 1
                     event.TimeOfLastTriggerMs = time.time() * 1000
                     self.EventTriggered.emit(event)
                 
-                elif event.SelectedActivationType == EventItem.ActivationType.ImageMatchRoi:
+                elif event.SelectedActivationType == ActivationType.ImageMatchRoi:
                     if local_img is None or event.TemplateImage is None:
                         continue
                     
@@ -425,12 +683,13 @@ class TriggerMonitorThread(QThread):
                     self.MatchScoreUpdated.emit((index, event.MatchScore))
                     
                     # Rising Edge (Off -> On)
-                    if isMatchNow and not event.IsCurrentlyHeld or isMatchNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 2000):
+                    if isMatchNow and not event.IsCurrentlyHeld or \
+                       isMatchNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 2000):
                         self.EventTriggered.emit(event)
                         event.TimeOfLastTriggerMs = int(time.time() * 1000)
                         event.IsCurrentlyHeld = isMatchNow
                 
-                elif event.SelectedActivationType == EventItem.ActivationType.ProgessBar:
+                elif event.SelectedActivationType == ActivationType.ProgessBar:
                     if local_img is None:
                         continue
                     
@@ -445,7 +704,8 @@ class TriggerMonitorThread(QThread):
                         isFilledNow = event.PercentFilled < event.Threshold
                     
                     # Rising Edge (Off -> On)
-                    if isFilledNow and not event.IsCurrentlyHeld or isFilledNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 2000):
+                    if isFilledNow and not event.IsCurrentlyHeld or \
+                       isFilledNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 2000):
                         self.EventTriggered.emit(event)
                         event.TimeOfLastTriggerMs = int(time.time() * 1000)
                         event.IsCurrentlyHeld = isFilledNow
@@ -453,16 +713,30 @@ class TriggerMonitorThread(QThread):
             time.sleep(self._pollIntervalMs / 1000.0)
 
     def Stop(self) -> None:
+        """Stop the thread execution."""
         self._isRunning = False
         self.wait()
 
 
 class LiveCaptureThread(QThread):
-    """Captures screenshots of the target window at regular intervals."""
+    """
+    Captures screenshots of the target window at regular intervals.
+    
+    Signals:
+        ImageCaptured: Emitted when an image is captured
+    """
     
     ImageCaptured = Signal(object)  # Image data
 
     def __init__(self, hwnd: int, intervalMs: int = 200, parent: Optional[QObject] = None) -> None:
+        """
+        Initialize the live capture thread.
+        
+        Args:
+            hwnd: Window handle to capture
+            intervalMs: Capture interval in milliseconds
+            parent: Parent QObject
+        """
         super().__init__(parent)
         self.Hwnd: int = hwnd
         self.IntervalMs: int = intervalMs
@@ -470,6 +744,7 @@ class LiveCaptureThread(QThread):
         self._imageCount: int = 0
 
     def run(self) -> None:
+        """Main thread execution loop."""
         self._isRunning = True
         while self._isRunning:
             try:
@@ -479,15 +754,29 @@ class LiveCaptureThread(QThread):
                 print(f"Live capture error: {e}")
                 self.ImageCaptured.emit(None)
                 self._isRunning = False
+            
             time.sleep(self.IntervalMs / 1000.0)
 
     def Stop(self) -> None:
+        """Stop the thread execution."""
         self._isRunning = False
         self.wait()
 
 
 class DashboardViewModel(QObject):
-    """Handles the business logic and state management."""
+    """
+    Handles the business logic and state management for the dashboard.
+    
+    Signals:
+        EventAdded: Emitted when an event is added
+        EventRemoved: Emitted when an event is removed
+        HwndUpdated: Emitted when the window handle is updated
+        CaptureImageReady: Emitted when a capture image is ready
+        EventDisabled: Emitted when an event is disabled
+        EventFlowChange: Emitted when the flow state changes
+        EventFlowHotkeyChange: Emitted when the flow hotkey changes
+        EventMatchScoreUpdated: Emitted when a match score is updated
+    """
     
     EventAdded = Signal(EventItem)
     EventRemoved = Signal(int)
@@ -499,66 +788,117 @@ class DashboardViewModel(QObject):
     EventMatchScoreUpdated = Signal(tuple)  # (index, score)
 
     def __init__(self) -> None:
+        """Initialize the dashboard view model."""
         super().__init__()
         self.EventItems: List[EventItem] = []
         self.CurrentHwnd: Optional[int] = None
         self.LiveThread: Optional[LiveCaptureThread] = None
         self.LastLiveImg: Optional[np.ndarray[Any, Any]] = None
         self.TriggerThread: Optional[TriggerMonitorThread] = None
-        self.StartSentinel()
+        
+        self.StartSentinel()  # Initialize the sentinel monitoring
 
     def AddNewEvent(self) -> None:
+        """Add a new event to the model."""
         newAction = ActionItem()
         newEvent = EventItem(name="New Event", action=newAction)
         self.EventItems.append(newEvent)
         self.EventAdded.emit(newEvent)
 
     def DeleteEvent(self, index: int) -> None:
+        """
+        Delete an event at the specified index.
+        
+        Args:
+            index: Index of the event to delete
+        """
         if 0 <= index < len(self.EventItems):
             self.EventItems.pop(index)
             self.EventRemoved.emit(index)
 
     def FindWindow(self, title: str) -> Optional[int]:
+        """
+        Find a window by its title.
+        
+        Args:
+            title: Title of the window to find
+        
+        Returns:
+            Window handle if found, None otherwise
+        """
         hwnd = findHwndByTitle(title)
         self.CurrentHwnd = hwnd
         self.HwndUpdated.emit(hwnd)
         return hwnd
 
     def LaunchApp(self, path: str) -> Optional[int]:
+        """
+        Launch an application from the specified path.
+        
+        Args:
+            path: Path to the executable
+        
+        Returns:
+            Process ID if launched successfully, None otherwise
+        """
         if path:
             return launchHwndByExecutable(path)
         return None
 
     def ResizeTargetWindow(self, width: int, height: int) -> None:
+        """
+        Resize the target window to the specified dimensions.
+        
+        Args:
+            width: New width in pixels
+            height: New height in pixels
+        """
         if self.CurrentHwnd:
             ResizeWindow(self.CurrentHwnd, width, height)
 
     def ToggleCapture(self, active: bool) -> None:
+        """
+        Toggle live capture on or off.
+        
+        Args:
+            active: True to start capture, False to stop
+        """
         if active and self.CurrentHwnd:
             self.StopCapture()
             self.LiveThread = LiveCaptureThread(self.CurrentHwnd)
             self.LiveThread.ImageCaptured.connect(self._HandleImageCaptured)
+            
             if self.TriggerThread is not None:
                 self.LiveThread.ImageCaptured.connect(self.TriggerThread.SetImage)
+            
             self.LiveThread.start()
         else:
             self.StopCapture()
 
     def _HandleImageCaptured(self, img: np.ndarray[Any, Any]) -> None:
+        """
+        Handle a captured image.
+        
+        Args:
+            img: Captured image data
+        """
         self.LastLiveImg = img
         self.CaptureImageReady.emit(img)
 
     def StopCapture(self) -> None:
+        """Stop the live capture thread."""
         if self.LiveThread:
             self.LiveThread.Stop()
             try:
                 self.LiveThread.ImageCaptured.disconnect()
             except RuntimeError:
                 pass
+            
             self.LiveThread.wait()
             self.LiveThread = None
 
     def StartSentinel(self) -> None:
+        """Start the sentinel monitoring thread."""
         if not self.TriggerThread:
             self.TriggerThread = TriggerMonitorThread(self)
             self.TriggerThread.EventTriggered.connect(self._OnEventTriggered)
@@ -569,11 +909,23 @@ class DashboardViewModel(QObject):
             self.TriggerThread.start()
 
     def _OnEventTriggered(self, event: EventItem) -> None:
+        """
+        Handle an event trigger.
+        
+        Args:
+            event: Event that was triggered
+        """
         print(f"Event Triggered: {event.Name}")
         if self.CurrentHwnd:
             event.Trigger(self.CurrentHwnd)
 
     def _OnEventDisabled(self, event: EventItem) -> None:
+        """
+        Handle an event being disabled.
+        
+        Args:
+            event: Event that was disabled
+        """
         print(f"Event Disabled: {event.Name}")
         try:
             index = self.EventItems.index(event)
@@ -582,27 +934,47 @@ class DashboardViewModel(QObject):
             pass
 
     def _OnFlowChanged(self, flow: bool) -> None:
+        """
+        Handle a flow state change.
+        
+        Args:
+            flow: New flow state
+        """
         self.EventFlowChange.emit(flow)
 
     def SaveState(self, filePath: str) -> None:
-        """Serializes the EventItems list to a binary file using Pickle."""
+        """
+        Save the current state to a file.
+        
+        Args:
+            filePath: Path to save the state to
+        """
         try:
             flowHotkey = self.TriggerThread.GetFlowHotkey() if self.TriggerThread else []
-            data_to_save: dict[str, Any] = {
+            data_to_save: Dict[str, Any] = {
                 "events": self.EventItems,
                 "settings": flowHotkey,  # A second object
                 "version": "1.0.0"
             }
+            
             with open(filePath, 'wb') as f:
                 pickle.dump(data_to_save, f)
+            
             print(f"State successfully saved to {filePath}")
         except Exception as e:
             print(f"SaveState Error: {e}")
             raise e
 
     def LoadState(self, filePath: str) -> None:
+        """
+        Load state from a file.
+        
+        Args:
+            filePath: Path to load the state from
+        """
         if not os.path.exists(filePath):
             return
+        
         try:
             with open(filePath, 'rb') as f:
                 data = pickle.load(f)
@@ -613,7 +985,7 @@ class DashboardViewModel(QObject):
             
             if isinstance(data, dict):
                 # New Format: Dictionary containing events and settings
-                data_dict: dict[str, Any] = data  # type: ignore
+                data_dict: Dict[str, Any] = cast(Dict[str, Any], data)
                 loaded_events = cast(List[EventItem], data_dict.get("events", []))
                 loaded_hotkey = cast(List[int], data_dict.get("settings", []))
                 print(f"Loading new format (v{data_dict.get('version', '1.0.0')})")
@@ -625,7 +997,9 @@ class DashboardViewModel(QObject):
             # Populate the UI/Model
             if self.TriggerThread is not None:
                 self.TriggerThread.SetFlow(False)  # Ensure flow is off during loading
+            
             self.EventItems.clear()
+            
             for event in loaded_events:
                 self.EventItems.append(event)
                 if hasattr(self, 'EventAdded'):
@@ -639,32 +1013,67 @@ class DashboardViewModel(QObject):
             raise e
 
     def EnableEvent(self, event: EventItem) -> None:
+        """
+        Enable an event.
+        
+        Args:
+            event: Event to enable
+        """
         event.Enabled = True
         event.LoopCounter = 0
 
     def DisableEvent(self, event: EventItem) -> None:
+        """
+        Disable an event.
+        
+        Args:
+            event: Event to disable
+        """
         event.Enabled = False
 
     def ToggleSentinelFlow(self) -> None:
+        """Toggle the sentinel flow state."""
         if self.TriggerThread:
             self.TriggerThread.ToggleFlow()
 
 
-# =========================
-# VIEW COMPONENTS
-# =========================
+# =============================================================================
+# VIEW CLASSES
+# =============================================================================
+
 class ClickableImageLabel(QLabel):
-    """An image label that emits a signal when clicked with normalized coordinates."""
+    """
+    An image label that emits a signal when clicked with normalized coordinates.
+    
+    Signals:
+        Clicked: Emitted when the label is clicked
+    
+    Properties:
+        NxValue: Normalized X coordinate of the marker
+        NyValue: Normalized Y coordinate of the marker
+    """
     
     Clicked = Signal(QPoint)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
+        """
+        Initialize the clickable image label.
+        
+        Args:
+            parent: Parent widget
+        """
         super().__init__(parent)
         self.NxValue: Optional[float] = None
         self.NyValue: Optional[float] = None
         self.setMouseTracking(True)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        """
+        Handle mouse press events.
+        
+        Args:
+            event: Mouse event
+        """
         if event.button() == Qt.MouseButton.LeftButton:
             w, h = self.width(), self.height()
             if w > 0 and h > 0:
@@ -674,12 +1083,26 @@ class ClickableImageLabel(QLabel):
                 self.update()
 
     def SetMarkerNormalized(self, nx: float, ny: float) -> None:
+        """
+        Set the marker position using normalized coordinates.
+        
+        Args:
+            nx: Normalized X coordinate (0.0 to 1.0)
+            ny: Normalized Y coordinate (0.0 to 1.0)
+        """
         self.NxValue = nx
         self.NyValue = ny
         self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
+        """
+        Handle paint events to draw the marker.
+        
+        Args:
+            event: Paint event
+        """
         super().paintEvent(event)
+        
         if self.NxValue is None or self.NyValue is None:
             return
         
@@ -689,33 +1112,59 @@ class ClickableImageLabel(QLabel):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(QPen(Qt.GlobalColor.red, 2))
+        
         size = 10
         painter.drawLine(x - size, y, x + size, y)
         painter.drawLine(x, y - size, x, y + size)
 
 
 class HotkeyCaptureDialog(QDialog):
-    """Dialog that captures a key combination when keys are pressed and released."""
+    """
+    Dialog that captures a key combination when keys are pressed and released.
+    
+    Properties:
+        CapturedVks: List of captured virtual key codes
+    """
     
     def __init__(self, parent: Optional[QWidget] = None) -> None:
+        """
+        Initialize the hotkey capture dialog.
+        
+        Args:
+            parent: Parent widget
+        """
         super().__init__(parent)
         self.setWindowTitle("Capture VK Combo")
         self.setFixedSize(250, 100)
+        
         self.CapturedVks: List[int] = []
         self._currentVks: set[int] = set()
         
         layout = QVBoxLayout(self)
         self.StatusLabel = QLabel("Holding: 0 keys", alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.StatusLabel)
+        
         self.setModal(True)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        """
+        Handle key press events.
+        
+        Args:
+            event: Key event
+        """
         vk = event.nativeVirtualKey()
         if vk > 0:
             self._currentVks.add(vk)
             self.StatusLabel.setText(f"Holding: {len(self._currentVks)} keys")
 
     def keyReleaseEvent(self, event: QKeyEvent) -> None:
+        """
+        Handle key release events.
+        
+        Args:
+            event: Key event
+        """
         # When keys are released, we finalize the list
         if self._currentVks:
             self.CapturedVks = list(self._currentVks)
@@ -723,9 +1172,25 @@ class HotkeyCaptureDialog(QDialog):
 
 
 class CropperWidget(QWidget):
-    """A PySide ROI selector that mimics the behavior of the Tkinter version."""
+    """
+    A PySide ROI selector that mimics the behavior of the Tkinter version.
     
-    def __init__(self, image_data: np.ndarray[Any, Any], on_crop: Callable[[np.ndarray[Any, Any], float, float, float, float], None]) -> None:
+    Properties:
+        on_crop: Callback function when crop is complete
+    """
+    
+    def __init__(
+        self,
+        image_data: np.ndarray[Any, Any],
+        on_crop: Callable[[np.ndarray[Any, Any], float, float, float, float], None]
+    ) -> None:
+        """
+        Initialize the cropper widget.
+        
+        Args:
+            image_data: Image data to display
+            on_crop: Callback function when crop is complete
+        """
         super().__init__()
         self.on_crop = on_crop
         self.setMinimumSize(800, 600)  # Give it a starting minimum size
@@ -743,6 +1208,7 @@ class CropperWidget(QWidget):
         # 3. Store the Original Pixmap
         self.original_pixmap = self._ndarray2QPixmap(image_data)
         layout.addWidget(self.image_label)
+        
         self.setLayout(layout)
         self.showMaximized()
         
@@ -750,7 +1216,12 @@ class CropperWidget(QWidget):
         self.origin = QPoint()
 
     def resizeEvent(self, event: QResizeEvent) -> None:
-        """This triggers every time the window is stretched."""
+        """
+        Handle resize events to scale the image.
+        
+        Args:
+            event: Resize event
+        """
         if not self.original_pixmap.isNull():
             # Scale the original image to fit the current label size
             scaled_pixmap = self.original_pixmap.scaled(
@@ -759,20 +1230,39 @@ class CropperWidget(QWidget):
                 Qt.TransformationMode.SmoothTransformation
             )
             self.image_label.setPixmap(scaled_pixmap)
+        
         super().resizeEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        """
+        Handle mouse press events to start selection.
+        
+        Args:
+            event: Mouse event
+        """
         if event.button() == Qt.MouseButton.LeftButton:
             self.origin = event.position().toPoint()
             self.rubber_band.setGeometry(QRect(self.origin, QSize()))
             self.rubber_band.show()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """
+        Handle mouse move events to update selection.
+        
+        Args:
+            event: Mouse event
+        """
         if not self.origin.isNull():
             # Update selection rectangle dynamically
             self.rubber_band.setGeometry(QRect(self.origin, event.position().toPoint()).normalized())
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """
+        Handle mouse release events to complete selection.
+        
+        Args:
+            event: Mouse event
+        """
         if event.button() == Qt.MouseButton.LeftButton:
             # 1. Get the geometry of the rubber band (Screen Space)
             selectionRect = self.rubber_band.geometry()
@@ -812,7 +1302,15 @@ class CropperWidget(QWidget):
             self.close()
 
     def _qpixmap2Ndarray(self, pixmap: QPixmap) -> np.ndarray[Any, Any]:
-        """Converts QPixmap to NumPy, handling row padding (stride)."""
+        """
+        Convert QPixmap to NumPy array.
+        
+        Args:
+            pixmap: QPixmap to convert
+        
+        Returns:
+            NumPy array representation
+        """
         # 1. Convert to a reliable format
         image = pixmap.toImage().convertToFormat(QImage.Format.Format_RGB888)
         width = image.width()
@@ -841,7 +1339,15 @@ class CropperWidget(QWidget):
         return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR).copy()
 
     def _ndarray2QPixmap(self, cv_img: np.ndarray[Any, Any]) -> QPixmap:
-        """Converts an OpenCV BGR array to a QPixmap."""
+        """
+        Convert OpenCV BGR array to QPixmap.
+        
+        Args:
+            cv_img: OpenCV BGR array
+        
+        Returns:
+            QPixmap representation
+        """
         height, width, _channel = cv_img.shape
         bytes_per_line = 3 * width
         
@@ -857,17 +1363,30 @@ class CropperWidget(QWidget):
 
 
 class DashboardView(QWidget):
-    """Main UI view for the SentinelFlow dashboard."""
+    """
+    Main UI view for the SentinelFlow dashboard.
+    
+    Properties:
+        ViewModel: Reference to the dashboard view model
+    """
     
     def __init__(self, viewModel: DashboardViewModel) -> None:
+        """
+        Initialize the dashboard view.
+        
+        Args:
+            viewModel: View model for this view
+        """
         super().__init__()
         self.ViewModel = viewModel
         self.InitializeComponents()
         self.WireUpBindings()
 
     def InitializeComponents(self) -> None:
+        """Initialize all UI components."""
         self.setWindowTitle("SentinelFlow Dashboard")
         self.resize(1000, 650)
+        
         self.MainLayout = QHBoxLayout(self)
         self.MainLayout.setContentsMargins(0, 0, 0, 0)
         self.MainLayout.setSpacing(5)
@@ -878,9 +1397,10 @@ class DashboardView(QWidget):
         self.MainLayout.addWidget(self.SetupRightPanel())
 
     def SetupLeftPanel(self) -> QVBoxLayout:
+        """Set up the left panel with event management controls."""
         layout = QVBoxLayout()
-        btnLayout = QHBoxLayout()
         
+        btnLayout = QHBoxLayout()
         self.BtnAddEvent = QPushButton("+")
         self.BtnDelEvent = QPushButton("-")
         self.BtnAddEvent.setFixedWidth(30)
@@ -906,36 +1426,29 @@ class DashboardView(QWidget):
         
         # Sentinel Control
         self.BtnStartSentinel = QPushButton("Stop Sentinel")
-        self.BtnStartSentinel.setStyleSheet("""
-        QPushButton {
-            background-color: #c0392b; /* Darker Red */
-            color: white;
-            border-radius: 6px;
-            font-weight: bold;
-            padding: 8px;
-        }
-        QPushButton:hover {
-            background-color: #e74c3c; /* Brighter Red */
-        }
-        """)
+        self.BtnStartSentinel.setStyleSheet(BUTTON_STYLE_RUNNING)
+        
         layout.addWidget(self.BtnStartSentinel)
         
         # for Sentinel Control Hotkey capture dialog
         self.SentinalHotkeyEdit = QLineEdit()
         self.SentinalHotkeyEdit.setReadOnly(True)
         self.SentinalHotkeyBtn = QPushButton("Capture Sentinel Hotkey")
+        
         layout.addWidget(self.SentinalHotkeyEdit)
         layout.addWidget(self.SentinalHotkeyBtn)
         
         return layout
 
     def SetupCenterPanel(self) -> QVBoxLayout:
+        """Set up the center panel with application management and live view."""
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
         
         mgmtGroupBox = QGroupBox("Target Application Management")
         mgmtGroupBox.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        
         groupMasterLayout = QVBoxLayout()
         groupMasterLayout.setContentsMargins(10, 15, 10, 10)
         
@@ -944,6 +1457,7 @@ class DashboardView(QWidget):
         self.ExePathEdit = QLineEdit(r"C:\Users\HONG\Desktop\frozenthrone1.26\war3.exe -window")
         self.BtnBrowse = QPushButton("Browse")
         self.BtnLaunch = QPushButton("Launch")
+        
         exeLayout.addWidget(QLabel("Path:"))
         exeLayout.addWidget(self.ExePathEdit)
         exeLayout.addWidget(self.BtnBrowse)
@@ -955,6 +1469,7 @@ class DashboardView(QWidget):
         self.TitleEdit = QLineEdit("Warcraft III")
         self.BtnFindHwnd = QPushButton("Find Process")
         self.PidLabel = QLabel("Pid: -")
+        
         procLayout.addWidget(QLabel("Title:"))
         procLayout.addWidget(self.TitleEdit)
         procLayout.addWidget(self.BtnFindHwnd)
@@ -966,6 +1481,7 @@ class DashboardView(QWidget):
         self.ResizeWidthEdit = QLineEdit("800")
         self.ResizeHeightEdit = QLineEdit("600")
         self.BtnResize = QPushButton("Resize Window")
+        
         resLayout.addWidget(QLabel("W:"))
         resLayout.addWidget(self.ResizeWidthEdit)
         resLayout.addWidget(QLabel("H:"))
@@ -979,6 +1495,7 @@ class DashboardView(QWidget):
         # Live View
         self.BtnLiveCapture = QPushButton("Start Live Capture")
         self.BtnLiveCapture.setCheckable(True)
+        
         self.LiveImageLabel = ClickableImageLabel()
         self.LiveImageLabel.setScaledContents(True)
         self.LiveImageLabel.setMinimumSize(640, 480)
@@ -989,6 +1506,7 @@ class DashboardView(QWidget):
         interactLayout = QHBoxLayout()
         self.KeystrokeEdit = QLineEdit()
         self.BtnSendKeystroke = QPushButton("Send Key")
+        
         self.MouseXEdit = QLineEdit()
         self.MouseYEdit = QLineEdit()
         self.BtnSendClick = QPushButton("Send Click")
@@ -1010,9 +1528,11 @@ class DashboardView(QWidget):
         return layout
 
     def SetupRightPanel(self) -> QWidget:
+        """Set up the right panel with event configuration controls."""
         # Create a container to fix the width as discussed
         rightPanelContainer = QWidget()
         rightPanelContainer.setFixedWidth(350)
+        
         layout = QVBoxLayout(rightPanelContainer)
         
         self.EventSettingsHeader = QLabel("<b>Event Settings</b>")
@@ -1023,7 +1543,7 @@ class DashboardView(QWidget):
         
         self.ActivationDropdown = QComboBox()
         self.ActivationDropdown.setEnabled(False)
-        self.ActivationDropdown.addItems([at.name for at in EventItem.ActivationType])
+        self.ActivationDropdown.addItems([at.name for at in ActivationType])
         
         # hotkey capture widget
         self.ActivationHotkeyWidget = QWidget()
@@ -1038,18 +1558,19 @@ class DashboardView(QWidget):
         self.ActivationHotkeyWidget.setLayout(self.ActivationHotkeyLayout)
         self.ActivationHotkeyWidget.hide()
         
-        # loop and interval widgets can be added here similarly if needed
+        # loop and interval widgets
         self.LoopWidget = QWidget()
         self.LoopWidgetLayout = QHBoxLayout()
+        
         self.LoopCountLayout = QVBoxLayout()
         self.LoopCountLabel = QLabel("Count:")
         self.LoopCountEdit = QLineEdit("1")
+        self.LoopCountLayout.addWidget(self.LoopCountLabel)
+        self.LoopCountLayout.addWidget(self.LoopCountEdit)
+        
         self.LoopIntervalLayout = QVBoxLayout()
         self.LoopIntervalLabel = QLabel("Interval (ms):")
         self.LoopIntervalEdit = QLineEdit("1000")
-        
-        self.LoopCountLayout.addWidget(self.LoopCountLabel)
-        self.LoopCountLayout.addWidget(self.LoopCountEdit)
         self.LoopIntervalLayout.addWidget(self.LoopIntervalLabel)
         self.LoopIntervalLayout.addWidget(self.LoopIntervalEdit)
         
@@ -1095,6 +1616,7 @@ class DashboardView(QWidget):
         self.RoiButton = QPushButton("Select from Image")
         self.RoiButton.setFixedSize(150, 150)
         self.RoiButtonLayout.addWidget(self.RoiButton)
+        
         self.RoiWidgetLayout.addLayout(self.RoiWidgetLayoutInner)
         self.RoiWidgetLayout.addLayout(self.RoiButtonLayout)
         
@@ -1129,12 +1651,10 @@ class DashboardView(QWidget):
         self.ThresholdWidgetLayout.addLayout(self.ThresholdWidgetMatchScoreBtnLayout)
         self.ThresholdWidgetLayout.addLayout(self.ThresholdWidgetThresholdLayout)
         self.ThresholdWidget.setLayout(self.ThresholdWidgetLayout)
-        
         self.ThresholdEdit.setEnabled(False)
         self.ThresholdWidget.hide()
         
         # Trigger Type Specific Widgets
-        # These will be shown/hidden based on the selected trigger type
         self.TriggerWhenMatchLayout = QHBoxLayout()
         self.TriggerWhenMatchWidget = QWidget()
         self.TriggerWhenMatchCheckbox = QCheckBox("Trigger When Match")
@@ -1165,7 +1685,7 @@ class DashboardView(QWidget):
         self.MacroStepListWidgetLayout.addLayout(self.BtnMoveLayout)
         
         self.stepDropDown = QComboBox()
-        self.stepDropDown.addItems([mt.name for mt in MacroStep.InputType])
+        self.stepDropDown.addItems([mt.name for mt in InputType])
         self.stepDropDown.setEnabled(False)
         
         # Buttons for Step Management
@@ -1198,13 +1718,14 @@ class DashboardView(QWidget):
         return rightPanelContainer
 
     def CreateHorizontalLine(self) -> QFrame:
+        """Create a horizontal separator line."""
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
         return line
 
     def WireUpBindings(self) -> None:
-        """Connects UI signals to ViewModel and ViewModel signals to UI updates."""
+        """Connect UI signals to ViewModel methods and ViewModel signals to UI updates."""
         # --- View to ViewModel ---
         self.BtnAddEvent.clicked.connect(self.ViewModel.AddNewEvent)
         self.BtnDelEvent.clicked.connect(lambda: self.ViewModel.DeleteEvent(self.EventListWidget.currentRow()))
@@ -1252,8 +1773,8 @@ class DashboardView(QWidget):
         self.ViewModel.EventFlowHotkeyChange.connect(self.UpdateUiSentinelHotkey)
         self.ViewModel.EventMatchScoreUpdated.connect(self.UpdateUiEventMatchScore)
 
-    # --- Interaction Handlers ---
     def OnSaveEvent(self) -> None:
+        """Handle save event button click."""
         # Updated filter to show Data/Pickle files instead of JSON
         filePath, _ = QFileDialog.getSaveFileName(
             self,
@@ -1261,6 +1782,7 @@ class DashboardView(QWidget):
             "",
             "Data Files (*.dat);;Pickle Files (*.pkl);;All Files (*)"
         )
+        
         if filePath:
             try:
                 # ViewModel.SaveState now handles binary Pickle serialization
@@ -1270,6 +1792,7 @@ class DashboardView(QWidget):
                 QMessageBox.critical(self, "Error", f"Failed to save file: {e}")
 
     def OnLoadEvent(self) -> None:
+        """Handle load event button click."""
         # Updated filter to look for binary files
         filePath, _ = QFileDialog.getOpenFileName(
             self,
@@ -1277,6 +1800,7 @@ class DashboardView(QWidget):
             "",
             "Data Files (*.dat);;Pickle Files (*.pkl);;All Files (*)"
         )
+        
         if filePath:
             try:
                 # Clear existing UI list before loading new data
@@ -1290,16 +1814,19 @@ class DashboardView(QWidget):
                 QMessageBox.critical(self, "Error", f"Failed to load file: {e}")
 
     def OnBrowseExecutable(self) -> None:
+        """Handle browse executable button click."""
         path, _ = QFileDialog.getOpenFileName(self, "Select EXE", "", "Executables (*.exe)")
         if path:
             self.ExePathEdit.setText(path)
 
     def OnLaunchExecutable(self) -> None:
+        """Handle launch executable button click."""
         pid = self.ViewModel.LaunchApp(self.ExePathEdit.text().strip())
         if pid:
             QMessageBox.information(self, "Success", f"Launched PID: {pid}")
 
     def OnResizeRequested(self) -> None:
+        """Handle resize window button click."""
         try:
             w, h = int(self.ResizeWidthEdit.text()), int(self.ResizeHeightEdit.text())
             self.ViewModel.ResizeTargetWindow(w, h)
@@ -1307,45 +1834,56 @@ class DashboardView(QWidget):
             QMessageBox.warning(self, "Error", "Invalid dimensions.")
 
     def OnToggleCapture(self, checked: bool) -> None:
+        """
+        Handle live capture toggle.
+        
+        Args:
+            checked: Whether capture is enabled
+        """
         if checked and not self.ViewModel.CurrentHwnd:
             self.BtnLiveCapture.setChecked(False)
             QMessageBox.warning(self, "Error", "Please find a window first.")
             return
+        
         self.ViewModel.ToggleCapture(checked)
 
     def OnAddStepClicked(self) -> None:
+        """Handle add step button click."""
         item = self.EventListWidget.currentItem()
         if item:
             eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
             if eventObj.AssignedAction:
                 stepTypeName = self.stepDropDown.currentText()
-                if stepTypeName in MacroStep.InputType.__members__:
-                    stepType = MacroStep.InputType[stepTypeName]
+                if stepTypeName in InputType.__members__:
+                    stepType = InputType[stepTypeName]
                     
                     # Create a default step based on type
                     newStep = None
-                    if stepType == MacroStep.InputType.Mouse:
+                    
+                    if stepType == InputType.Mouse:
                         try:
                             nx, ny = float(self.MouseXEdit.text()), float(self.MouseYEdit.text())
-                            newStep = MacroStep(MacroStep.InputType.Mouse, (nx, ny), f"Click at ({nx:.7f}, {ny:.7f})")
+                            newStep = MacroStep(InputType.Mouse, (nx, ny), f"Click at ({nx:.7f}, {ny:.7f})")
                         except ValueError:
                             QMessageBox.warning(self, "Error", "Invalid coordinates.")
                             return
-                    elif stepType == MacroStep.InputType.Keyboard:
+                    
+                    elif stepType == InputType.Keyboard:
                         dialog = HotkeyCaptureDialog(self)
                         if dialog.exec() == QDialog.DialogCode.Accepted:
                             # We take the first key from the captured list
                             if dialog.CapturedVks:
                                 vk = dialog.CapturedVks[0]
-                                newStep = MacroStep(MacroStep.InputType.Keyboard, vk, f"Press \"{KeyNameFromVk(vk)}\"")
+                                newStep = MacroStep(InputType.Keyboard, vk, f"Press \"{KeyNameFromVk(vk)}\"")
                             else:
                                 return
                         else:
                             return
-                    elif stepType == MacroStep.InputType.Delay:
+                    
+                    elif stepType == InputType.Delay:
                         ms, ok = QInputDialog.getInt(self, "Add Delay", "Milliseconds (ms):", 100, 1, 60000, 10)
                         if ok:
-                            newStep = MacroStep(MacroStep.InputType.Delay, ms, f"Wait {ms}ms")
+                            newStep = MacroStep(InputType.Delay, ms, f"Wait {ms}ms")
                         else:
                             return
                     
@@ -1354,8 +1892,10 @@ class DashboardView(QWidget):
                         self.RefreshMacroStepList(eventObj.AssignedAction)
 
     def OnRemoveStepClicked(self) -> None:
+        """Handle remove step button click."""
         currentRow = self.MacroStepListWidget.currentRow()
         item = self.EventListWidget.currentItem()
+        
         if item and currentRow >= 0:
             eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
             if eventObj.AssignedAction:
@@ -1363,21 +1903,26 @@ class DashboardView(QWidget):
                 self.RefreshMacroStepList(eventObj.AssignedAction)
 
     def OnCaptureHotkey(self) -> None:
+        """Handle capture hotkey button click."""
         item = self.EventListWidget.currentItem()
         if not item:
             return
+        
         eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
         dialog = HotkeyCaptureDialog(self)
+        
         if dialog.exec() == QDialog.DialogCode.Accepted:
             eventObj.ActivationVkList = dialog.CapturedVks
             # Show the raw VKs on the button for debugging/clarity
             self.ActivationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventObj.ActivationVkList)))
 
     def OnSelectRoi(self) -> None:
+        """Handle select ROI button click."""
         if self.ViewModel.LastLiveImg is None:
             # Handle the case where there is no image
             QMessageBox.warning(self, "Error", "Please start the capture before selecting an ROI.")
             return
+        
         self.cropper = CropperWidget(self.ViewModel.LastLiveImg, self.handleNewCrop)
         self.cropper.show()
 
@@ -1389,6 +1934,16 @@ class DashboardView(QWidget):
         normW: float,
         normH: float
     ) -> None:
+        """
+        Handle a new crop selection.
+        
+        Args:
+            cv_img: Cropped image data
+            normX: Normalized X coordinate
+            normY: Normalized Y coordinate
+            normW: Normalized width
+            normH: Normalized height
+        """
         # set model
         item = self.EventListWidget.currentItem()
         if item:
@@ -1404,6 +1959,13 @@ class DashboardView(QWidget):
             self.RoiHEdit.setText(f"{normH:.4f}")
 
     def setButtonWithImage(self, button: QPushButton, cv_img: np.ndarray[Any, Any]) -> None:
+        """
+        Set a button's icon to display an image.
+        
+        Args:
+            button: Button to update
+            cv_img: Image data to display
+        """
         height, width, _channel = cv_img.shape
         bytesPerLine = 3 * width
         cv_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
@@ -1415,18 +1977,26 @@ class DashboardView(QWidget):
         button.setText("")
 
     def OnCaptureSentinelHotkey(self) -> None:
+        """Handle capture sentinel hotkey button click."""
         dialog = HotkeyCaptureDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             if self.ViewModel.TriggerThread is not None:
                 self.ViewModel.TriggerThread.SetFlowHotkey(dialog.CapturedVks)
 
     def OnImageClicked(self, pos: QPoint) -> None:
+        """
+        Handle image click events.
+        
+        Args:
+            pos: Click position
+        """
         nx = float(pos.x()) / self.LiveImageLabel.width()
         ny = float(pos.y()) / self.LiveImageLabel.height()
         self.MouseXEdit.setText(f"{nx:.7f}")
         self.MouseYEdit.setText(f"{ny:.7f}")
 
     def OnManualCoordsChanged(self) -> None:
+        """Handle manual coordinate changes."""
         try:
             nx = float(self.MouseXEdit.text()) if self.MouseXEdit.text() else 0.0
             ny = float(self.MouseYEdit.text()) if self.MouseYEdit.text() else 0.0
@@ -1435,10 +2005,12 @@ class DashboardView(QWidget):
             pass
 
     def OnCopyMatchScoreToThreshold(self) -> None:
+        """Handle copy match score to threshold button click."""
         scoreText = self.ThresholdMatchScoreLabel.text()
         self.ThresholdEdit.setText(scoreText)
 
     def OnSendMouseClick(self) -> None:
+        """Handle send mouse click button click."""
         if self.ViewModel.CurrentHwnd:
             try:
                 nx, ny = float(self.MouseXEdit.text()), float(self.MouseYEdit.text())
@@ -1447,6 +2019,7 @@ class DashboardView(QWidget):
                 QMessageBox.warning(self, "Error", "Invalid coordinates.")
 
     def OnSendKeystroke(self) -> None:
+        """Handle send keystroke button click."""
         keyName = self.KeystrokeEdit.text().strip()
         if keyName and self.ViewModel.CurrentHwnd:
             vk = vkFromKeyName(keyName)
@@ -1456,6 +2029,13 @@ class DashboardView(QWidget):
                 QMessageBox.warning(self, "Error", f"Unknown key: {keyName}")
 
     def OnSelectionChanged(self, current: Optional[QListWidgetItem], previous: Optional[QListWidgetItem]) -> None:
+        """
+        Handle event selection changes.
+        
+        Args:
+            current: Currently selected item
+            previous: Previously selected item
+        """
         if not current:
             self.EventNameEdit.clear()
             self.MacroStepListWidget.clear()
@@ -1481,10 +2061,11 @@ class DashboardView(QWidget):
         activation = eventObj.SelectedActivationType
         typeName = activation.name if hasattr(activation, 'name') else str(activation)
         idx = self.ActivationDropdown.findText(typeName)
+        
         if idx >= 0:
             self.ActivationDropdown.setCurrentIndex(idx)
-            self.ActivationDropdown.setEnabled(True)
         
+        self.ActivationDropdown.setEnabled(True)
         self.ActivationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventObj.ActivationVkList)))
         self.ActivationHotkeyBtn.setEnabled(True)
         
@@ -1503,11 +2084,10 @@ class DashboardView(QWidget):
         else:
             self.RoiButton.setIcon(QIcon())  # Optionally clear the icon if no image
             self.RoiButton.setText("Select from Image")
-        self.RoiButton.setEnabled(True)
         
+        self.RoiButton.setEnabled(True)
         self.ThresholdEdit.setText(f"{eventObj.Threshold}")
         self.ThresholdEdit.setEnabled(True)
-        
         self.TriggerWhenMatchCheckbox.setChecked(eventObj.TriggerWhenMatch)
         self.TriggerWhenMatchCheckbox.setEnabled(True)
         
@@ -1519,7 +2099,12 @@ class DashboardView(QWidget):
         self.BtnMoveDown.setEnabled(True)
 
     def OnEventItemChanged(self, item: QListWidgetItem) -> None:
-        """Triggered when an item is renamed or check state changes."""
+        """
+        Handle event item changes (renaming, check state).
+        
+        Args:
+            item: Changed item
+        """
         # ui
         eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
         if not eventObj:
@@ -1532,13 +2117,19 @@ class DashboardView(QWidget):
             self.ViewModel.DisableEvent(eventObj)
 
     def RefreshMacroStepList(self, actionObj: ActionItem) -> None:
-        """Refreshes the UI list based on the ActionItem's steps."""
+        """
+        Refresh the macro step list UI.
+        
+        Args:
+            actionObj: Action containing the steps
+        """
         self.MacroStepListWidget.clear()
+        
         for step in actionObj.MacroSteps:
             # Check if it's a dict (raw data) or an object
             description = ""
             if isinstance(step, dict):
-                description = cast(dict[str, Any], step).get("Description", "Unknown Step")
+                description = cast(Dict[str, Any], step).get("Description", "Unknown Step")
             else:
                 description = step.Description
             
@@ -1547,6 +2138,7 @@ class DashboardView(QWidget):
             self.MacroStepListWidget.addItem(item)
 
     def OnCommitEventName(self) -> None:
+        """Commit event name changes."""
         item = self.EventListWidget.currentItem()
         if item:
             eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
@@ -1556,28 +2148,34 @@ class DashboardView(QWidget):
                 item.setText(newName)
 
     def OnCommitActivationType(self, index: int) -> None:
+        """
+        Commit activation type changes.
+        
+        Args:
+            index: Selected index
+        """
         item = self.EventListWidget.currentItem()
         if item and index >= 0:
             eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
             typeName = self.ActivationDropdown.currentText()
             # Update via the new property name
-            eventObj.SelectedActivationType = EventItem.ActivationType[typeName]
+            eventObj.SelectedActivationType = ActivationType[typeName]
             
-            if eventObj.SelectedActivationType == EventItem.ActivationType.Hotkey:
+            if eventObj.SelectedActivationType == ActivationType.Hotkey:
                 self.ActivationHotkeyWidget.show()
             else:
                 self.ActivationHotkeyWidget.hide()
             
-            if eventObj.SelectedActivationType == EventItem.ActivationType.Loop:
+            if eventObj.SelectedActivationType == ActivationType.Loop:
                 self.LoopWidget.show()
             else:
                 self.LoopWidget.hide()
             
-            if eventObj.SelectedActivationType == EventItem.ActivationType.ImageMatchRoi:
+            if eventObj.SelectedActivationType == ActivationType.ImageMatchRoi:
                 self.RoiWidget.show()
                 self.ThresholdWidget.show()
                 self.TriggerWhenMatchWidget.show()
-            elif eventObj.SelectedActivationType == EventItem.ActivationType.ProgessBar:
+            elif eventObj.SelectedActivationType == ActivationType.ProgessBar:
                 self.RoiWidget.show()
                 self.ThresholdWidget.show()
                 self.TriggerWhenMatchWidget.show()
@@ -1587,6 +2185,7 @@ class DashboardView(QWidget):
                 self.TriggerWhenMatchWidget.hide()
 
     def OnCommitLoopCount(self) -> None:
+        """Commit loop count changes."""
         item = self.EventListWidget.currentItem()
         if item:
             eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
@@ -1597,6 +2196,7 @@ class DashboardView(QWidget):
                 QMessageBox.warning(self, "Error", "Invalid loop count.")
 
     def OnCommitLoopInterval(self) -> None:
+        """Commit loop interval changes."""
         item = self.EventListWidget.currentItem()
         if item:
             eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
@@ -1607,6 +2207,7 @@ class DashboardView(QWidget):
                 QMessageBox.warning(self, "Error", "Invalid interval.")
 
     def OnCommitThreshold(self) -> None:
+        """Commit threshold changes."""
         item = self.EventListWidget.currentItem()
         if item:
             eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
@@ -1617,13 +2218,24 @@ class DashboardView(QWidget):
                 QMessageBox.warning(self, "Error", "Invalid threshold.")
 
     def OnCommitTriggerWhenMatch(self, state: int) -> None:
+        """
+        Commit trigger when match changes.
+        
+        Args:
+            state: Check state
+        """
         item = self.EventListWidget.currentItem()
         if item:
             eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
             eventObj.TriggerWhenMatch = (state == Qt.CheckState.Checked)
 
     def MoveStep(self, direction: int) -> None:
-        """direction: -1 for Up, 1 for Down"""
+        """
+        Move a step up or down in the list.
+        
+        Args:
+            direction: -1 for Up, 1 for Down
+        """
         # 1. Get current selection
         currentRow = self.MacroStepListWidget.currentRow()
         if currentRow == -1:
@@ -1638,6 +2250,7 @@ class DashboardView(QWidget):
         eventItem = self.EventListWidget.currentItem()
         if not eventItem:
             return
+        
         eventObj: EventItem = eventItem.data(Qt.ItemDataRole.UserRole)
         steps = eventObj.AssignedAction.MacroSteps
         
@@ -1652,8 +2265,13 @@ class DashboardView(QWidget):
         # 6. Keep the moved item selected so the user can click multiple times
         self.MacroStepListWidget.setCurrentRow(targetRow)
 
-    # --- UI Update Slots ---
     def UpdateUiAddEvent(self, eventObj: EventItem) -> None:
+        """
+        Update UI when an event is added.
+        
+        Args:
+            eventObj: Added event
+        """
         item = QListWidgetItem(eventObj.Name)
         item.setData(Qt.ItemDataRole.UserRole, eventObj)
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
@@ -1661,9 +2279,21 @@ class DashboardView(QWidget):
         self.EventListWidget.addItem(item)
 
     def UpdateUiRemoveEvent(self, index: int) -> None:
+        """
+        Update UI when an event is removed.
+        
+        Args:
+            index: Index of removed event
+        """
         self.EventListWidget.takeItem(index)
 
     def UpdateUiHwndInfo(self, hwnd: Optional[int]) -> None:
+        """
+        Update UI with window handle information.
+        
+        Args:
+            hwnd: Window handle
+        """
         if hwnd:
             self.PidLabel.setText(f"PID: {findPidByHwnd(hwnd)}")
         else:
@@ -1671,6 +2301,12 @@ class DashboardView(QWidget):
             QMessageBox.warning(self, "Error", "Window not found.")
 
     def UpdateUiImage(self, img: Optional[np.ndarray[Any, Any]]) -> None:
+        """
+        Update UI with a new image.
+        
+        Args:
+            img: Image data to display
+        """
         if img is not None:
             h, w, ch = img.shape
             qImg = QImage(img.data, w, h, ch * w, QImage.Format.Format_BGR888)
@@ -1683,6 +2319,12 @@ class DashboardView(QWidget):
             self.LiveImageLabel.clear()
 
     def UpdateUiEventDisabled(self, index: int) -> None:
+        """
+        Update UI when an event is disabled.
+        
+        Args:
+            index: Index of disabled event
+        """
         item = self.EventListWidget.item(index)
         if item:
             eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
@@ -1690,54 +2332,58 @@ class DashboardView(QWidget):
             item.setCheckState(Qt.CheckState.Checked if eventObj.Enabled else Qt.CheckState.Unchecked)
 
     def UpdateUiSentinelFlow(self, isRunning: bool) -> None:
+        """
+        Update UI when sentinel flow state changes.
+        
+        Args:
+            isRunning: New flow state
+        """
         if isRunning:
             # State: RUNNING -> Provide option to STOP
             self.BtnStartSentinel.setText("Stop Sentinel")
-            self.BtnStartSentinel.setStyleSheet("""
-            QPushButton {
-                background-color: #c0392b; /* Darker Red */
-                color: white;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 8px;
-            }
-            QPushButton:hover {
-                background-color: #e74c3c; /* Brighter Red */
-            }
-            """)
+            self.BtnStartSentinel.setStyleSheet(BUTTON_STYLE_RUNNING)
         else:
             # State: IDLE -> Provide option to START
             self.BtnStartSentinel.setText("Start Sentinel")
-            self.BtnStartSentinel.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60; /* Darker Green */
-                color: white;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 8px;
-            }
-            QPushButton:hover {
-                background-color: #2ecc71; /* Brighter Green */
-            }
-            """)
+            self.BtnStartSentinel.setStyleSheet(BUTTON_STYLE_STOPPED)
 
     def UpdateUiSentinelHotkey(self, vkList: List[int]) -> None:
+        """
+        Update UI with sentinel hotkey information.
+        
+        Args:
+            vkList: List of virtual key codes
+        """
         self.SentinalHotkeyEdit.setText(", ".join(map(KeyNameFromVk, vkList)))
 
     def UpdateUiEventMatchScore(self, eventTuple: Tuple[int, float]) -> None:
+        """
+        Update UI with event match score.
+        
+        Args:
+            eventTuple: Tuple containing (index, score)
+        """
         index, score = eventTuple
         if self.EventListWidget.currentRow() != index:
             return
+        
         self.ThresholdMatchScoreLabel.setText(f"{score:.3f}")
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        """
+        Handle window close event.
+        
+        Args:
+            event: Close event
+        """
         self.ViewModel.StopCapture()
         super().closeEvent(event)
 
 
-# =========================
-# MAIN ENTRY
-# =========================
+# =============================================================================
+# MAIN ENTRY POINT
+# =============================================================================
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     
