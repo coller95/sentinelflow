@@ -750,6 +750,7 @@ class DashboardViewModel(QObject):
     """
     EventAdded = Signal(EventItem)
     EventRemoved = Signal(int)
+    EventSelected = Signal(EventItem)
     WindowHandleUpdated = Signal(object)  # HWND
     CaptureImageReady = Signal(object)  # Image data
     EventDisabled = Signal(int)  # Index of changed event
@@ -765,6 +766,8 @@ class DashboardViewModel(QObject):
         self.LiveThread: Optional[LiveCaptureThread] = None
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
         self.TriggerThread: Optional[TriggerMonitorThread] = None
+
+        self._selectedEvent : Optional[EventItem] = None
         
         self.StartSentinel()  # Initialize the sentinel monitoring
 
@@ -1004,6 +1007,17 @@ class DashboardViewModel(QObject):
         """Toggle the sentinel flow state."""
         if self.TriggerThread:
             self.TriggerThread.ToggleFlowEnabled()
+
+    @property
+    def SelectedEvent(self) -> Optional[EventItem]:
+        """Get the currently selected event."""
+        return self._selectedEvent
+    
+    @SelectedEvent.setter
+    def SelectedEvent(self, event: Optional[EventItem]) -> None:
+        """Set the currently selected event."""
+        self._selectedEvent = event
+        self.EventSelected.emit(event)
 
 # =============================================================================
 # VIEW CLASSES
@@ -1322,6 +1336,17 @@ class CropperWidget(QWidget):
         return QPixmap.fromImage(qImage)
 
 
+class EventListWidget(QListWidget):
+    def mousePressEvent(self, event : QMouseEvent) -> None:
+        item = self.itemAt(event.position().toPoint())
+        previousItem = self.currentItem()
+        self.clearSelection()
+        if not item:
+            item = QListWidgetItem()
+        self.currentItemChanged.emit(item, previousItem)
+        super().mousePressEvent(event)
+
+
 class DashboardView(QWidget):
     """
     Main UI view for the SentinelFlow dashboard.
@@ -1376,7 +1401,7 @@ class DashboardView(QWidget):
         buttonLayout.addWidget(self.saveButtonEvent)
         buttonLayout.addWidget(self.loadButtonEvent)
         
-        self.eventListWidget = QListWidget()
+        self.eventListWidget = EventListWidget()
         self.eventListWidget.setFixedWidth(200)
         self.eventListWidget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         
@@ -1992,7 +2017,7 @@ class DashboardView(QWidget):
             else:
                 QMessageBox.warning(self, "Error", f"Unknown key: {keyName}")
 
-    def _onSelectionChanged(self, current: Optional[QListWidgetItem], previous: Optional[QListWidgetItem]) -> None:
+    def _onSelectionChanged(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
         """
         Handle event selection changes.
         
@@ -2000,7 +2025,10 @@ class DashboardView(QWidget):
             current: Currently selected item
             previous: Previously selected item
         """
-        if not current:
+        eventItem: EventItem = current.data(Qt.ItemDataRole.UserRole)
+        self.ViewModel.SelectedEvent = eventItem
+
+        if not eventItem:
             self.eventNameEdit.clear()
             self.macroStepListWidget.clear()
             self.eventNameEdit.setEnabled(False)
@@ -2019,11 +2047,11 @@ class DashboardView(QWidget):
             self.roiButton.setEnabled(False)
             return
             
-        eventObj: EventItem = current.data(Qt.ItemDataRole.UserRole)
-        self.eventNameEdit.setText(eventObj.Name)
+
+        self.eventNameEdit.setText(eventItem.Name)
         self.eventNameEdit.setEnabled(True)
         
-        activation = eventObj.SelectedActivationType
+        activation = eventItem.SelectedActivationType
         typeName = activation.name if hasattr(activation, 'name') else str(activation)
         index = self.activationDropdown.findText(typeName)
         if index >= 0:
@@ -2031,37 +2059,37 @@ class DashboardView(QWidget):
             
         self.activationDropdown.setEnabled(True)
         
-        self.activationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventObj.ActivationVirtualKeyCodes)))
+        self.activationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventItem.ActivationVirtualKeyCodes)))
         self.activationHotkeyButton.setEnabled(True)
         
-        self.loopCountEdit.setText(str(eventObj.LoopCount))
-        self.loopIntervalEdit.setText(str(eventObj.IntervalMilliseconds))
+        self.loopCountEdit.setText(str(eventItem.LoopCount))
+        self.loopIntervalEdit.setText(str(eventItem.IntervalMilliseconds))
         self.loopCountEdit.setEnabled(True)
         self.loopIntervalEdit.setEnabled(True)
         
-        self.roiXEdit.setText(f"{eventObj.Roi.XNormalized:.4f}")
-        self.roiYEdit.setText(f"{eventObj.Roi.YNormalized:.4f}")
-        self.roiWEdit.setText(f"{eventObj.Roi.WidthNormalized:.4f}")
-        self.roiHEdit.setText(f"{eventObj.Roi.HeightNormalized:.4f}")
+        self.roiXEdit.setText(f"{eventItem.Roi.XNormalized:.4f}")
+        self.roiYEdit.setText(f"{eventItem.Roi.YNormalized:.4f}")
+        self.roiWEdit.setText(f"{eventItem.Roi.WidthNormalized:.4f}")
+        self.roiHEdit.setText(f"{eventItem.Roi.HeightNormalized:.4f}")
         
-        if eventObj.TemplateImage is not None:
-            self._setButtonWithImage(self.roiButton, eventObj.TemplateImage)
+        if eventItem.TemplateImage is not None:
+            self._setButtonWithImage(self.roiButton, eventItem.TemplateImage)
         else:
             self.roiButton.setIcon(QIcon())  # Optionally clear the icon if no image
             self.roiButton.setText("Select from Image")
             
         self.roiButton.setEnabled(True)
         
-        self.thresholdEdit.setText(f"{eventObj.Threshold}")
+        self.thresholdEdit.setText(f"{eventItem.Threshold}")
         self.thresholdEdit.setEnabled(True)
         
-        self.triggerOnThresholdExceedCheckbox.setChecked(eventObj.TriggerOnThresholdExceed)
+        self.triggerOnThresholdExceedCheckbox.setChecked(eventItem.TriggerOnThresholdExceed)
         self.triggerOnThresholdExceedCheckbox.setEnabled(True)
 
-        self.retriggerTimeEdit.setText(str(eventObj.RetriggerTimeMilliseconds))
+        self.retriggerTimeEdit.setText(str(eventItem.RetriggerTimeMilliseconds))
         self.retriggerTimeEdit.setEnabled(True)
         
-        self._refreshMacroStepList(eventObj.AssignedAction)
+        self._refreshMacroStepList(eventItem.AssignedAction)
         
         self.stepDropDown.setEnabled(True)
         self.addStepButton.setEnabled(True)
