@@ -164,7 +164,7 @@ def estimateProgressBarPercentage(barImg: np.ndarray) -> float:
         if abs(centerMean - bgMean) < 5:
             return 0.0
         else:
-            return 100.0
+            return 1.0
 
     # Determine fill polarity
     sampleWidth = max(1, w // 10)
@@ -185,9 +185,9 @@ def estimateProgressBarPercentage(barImg: np.ndarray) -> float:
         return 0.0
 
     fillEnd = filledCols[-1]
-    percent = (fillEnd + 1) / w * 100.0
+    percent = (fillEnd + 1) / w * 1.0
 
-    return float(np.clip(percent, 0.0, 100.0))
+    return float(np.clip(percent, 0.0, 1.0))
 
 
 def vkFromKeyName(keyName: str) -> int:
