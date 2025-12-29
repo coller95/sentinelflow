@@ -347,8 +347,13 @@ class TriggerMonitorThread(QThread):
         with QMutexLocker(self._image_mutex):
             self._current_img = img
 
+    def SetFlow(self, flow: bool) -> None:
+        """Sets the flow state directly."""
+        self._flow = flow
+        self.FlowChanged.emit(self._flow)
+
     def ToggleFlow(self) -> None:
-        self._flow = not self._flow
+        self.SetFlow(not self._flow)
         self.FlowChanged.emit(self._flow)
 
     def SetFlowHotkey(self, vkList: List[int]) -> None:
@@ -618,6 +623,8 @@ class DashboardViewModel(QObject):
             
             # ---------------------------
             # Populate the UI/Model
+            if self.TriggerThread is not None:
+                self.TriggerThread.SetFlow(False)  # Ensure flow is off during loading
             self.EventItems.clear()
             for event in loaded_events:
                 self.EventItems.append(event)
