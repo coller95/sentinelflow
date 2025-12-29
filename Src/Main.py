@@ -383,8 +383,17 @@ class TriggerMonitorThread(QThread):
                     if local_img is None or event.TemplateImage is None:
                         continue
                     
-                    local_img_roi = cropImage(local_img, (event.Roi.XN, event.Roi.YN, event.Roi.WN, event.Roi.HN))
-                    event.MatchScore = matchTemplate(local_img_roi, event.TemplateImage)
+                    try:
+                        local_img_roi = cropImage(local_img, (event.Roi.XN, event.Roi.YN, event.Roi.WN, event.Roi.HN))
+                    except Exception as e:
+                        print(f"ROI cropping error for event '{event.Name}': {e}")
+                        continue
+
+                    try:
+                        event.MatchScore = matchTemplate(local_img_roi, event.TemplateImage)
+                    except Exception as e:
+                        print(f"Template matching error for event '{event.Name}': {e}")
+                        continue
 
                     if event.TriggerWhenMatch:
                         isMatchNow = event.MatchScore >= event.Threshold
@@ -402,9 +411,19 @@ class TriggerMonitorThread(QThread):
                 elif event.SelectedActivationType == EventItem.ActivationType.ProgessBar:
                     if local_img is None:
                         continue
+                    
+                    try:
+                        local_img_roi = cropImage(local_img, (event.Roi.XN, event.Roi.YN, event.Roi.WN, event.Roi.HN))
+                    except Exception as e:
+                        print(f"ROI cropping error for event '{event.Name}': {e}")
+                        continue
 
-                    local_img_roi = cropImage(local_img, (event.Roi.XN, event.Roi.YN, event.Roi.WN, event.Roi.HN))
-                    event.PercentFilled = estimateProgressBarPercentage(local_img_roi)
+                    try:
+                        event.PercentFilled = estimateProgressBarPercentage(local_img_roi)
+                    except Exception as e:
+                        print(f"Progress bar estimation error for event '{event.Name}': {e}")
+                        continue
+                    
                     self.MatchScoreUpdated.emit((index, event.PercentFilled))
 
                     if event.TriggerWhenMatch:
