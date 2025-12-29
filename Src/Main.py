@@ -282,7 +282,8 @@ class EventItem:
         loopCount: int = 0,
         intervalMilliseconds: int = 1000,
         roi: RectangleRegion = RectangleRegion(0.0, 0.0, 1.0, 1.0),
-        threshold: float = 0.99
+        threshold: float = 0.99,
+        retriggerTimeMilliseconds: float = 2000
     ) -> None:
         """
         Initialize an event item.
@@ -309,6 +310,7 @@ class EventItem:
         self._roi: RectangleRegion = roi
         self._threshold: float = threshold
         self._triggerOnThresholdExceed: bool = True
+        self._retriggerTimeMilliseconds: float = 2000
         self._matchScore: float = 0.0
         self._templateImage: Optional[np.ndarray[Any, Any]] = None
         self._percentFilled: float = 0.0
@@ -443,6 +445,16 @@ class EventItem:
     def TriggerOnThresholdExceed(self, value: bool) -> None:
         """Set whether to trigger when ThresholdExceed."""
         self._triggerOnThresholdExceed = value
+
+    @property
+    def RetriggerTimeMilliseconds(self) -> float:
+        """Get the retrigger time in milliseconds."""
+        return self._retriggerTimeMilliseconds
+    
+    @RetriggerTimeMilliseconds.setter
+    def RetriggerTimeMilliseconds(self, value: float) -> None:
+        """Set the retrigger time in milliseconds."""
+        self._retriggerTimeMilliseconds = value
 
     @property
     def MatchScore(self) -> float:
@@ -627,7 +639,7 @@ class TriggerMonitorThread(QThread):
 
                     # Logic Gates
                     isRisingEdge = isConditionMet and not event.IsCurrentlyHeld
-                    isRetrigger = isConditionMet and (timeSinceLastTrigger > 5000)
+                    isRetrigger = isConditionMet and (timeSinceLastTrigger > event.RetriggerTimeMilliseconds)
 
                     if isRisingEdge or isRetrigger:
                         self.EventTriggered.emit(event)
@@ -661,7 +673,7 @@ class TriggerMonitorThread(QThread):
 
                     # Logic Gates
                     isRisingEdge = isConditionMet and not event.IsCurrentlyHeld
-                    isRetrigger = isConditionMet and (timeSinceLastTrigger > 5000)
+                    isRetrigger = isConditionMet and (timeSinceLastTrigger > event.RetriggerTimeMilliseconds)
 
                     if isRisingEdge or isRetrigger:
                         self.EventTriggered.emit(event)
@@ -992,6 +1004,7 @@ class DashboardViewModel(QObject):
         """Toggle the sentinel flow state."""
         if self.TriggerThread:
             self.TriggerThread.ToggleFlowEnabled()
+
 # =============================================================================
 # VIEW CLASSES
 # =============================================================================
@@ -1604,6 +1617,17 @@ class DashboardView(QWidget):
         self.triggerOnThresholdExceedLayout.addWidget(self.triggerOnThresholdExceedCheckbox)
         self.triggerOnThresholdExceedWidget.setLayout(self.triggerOnThresholdExceedLayout)
         self.triggerOnThresholdExceedWidget.hide()
+
+        # Retrigger Time Widget
+        self.retriggerTimeWidget = QWidget()
+        self.retriggerTimeLayout = QHBoxLayout()
+        self.retriggerTimeLabel = QLabel("Retrigger Time (ms):")
+        self.retriggerTimeEdit = QLineEdit("2000.0")
+        self.retriggerTimeEdit.setEnabled(False)
+        self.retriggerTimeLayout.addWidget(self.retriggerTimeLabel)
+        self.retriggerTimeLayout.addWidget(self.retriggerTimeEdit)
+        self.retriggerTimeWidget.setLayout(self.retriggerTimeLayout)
+        self.retriggerTimeWidget.hide()
         
         # Action Sequence Properties
         self.actionNameLabel = QLabel("<b>Action Sequence</b>")
@@ -1651,6 +1675,7 @@ class DashboardView(QWidget):
         layout.addWidget(self.roiWidget)
         layout.addWidget(self.thresholdWidget)
         layout.addWidget(self.triggerOnThresholdExceedWidget)
+        layout.addWidget(self.retriggerTimeWidget)
         layout.addWidget(self._createHorizontalLine())  # Optional visual separator
         layout.addWidget(self.actionNameLabel)
         layout.addLayout(self.macroStepListWidgetLayout)
@@ -1715,6 +1740,7 @@ class DashboardView(QWidget):
         
         self.thresholdEdit.editingFinished.connect(self._onCommitThreshold)
         self.triggerOnThresholdExceedCheckbox.stateChanged.connect(self._onCommitTriggerOnThresholdExceed)
+        self.retriggerTimeEdit.editingFinished.connect(self._onCommitRetriggerTime)
         
         # --- ViewModel to View ---
         self.ViewModel.EventAdded.connect(self._updateUiAddEvent)
@@ -1997,6 +2023,7 @@ class DashboardView(QWidget):
             self.buttonMoveDown.setEnabled(False)
             self.thresholdEdit.setEnabled(False)
             self.triggerOnThresholdExceedCheckbox.setEnabled(False)
+            self.retriggerTimeEdit.setEnabled(False)
             self.roiButton.setEnabled(False)
             return
             
@@ -2038,6 +2065,9 @@ class DashboardView(QWidget):
         
         self.triggerOnThresholdExceedCheckbox.setChecked(eventObj.TriggerOnThresholdExceed)
         self.triggerOnThresholdExceedCheckbox.setEnabled(True)
+
+        self.retriggerTimeEdit.setText(str(eventObj.RetriggerTimeMilliseconds))
+        self.retriggerTimeEdit.setEnabled(True)
         
         self._refreshMacroStepList(eventObj.AssignedAction)
         
@@ -2123,14 +2153,17 @@ class DashboardView(QWidget):
                 self.roiWidget.show()
                 self.thresholdWidget.show()
                 self.triggerOnThresholdExceedWidget.show()
+                self.retriggerTimeWidget.show()
             elif eventObj.SelectedActivationType == ActivationType.ProgessBar:
                 self.roiWidget.show()
                 self.thresholdWidget.show()
                 self.triggerOnThresholdExceedWidget.show()
+                self.retriggerTimeWidget.show()
             else:
                 self.roiWidget.hide()
                 self.thresholdWidget.hide()
                 self.triggerOnThresholdExceedWidget.hide()
+                self.retriggerTimeWidget.hide()
 
     def _onCommitLoopCount(self) -> None:
         """Commit loop count changes."""
@@ -2176,6 +2209,17 @@ class DashboardView(QWidget):
         if item:
             eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
             eventObj.TriggerOnThresholdExceed = checked
+
+    def _onCommitRetriggerTime(self) -> None:
+        """Commit retrigger time changes."""
+        item = self.eventListWidget.currentItem()
+        if item:
+            eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
+            try:
+                retriggerTime = float(self.retriggerTimeEdit.text())
+                eventObj.RetriggerTimeMilliseconds = retriggerTime
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Invalid retrigger time.")
 
     def _moveStep(self, direction: int) -> None:
         """
