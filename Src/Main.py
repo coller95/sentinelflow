@@ -36,10 +36,10 @@ from PySide6.QtGui import (
 )
 # Local imports
 from Src.Helper import (
-    sendKeystrokeToWindow, sendMouseClickToWindow, captureWindowByHwnd,
-    findHwndByTitle, launchHwndByExecutable, ResizeWindow, IsHotkeyActive,
-    KeyNameFromVk, vkFromKeyName, cropImage, matchTemplate,
-    estimateProgressBarPercentage, findPidByHwnd
+    SendKeystrokeToWindow, SendMouseClickToWindow, CaptureWindowByHwnd,
+    FindHwndByTitle, LaunchHwndByExecutable, ResizeWindow, IsHotkeyActive,
+    KeyNameFromVk, VkFromKeyName, CropImage, MatchTemplate,
+    EstimateProgressBarPercentage, FindPidByHwnd
 )
 # =============================================================================
 # CONSTANTS AND GLOBAL CONFIGURATION
@@ -211,7 +211,7 @@ class MacroStep:
             hwnd: Window handle
             virtualKeyCode: Virtual key code
         """
-        sendKeystrokeToWindow(hwnd, virtualKeyCode)
+        SendKeystrokeToWindow(hwnd, virtualKeyCode)
 
     def _sendMouseClick(self, hwnd: int, xNormalized: float, yNormalized: float) -> None:
         """
@@ -222,7 +222,7 @@ class MacroStep:
             xNormalized: Normalized X coordinate (0.0 to 1.0)
             yNormalized: Normalized Y coordinate (0.0 to 1.0)
         """
-        sendMouseClickToWindow(hwnd, xNormalized, yNormalized)
+        SendMouseClickToWindow(hwnd, xNormalized, yNormalized)
 
 
 class ActionItem:
@@ -607,14 +607,14 @@ class TriggerMonitorThread(QThread):
                     if localImage is None or event.TemplateImage is None:
                         continue
                         
-                    localImageRoi = cropImage(localImage, (
+                    localImageRoi = CropImage(localImage, (
                         event.Roi.XNormalized, 
                         event.Roi.YNormalized, 
                         event.Roi.WidthNormalized, 
                         event.Roi.HeightNormalized
                     ))
                     
-                    event.MatchScore = matchTemplate(localImageRoi, event.TemplateImage)
+                    event.MatchScore = MatchTemplate(localImageRoi, event.TemplateImage)
                     
                     if event.TriggerWhenMatch:
                         isMatchNow = event.MatchScore >= event.Threshold
@@ -634,14 +634,14 @@ class TriggerMonitorThread(QThread):
                     if localImage is None:
                         continue
                         
-                    localImageRoi = cropImage(localImage, (
+                    localImageRoi = CropImage(localImage, (
                         event.Roi.XNormalized, 
                         event.Roi.YNormalized, 
                         event.Roi.WidthNormalized, 
                         event.Roi.HeightNormalized
                     ))
                     
-                    event.PercentFilled = estimateProgressBarPercentage(localImageRoi)
+                    event.PercentFilled = EstimateProgressBarPercentage(localImageRoi)
                     self.MatchScoreUpdated.emit((index, event.PercentFilled))
                     
                     if event.TriggerWhenMatch:
@@ -693,7 +693,7 @@ class LiveCaptureThread(QThread):
         self._isRunning = True
         while self._isRunning:
             try:
-                image = captureWindowByHwnd(self.WindowHandle)
+                image = CaptureWindowByHwnd(self.WindowHandle)
                 self.ImageCaptured.emit(image)
             except Exception as e:
                 print(f"Live capture error: {e}")
@@ -770,7 +770,7 @@ class DashboardViewModel(QObject):
         Returns:
             Window handle if found, None otherwise
         """
-        windowHandle = findHwndByTitle(title)
+        windowHandle = FindHwndByTitle(title)
         self.CurrentWindowHandle = windowHandle
         self.WindowHandleUpdated.emit(windowHandle)
         return windowHandle
@@ -786,7 +786,7 @@ class DashboardViewModel(QObject):
             Process ID if launched successfully, None otherwise
         """
         if path:
-            return launchHwndByExecutable(path)
+            return LaunchHwndByExecutable(path)
         return None
 
     def ResizeTargetWindow(self, width: int, height: int) -> None:
@@ -1946,7 +1946,7 @@ class DashboardView(QWidget):
         if self.ViewModel.CurrentWindowHandle:
             try:
                 normalizedX, normalizedY = float(self.mouseXEdit.text()), float(self.mouseYEdit.text())
-                sendMouseClickToWindow(self.ViewModel.CurrentWindowHandle, normalizedX, normalizedY)
+                SendMouseClickToWindow(self.ViewModel.CurrentWindowHandle, normalizedX, normalizedY)
             except ValueError:
                 QMessageBox.warning(self, "Error", "Invalid coordinates.")
 
@@ -1954,9 +1954,9 @@ class DashboardView(QWidget):
         """Handle send keystroke button click."""
         keyName = self.keystrokeEdit.text().strip()
         if keyName and self.ViewModel.CurrentWindowHandle:
-            virtualKeyCode = vkFromKeyName(keyName)
+            virtualKeyCode = VkFromKeyName(keyName)
             if virtualKeyCode:
-                sendKeystrokeToWindow(self.ViewModel.CurrentWindowHandle, virtualKeyCode)
+                SendKeystrokeToWindow(self.ViewModel.CurrentWindowHandle, virtualKeyCode)
             else:
                 QMessageBox.warning(self, "Error", f"Unknown key: {keyName}")
 
@@ -2230,7 +2230,7 @@ class DashboardView(QWidget):
             windowHandle: Window handle
         """
         if windowHandle:
-            self.pidLabel.setText(f"PID: {findPidByHwnd(windowHandle)}")
+            self.pidLabel.setText(f"PID: {FindPidByHwnd(windowHandle)}")
         else:
             self.pidLabel.setText("PID: -")
             QMessageBox.warning(self, "Error", "Window not found.")
