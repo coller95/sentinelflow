@@ -308,7 +308,7 @@ class EventItem:
         self._timeOfLastTriggerMilliseconds: float = 0.0
         self._roi: RectangleRegion = roi
         self._threshold: float = threshold
-        self._triggerWhenMatch: bool = True
+        self._triggerOnThresholdExceed: bool = True
         self._matchScore: float = 0.0
         self._templateImage: Optional[np.ndarray[Any, Any]] = None
         self._percentFilled: float = 0.0
@@ -435,14 +435,14 @@ class EventItem:
         self._threshold = value
 
     @property
-    def TriggerWhenMatch(self) -> bool:
-        """Get whether to trigger when match is found or not found."""
-        return self._triggerWhenMatch
+    def TriggerOnThresholdExceed(self) -> bool:
+        """Get whether to trigger when ThresholdExceed."""
+        return self._triggerOnThresholdExceed
         
-    @TriggerWhenMatch.setter
-    def TriggerWhenMatch(self, value: bool) -> None:
-        """Set whether to trigger when match is found or not found."""
-        self._triggerWhenMatch = value
+    @TriggerOnThresholdExceed.setter
+    def TriggerOnThresholdExceed(self, value: bool) -> None:
+        """Set whether to trigger when ThresholdExceed."""
+        self._triggerOnThresholdExceed = value
 
     @property
     def MatchScore(self) -> float:
@@ -617,7 +617,7 @@ class TriggerMonitorThread(QThread):
                     event.MatchScore = MatchTemplate(localImageRoi, event.TemplateImage)
                     self.MatchScoreUpdated.emit((index, event.MatchScore))
                     
-                    if event.TriggerWhenMatch:
+                    if event.TriggerOnThresholdExceed:
                         isConditionMet = event.MatchScore >= event.Threshold
                     else:
                         isConditionMet = event.MatchScore < event.Threshold
@@ -651,7 +651,7 @@ class TriggerMonitorThread(QThread):
                     self.MatchScoreUpdated.emit((index, event.PercentFilled))
 
                     
-                    if event.TriggerWhenMatch:
+                    if event.TriggerOnThresholdExceed:
                         isConditionMet = event.PercentFilled >= event.Threshold
                     else:
                         isConditionMet = event.PercentFilled < event.Threshold
@@ -1597,13 +1597,13 @@ class DashboardView(QWidget):
         self.thresholdWidget.hide()
         
         # Trigger Type Specific Widgets
-        self.triggerWhenMatchLayout = QHBoxLayout()
-        self.triggerWhenMatchWidget = QWidget()
-        self.triggerWhenMatchCheckbox = QCheckBox("Trigger When Match")
-        self.triggerWhenMatchCheckbox.setEnabled(False)
-        self.triggerWhenMatchLayout.addWidget(self.triggerWhenMatchCheckbox)
-        self.triggerWhenMatchWidget.setLayout(self.triggerWhenMatchLayout)
-        self.triggerWhenMatchWidget.hide()
+        self.triggerOnThresholdExceedLayout = QHBoxLayout()
+        self.triggerOnThresholdExceedWidget = QWidget()
+        self.triggerOnThresholdExceedCheckbox = QCheckBox("Trigger When Threshold Exceed")
+        self.triggerOnThresholdExceedCheckbox.setEnabled(False)
+        self.triggerOnThresholdExceedLayout.addWidget(self.triggerOnThresholdExceedCheckbox)
+        self.triggerOnThresholdExceedWidget.setLayout(self.triggerOnThresholdExceedLayout)
+        self.triggerOnThresholdExceedWidget.hide()
         
         # Action Sequence Properties
         self.actionNameLabel = QLabel("<b>Action Sequence</b>")
@@ -1650,7 +1650,7 @@ class DashboardView(QWidget):
         layout.addWidget(self.loopWidget)
         layout.addWidget(self.roiWidget)
         layout.addWidget(self.thresholdWidget)
-        layout.addWidget(self.triggerWhenMatchWidget)
+        layout.addWidget(self.triggerOnThresholdExceedWidget)
         layout.addWidget(self._createHorizontalLine())  # Optional visual separator
         layout.addWidget(self.actionNameLabel)
         layout.addLayout(self.macroStepListWidgetLayout)
@@ -1714,7 +1714,7 @@ class DashboardView(QWidget):
         self.loopIntervalEdit.editingFinished.connect(self._onCommitLoopInterval)
         
         self.thresholdEdit.editingFinished.connect(self._onCommitThreshold)
-        self.triggerWhenMatchCheckbox.stateChanged.connect(self._onCommitTriggerWhenMatch)
+        self.triggerOnThresholdExceedCheckbox.stateChanged.connect(self._onCommitTriggerOnThresholdExceed)
         
         # --- ViewModel to View ---
         self.ViewModel.EventAdded.connect(self._updateUiAddEvent)
@@ -1996,7 +1996,7 @@ class DashboardView(QWidget):
             self.buttonMoveUp.setEnabled(False)
             self.buttonMoveDown.setEnabled(False)
             self.thresholdEdit.setEnabled(False)
-            self.triggerWhenMatchCheckbox.setEnabled(False)
+            self.triggerOnThresholdExceedCheckbox.setEnabled(False)
             self.roiButton.setEnabled(False)
             return
             
@@ -2036,8 +2036,8 @@ class DashboardView(QWidget):
         self.thresholdEdit.setText(f"{eventObj.Threshold}")
         self.thresholdEdit.setEnabled(True)
         
-        self.triggerWhenMatchCheckbox.setChecked(eventObj.TriggerWhenMatch)
-        self.triggerWhenMatchCheckbox.setEnabled(True)
+        self.triggerOnThresholdExceedCheckbox.setChecked(eventObj.TriggerOnThresholdExceed)
+        self.triggerOnThresholdExceedCheckbox.setEnabled(True)
         
         self._refreshMacroStepList(eventObj.AssignedAction)
         
@@ -2122,15 +2122,15 @@ class DashboardView(QWidget):
             if eventObj.SelectedActivationType == ActivationType.ImageMatchRoi:
                 self.roiWidget.show()
                 self.thresholdWidget.show()
-                self.triggerWhenMatchWidget.show()
+                self.triggerOnThresholdExceedWidget.show()
             elif eventObj.SelectedActivationType == ActivationType.ProgessBar:
                 self.roiWidget.show()
                 self.thresholdWidget.show()
-                self.triggerWhenMatchWidget.show()
+                self.triggerOnThresholdExceedWidget.show()
             else:
                 self.roiWidget.hide()
                 self.thresholdWidget.hide()
-                self.triggerWhenMatchWidget.hide()
+                self.triggerOnThresholdExceedWidget.hide()
 
     def _onCommitLoopCount(self) -> None:
         """Commit loop count changes."""
@@ -2165,7 +2165,7 @@ class DashboardView(QWidget):
             except ValueError:
                 QMessageBox.warning(self, "Error", "Invalid threshold.")
 
-    def _onCommitTriggerWhenMatch(self, checked: bool) -> None:
+    def _onCommitTriggerOnThresholdExceed(self, checked: bool) -> None:
         """
         Commit trigger when match changes.
         
@@ -2175,7 +2175,7 @@ class DashboardView(QWidget):
         item = self.eventListWidget.currentItem()
         if item:
             eventObj: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            eventObj.TriggerWhenMatch = checked
+            eventObj.TriggerOnThresholdExceed = checked
 
     def _moveStep(self, direction: int) -> None:
         """
