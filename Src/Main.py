@@ -104,16 +104,6 @@ class InputType(Enum):
 # =============================================================================
 
 class RectangleRegion:
-    """
-    Represents a normalized rectangle region with x, y, width and height values between 0-1.
-    
-    Properties:
-        XN: Normalized X coordinate (0.0 to 1.0)
-        YN: Normalized Y coordinate (0.0 to 1.0)
-        WN: Normalized width (0.0 to 1.0)
-        HN: Normalized height (0.0 to 1.0)
-    """
-    
     def __init__(self, xN: float = 0.0, yN: float = 0.0, wN: float = 1.0, hN: float = 1.0) -> None:
         """
         Initialize a normalized rectangle region.
@@ -171,13 +161,6 @@ class RectangleRegion:
 
 
 class MacroStep:
-    """
-    Represents a single step in a macro sequence.
-    
-    Attributes:
-        InputType: Enumeration of supported input types
-    """
-
     def __init__(self, inputType: InputType, value: Any = None, description: str = "") -> None:
         """
         Initialize a macro step.
@@ -250,13 +233,6 @@ class MacroStep:
 
 
 class ActionItem:
-    """
-    Represents a sequence of macro steps to be executed.
-    
-    Properties:
-        MacroSteps: List of macro steps in this action
-    """
-    
     def __init__(self) -> None:
         """Initialize an empty action item."""
         self._macroSteps: List[MacroStep] = []
@@ -300,28 +276,6 @@ class ActionItem:
 
 
 class EventItem:
-    """
-    Represents an event that can trigger an action based on various conditions.
-    
-    Properties:
-        Name: Name of the event
-        Enabled: Whether the event is active
-        SelectedActivationType: Type of activation mechanism
-        ActivationVkList: List of virtual key codes for hotkey activation
-        IsCurrentlyHeld: Current state of hotkey activation
-        LoopCount: Number of times to loop (0 = infinite, -1 = disabled)
-        LoopCounter: Current loop iteration count
-        IntervalMs: Interval between loop executions in milliseconds
-        TimeOfLastTriggerMs: Timestamp of last trigger in milliseconds
-        Roi: Region of interest for image matching
-        TemplateImage: Template image for image matching
-        Threshold: Threshold for image matching or progress bar
-        TriggerWhenMatch: Whether to trigger when match is found or not found
-        MatchScore: Last match score from image matching
-        PercentFilled: Last percentage filled from progress bar detection
-        AssignedAction: Action to execute when triggered
-    """
-
     def __init__(
         self,
         name: str,
@@ -539,17 +493,6 @@ class EventItem:
 # =============================================================================
 
 class TriggerMonitorThread(QThread):
-    """
-    Monitors for trigger conditions and emits signals when events are triggered.
-    
-    Signals:
-        EventTriggered: Emitted when an event is triggered
-        EventDisabled: Emitted when an event is disabled
-        FlowChanged: Emitted when the flow state changes
-        FlowHotkeyChanged: Emitted when the flow hotkey changes
-        MatchScoreUpdated: Emitted when a match score is updated
-    """
-    
     EventTriggered = Signal(EventItem)
     EventDisabled = Signal(EventItem)
     FlowChanged = Signal(bool)
@@ -637,11 +580,9 @@ class TriggerMonitorThread(QThread):
                 self._current_img = None
             
             # Process each event
-            for index, eventObj in enumerate(self._viewModel.EventItems):
-                if not eventObj.Enabled:
+            for index, event in enumerate(self._viewModel.EventItems):
+                if not event.Enabled:
                     continue
-                
-                event: EventItem = eventObj  # For easier reference
                 
                 if event.SelectedActivationType == ActivationType.Hotkey:
                     if len(event.ActivationVkList) == 0:
