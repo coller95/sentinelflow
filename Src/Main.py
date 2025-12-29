@@ -350,9 +350,10 @@ class TriggerMonitorThread(QThread):
                 local_img = self._current_img
                 self._current_img = None
 
-            for index, event in enumerate(self._viewModel.EventItems):
-                if not event.Enabled:
+            for index, eventObj in enumerate(self._viewModel.EventItems):
+                if not eventObj.Enabled:
                     continue
+                event : EventItem = eventObj  # For easier reference
 
                 if event.SelectedActivationType == EventItem.ActivationType.Hotkey:
                     if len(event.ActivationVkList) == 0:
