@@ -393,11 +393,31 @@ class TriggerMonitorThread(QThread):
 
                     # Rising Edge (Off -> On)
                     if isMatchNow and not event.IsCurrentlyHeld or isMatchNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 2000):
-                        
                         self.EventTriggered.emit(event)
                         event.TimeOfLastTriggerMs = int(time.time() * 1000)
 
                     event.IsCurrentlyHeld = isMatchNow
+
+                elif event.SelectedActivationType == EventItem.ActivationType.ProgessBar:
+                    if local_img is None:
+                        continue
+
+                    local_img_roi = cropImage(local_img, (event.Roi.XN, event.Roi.YN, event.Roi.WN, event.Roi.HN))
+                    event.PercentFilled = estimateProgressBarPercentage(local_img_roi)
+                    self.MatchScoreUpdated.emit((index, event.PercentFilled))
+
+                    if event.TriggerWhenMatch:
+                        isFilledNow = event.PercentFilled >= event.Threshold
+                    else:
+                        isFilledNow = event.PercentFilled < event.Threshold
+
+                    # Rising Edge (Off -> On)
+                    # Rising Edge (Off -> On)
+                    if isFilledNow and not event.IsCurrentlyHeld or isFilledNow and (time.time() * 1000 - event.TimeOfLastTriggerMs > 2000):
+                        self.EventTriggered.emit(event)
+                        event.TimeOfLastTriggerMs = int(time.time() * 1000)
+
+                    event.IsCurrentlyHeld = isFilledNow
 
             time.sleep(self._pollIntervalMs / 1000.0)
 
@@ -1510,7 +1530,7 @@ class DashboardView(QWidget):
                 self.TriggerWhenMatchWidget.show()
             elif eventObj.SelectedActivationType == EventItem.ActivationType.ProgessBar:
                 self.RoiWidget.show()
-                self.ThresholdWidget.hide()
+                self.ThresholdWidget.show()
                 self.TriggerWhenMatchWidget.show()
             else:
                 self.RoiWidget.hide()
