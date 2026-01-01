@@ -1,195 +1,26 @@
 import os
-import time
 import pickle
 from typing import (
     cast, List, Optional, Any, Dict
 )
 # Third-party imports
 import numpy as np
-from PySide6.QtCore import (
-    Signal, QThread, QObject,
-    QMutex, QMutexLocker
-)
+from PySide6.QtCore import Signal, QObject
 
 # Local imports
 from Src.Helper import (
-    SendKeystrokeToWindow, SendMouseClickToWindow, CaptureWindowByHwnd,
-    FindHwndByTitle, LaunchHwndByExecutable, ResizeWindow, IsHotkeyActive,
+    SendKeystrokeToWindow, SendMouseClickToWindow, 
+    FindHwndByTitle, LaunchHwndByExecutable, ResizeWindow, 
     FindPidByHwnd, KeyNameFromVk, VkFromKeyName
 )
 from Src.Models import (
     ActivationType, InputType, 
     ActionItem, EventItem, MacroStep, RectangleRegion
 )
-from Src.Engine.ConditionEngine import ConditionEngine
-from Src.Engine.ActivationEngine import ActivationEngine
-from Src.Engine.ActionExecutorEngine import ActionExecutorEngine
 
-
-class TriggerMonitorThread(QThread):
-    """Thread responsible for monitoring trigger conditions and executing actions."""
-
-    EventTriggered = Signal(EventItem)
-    EventDisabled = Signal(EventItem)
-    FlowStateChanged = Signal(bool)
-    FlowHotkeyChanged = Signal(list)
-    MatchScoreUpdated = Signal(object)  # float OR (index:int, value:float)
-
-    def __init__(self, viewModel: "DashboardViewModel", pollIntervalMs: int = 50) -> None:
-        super().__init__()
-        self._viewModel: DashboardViewModel = viewModel
-        self._pollIntervalMs: int = pollIntervalMs
-        self._isRunning: bool = True
-        # Image injection handling
-        self._imageMutex: QMutex = QMutex()
-        self._currentImage: Optional[np.ndarray[Any, Any]] = None
-        # Flow control
-        self._flowEnabled: bool = True
-        self._flowHotkeyVirtualKeyCodes: List[int] = []
-        self._flowHotkeyIsCurrentlyHeld: bool = False
-        # Engines
-        self._conditionEngine = ConditionEngine()
-        self._activationEngine = ActivationEngine()
-        self._actionExecutorEngine = ActionExecutorEngine()
-
-    def SetImage(self, image: Optional[np.ndarray[Any, Any]]) -> None:
-        with QMutexLocker(self._imageMutex):
-            self._currentImage = image
-
-    def SetFlowEnabled(self, isEnabled: bool) -> None:
-        self._flowEnabled = isEnabled
-        self.FlowStateChanged.emit(self._flowEnabled)
-
-    def ToggleFlowEnabled(self) -> None:
-        self.SetFlowEnabled(not self._flowEnabled)
-
-    def SetFlowHotkey(self, virtualKeyCodes: List[int]) -> None:
-        self._flowHotkeyVirtualKeyCodes = virtualKeyCodes
-        print(f"Flow hotkey set to: {virtualKeyCodes}")
-        self.FlowHotkeyChanged.emit(virtualKeyCodes)
-
-    def GetFlowHotkey(self) -> List[int]:
-        return self._flowHotkeyVirtualKeyCodes
-
-    def _checkFlowHotkeyPressed(self) -> None:
-        # Check flow hotkey (only if configured)
-        if self._flowHotkeyVirtualKeyCodes:
-            isDownNow = IsHotkeyActive(self._flowHotkeyVirtualKeyCodes)
-            if self._flowHotkeyIsCurrentlyHeld and not isDownNow:
-                self.ToggleFlowEnabled()
-            self._flowHotkeyIsCurrentlyHeld = isDownNow
-        else:
-            self._flowHotkeyIsCurrentlyHeld = False
-
-    def _CopyImageForProcessing(self) -> Optional[np.ndarray[Any, Any]]:
-        with QMutexLocker(self._imageMutex):
-            localImage = self._currentImage
-            self._currentImage = None
-            return localImage
-
-    def run(self) -> None:
-        while self._isRunning:
-            # Check flow hotkey (only if configured)
-            self._checkFlowHotkeyPressed()
-
-            if not self._flowEnabled:
-                time.sleep(self._pollIntervalMs / 1000.0)
-                continue
-
-            # Copy image for processing
-            localImage: Optional[np.ndarray[Any, Any]] = self._CopyImageForProcessing()
-
-            # Iterate over a snapshot to avoid concurrent-modification issues
-            eventItemsSnapshot = list(self._viewModel.EventItems)
-
-            # Update engines (if they have any per-loop logic)
-            # condition = self._conditionEngine.loop(localImage, eventItemsSnapshot)
-            activation = self._activationEngine.loop(eventItemsSnapshot, localImage)
-
-            # if self._viewModel.CurrentWindowHandle is not None:
-            #     self._actionExecutorEngine.loop(windowHandle=self._viewModel.CurrentWindowHandle, events=activation.triggered)
-
-
-
-
-            
-            # TODO update the condtion to Ui later for now use MatchScoreUpdated
-            # TODO update the activation to Ui later using EventTriggered
-
-            for event in activation.triggered: # can be remove if not used
-                self.EventTriggered.emit(event)
-
-            for event in activation.disabled:
-                self.EventDisabled.emit(event)
-
-            for matchUpdate in activation.match_updates:
-                self.MatchScoreUpdated.emit(matchUpdate)
-            
-            time.sleep(self._pollIntervalMs / 1000.0)
-
-    def Stop(self) -> None:
-        self._isRunning = False
-        self.wait()
-
-
-class LiveCaptureThread(QThread):
-    """
-    Captures screenshots of the target window at regular intervals.
-    
-    Signals:
-        ImageCaptured: Emitted when an image is captured
-    """
-    ImageCaptured = Signal(object)  # Image data
-
-    def __init__(self, windowHandle: int, intervalMs: int = 200, parent: Optional[QObject] = None) -> None:
-        """
-        Initialize the live capture thread.
-        
-        Args:
-            windowHandle: Window handle to capture
-            intervalMs: Capture interval in milliseconds
-            parent: Parent QObject
-        """
-        super().__init__(parent)
-        self.WindowHandle: int = windowHandle
-        self.IntervalMs: int = intervalMs
-        self._isRunning: bool = True
-        self._imageCount: int = 0
-
-    def run(self) -> None:
-        """Main thread execution loop."""
-        self._isRunning = True
-        while self._isRunning:
-            try:
-                image = CaptureWindowByHwnd(self.WindowHandle)
-                self.ImageCaptured.emit(image)
-            except Exception as e:
-                print(f"Live capture error: {e}")
-                self.ImageCaptured.emit(None)
-                self._isRunning = False
-                
-            time.sleep(self.IntervalMs / 1000.0)
-
-    def Stop(self) -> None:
-        """Stop the thread execution."""
-        self._isRunning = False
-        self.wait()
-
+from Src.Engine.SentinelServices import TriggerMonitorService, LiveCaptureService
 
 class DashboardViewModel(QObject):
-    """
-    Handles the business logic and state management for the dashboard.
-    
-    Signals:
-        EventAdded: Emitted when an event is added
-        EventRemoved: Emitted when an event is removed
-        WindowHandleUpdated: Emitted when the window handle is updated
-        CaptureImageReady: Emitted when a capture image is ready
-        EventDisabled: Emitted when an event is disabled
-        FlowStateChanged: Emitted when the flow state changes
-        FlowHotkeyChanged: Emitted when the flow hotkey changes
-        MatchScoreUpdated: Emitted when a match score is updated
-    """
     EventItemAddedSignal = Signal(EventItem)
     EventItemRemovedSignal = Signal(int)
     EventItemSelectedSignal = Signal(EventItem)
@@ -202,13 +33,12 @@ class DashboardViewModel(QObject):
     MatchScoreUpdated = Signal(object)  # float OR (index:int, value:float)
 
     def __init__(self) -> None:
-        """Initialize the dashboard view model."""
         super().__init__()
         self.EventItems: List[EventItem] = []
         self.CurrentWindowHandle: Optional[int] = None
-        self.LiveThread: Optional[LiveCaptureThread] = None
+        self.LiveThread: Optional[LiveCaptureService] = None
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
-        self.TriggerThread: Optional[TriggerMonitorThread] = None
+        self.TriggerThread: Optional[TriggerMonitorService] = None
 
         self._selectedEventItem : Optional[EventItem] = None
         self._captureMousePositionNormalized: Optional[tuple[float, float]] = None
@@ -216,7 +46,6 @@ class DashboardViewModel(QObject):
         self.StartSentinel()  # Initialize the sentinel monitoring
 
     def AddEvent(self) -> None:
-        """Add a new event to the model."""
         newAction = ActionItem()
         newEvent = EventItem(name="New Event", action=newAction)
         self.EventItems.append(newEvent)
@@ -231,15 +60,6 @@ class DashboardViewModel(QObject):
             self.EventItemRemovedSignal.emit(index)
 
     def FindWindow(self, title: str) -> Optional[int]:
-        """
-        Find a window by its title.
-        
-        Args:
-            title: Title of the window to find
-            
-        Returns:
-            Window handle if found, None otherwise
-        """
         windowHandle = FindHwndByTitle(title)
         self.CurrentWindowHandle = windowHandle
         self.WindowHandleUpdated.emit(windowHandle)
@@ -251,125 +71,76 @@ class DashboardViewModel(QObject):
         return FindPidByHwnd(windowHandle)
 
     def GetCurrentTargetPid(self) -> Optional[int]:
-        """Get the PID for the currently selected target window (if any)."""
         if not self.CurrentWindowHandle:
             return None
         return FindPidByHwnd(self.CurrentWindowHandle)
 
     def HasTargetWindow(self) -> bool:
-        """Return True if a target window is currently selected."""
         return self.CurrentWindowHandle is not None
 
     def KeyNameFromVk(self, virtualKeyCode: int) -> str:
         return KeyNameFromVk(virtualKeyCode)
 
     def LaunchApplication(self, path: str) -> Optional[int]:
-        """
-        Launch an application from the specified path.
-        
-        Args:
-            path: Path to the executable
-            
-        Returns:
-            Process ID if launched successfully, None otherwise
-        """
         if path:
             return LaunchHwndByExecutable(path)
         return None
 
     def ResizeTargetWindow(self, width: int, height: int) -> None:
-        """
-        Resize the target window to the specified dimensions.
-        
-        Args:
-            width: New width in pixels
-            height: New height in pixels
-        """
         if self.CurrentWindowHandle:
             ResizeWindow(self.CurrentWindowHandle, width, height)
 
     def ToggleCapture(self, active: bool) -> None:
-        """
-        Toggle live capture on or off.
-        
-        Args:
-            active: True to start capture, False to stop
-        """
         if active and self.CurrentWindowHandle:
             self.StopCapture()
-            self.LiveThread = LiveCaptureThread(self.CurrentWindowHandle)
-            self.LiveThread.ImageCaptured.connect(self._handleImageCaptured)
-            
-            if self.TriggerThread is not None:
-                self.LiveThread.ImageCaptured.connect(self.TriggerThread.SetImage)
-                
-            self.LiveThread.start()
+            self.LiveThread = LiveCaptureService(
+                window_handle=self.CurrentWindowHandle,
+                interval_ms=200,
+                on_image=self._handleImageCaptured,
+            )
+            self.LiveThread.Start()
         else:
             self.StopCapture()
 
     def GetLastLiveImage(self) -> Optional[np.ndarray[Any, Any]]:
-        """Get the most recently captured image (read-only access for the View)."""
         return self.LastLiveImage
 
     def _handleImageCaptured(self, image: Optional[np.ndarray[Any, Any]]) -> None:
-        """
-        Handle a captured image.
-        
-        Args:
-            image: Captured image data
-        """
         self.LastLiveImage = image
         self.CaptureImageReady.emit(image)
 
+        if self.TriggerThread is not None:
+            self.TriggerThread.SetImage(image)
+
     def StopCapture(self) -> None:
-        """Stop the live capture thread."""
-        if self.LiveThread:
+        if self.LiveThread is not None:
             self.LiveThread.Stop()
-
-            # Disconnect only the connections we created (typed-safe).
-            try:
-                self.LiveThread.ImageCaptured.disconnect(self._handleImageCaptured)
-            except (RuntimeError, TypeError):
-                pass
-
-            if self.TriggerThread is not None:
-                try:
-                    self.LiveThread.ImageCaptured.disconnect(self.TriggerThread.SetImage)
-                except (RuntimeError, TypeError):
-                    pass
-
-            self.LiveThread.wait()
             self.LiveThread = None
 
     def StartSentinel(self) -> None:
-        """Start the sentinel monitoring thread."""
-        if not self.TriggerThread:
-            self.TriggerThread = TriggerMonitorThread(self)
-            self.TriggerThread.EventTriggered.connect(self._onEventTriggered)
-            self.TriggerThread.EventDisabled.connect(self.EventItemChangedSignal)
-            self.TriggerThread.FlowStateChanged.connect(self.EventExecutionStateChangedSignal)
-            self.TriggerThread.FlowHotkeyChanged.connect(self.EventExecutionStateHotkeyChangedSignal)
-            self.TriggerThread.MatchScoreUpdated.connect(self.MatchScoreUpdated)
-            self.TriggerThread.start()
+        if self.TriggerThread is not None:
+            return
+
+        self.TriggerThread = TriggerMonitorService(
+            get_event_items=lambda: self.EventItems,
+            poll_interval_ms=50,
+            on_event_triggered=self._onEventTriggered,
+            on_event_disabled=self.EventItemChangedSignal.emit,
+            on_flow_state_changed=self.EventExecutionStateChangedSignal.emit,
+            on_flow_hotkey_changed=self.EventExecutionStateHotkeyChangedSignal.emit,
+            on_match_score_updated=self.MatchScoreUpdated.emit,
+        )
+        self.TriggerThread.Start()
+
+    def StopSentinel(self) -> None:
+        if self.TriggerThread is not None:
+            self.TriggerThread.Stop()
+            self.TriggerThread = None
 
     def _onEventTriggered(self, event: EventItem) -> None:
-        """
-        Handle an event trigger.
-        
-        Args:
-            event: Event that was triggered
-        """
         print(f"Event Triggered: {event.Name}")
-        if self.CurrentWindowHandle:
-            event.Trigger(self.CurrentWindowHandle)
 
     def SaveState(self, filePath: str) -> None:
-        """
-        Save the current state to a file.
-        
-        Args:
-            filePath: Path to save the state to
-        """
         try:
             flowHotkey = self.TriggerThread.GetFlowHotkey() if self.TriggerThread else []
             data_to_save: Dict[str, Any] = {
@@ -387,12 +158,6 @@ class DashboardViewModel(QObject):
             raise e
 
     def LoadState(self, filePath: str) -> None:
-        """
-        Load state from a file.
-        
-        Args:
-            filePath: Path to load the state from
-        """
         if not os.path.exists(filePath):
             return
             
@@ -437,17 +202,14 @@ class DashboardViewModel(QObject):
             raise e
 
     def ToggleSentinelFlow(self) -> None:
-        """Toggle the sentinel flow state."""
         if self.TriggerThread:
             self.TriggerThread.ToggleFlowEnabled()
 
     def SetSentinelFlowHotkey(self, virtualKeyCodes: List[int]) -> None:
-        """Set the global flow hotkey (encapsulates TriggerThread access)."""
         if self.TriggerThread is not None:
             self.TriggerThread.SetFlowHotkey(virtualKeyCodes)
 
     def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None:
-        """Enable/disable an event and reset transient counters."""
         eventItem.IsEnabled = isEnabled
         eventItem.ResetTransientState()
         self.EventItemChangedSignal.emit(eventItem)
@@ -575,35 +337,6 @@ class DashboardViewModel(QObject):
             return False
         SendKeystrokeToWindow(self.CurrentWindowHandle, virtualKeyCode)
         return True
-
-    def StopSentinel(self) -> None:
-        """Stop the trigger monitoring thread."""
-        if self.TriggerThread:
-            self.TriggerThread.Stop()
-
-            # Disconnect only the connections we created (typed-safe).
-            try:
-                self.TriggerThread.EventTriggered.disconnect(self._onEventTriggered)
-            except (RuntimeError, TypeError):
-                pass
-            try:
-                self.TriggerThread.EventDisabled.disconnect(self.EventItemChangedSignal)
-            except (RuntimeError, TypeError):
-                pass
-            try:
-                self.TriggerThread.FlowStateChanged.disconnect(self.EventExecutionStateChangedSignal)
-            except (RuntimeError, TypeError):
-                pass
-            try:
-                self.TriggerThread.FlowHotkeyChanged.disconnect(self.EventExecutionStateHotkeyChangedSignal)
-            except (RuntimeError, TypeError):
-                pass
-            try:
-                self.TriggerThread.MatchScoreUpdated.disconnect(self.MatchScoreUpdated)
-            except (RuntimeError, TypeError):
-                pass
-
-            self.TriggerThread = None
 
     @property
     def SelectedEventItem(self) -> Optional[EventItem]:
