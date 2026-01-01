@@ -10,8 +10,7 @@ from PySide6.QtCore import Signal, QObject
 # Local imports
 from Src.Helper import (
     SendKeystrokeToWindow, SendMouseClickToWindow,
-    FindHwndByTitle, LaunchHwndByExecutable, ResizeWindow,
-    FindPidByHwnd, KeyNameFromVk, VkFromKeyName
+    KeyNameFromVk, VkFromKeyName
 )
 from Src.Models import (
     ActivationType, InputType, 
@@ -19,6 +18,7 @@ from Src.Models import (
 )
 
 from Src.Engine.SentinelServices import TriggerMonitorService, LiveCaptureService
+from Src.Engine.TargetWindowService import TargetWindowService
 
 class DashboardViewModel(QObject):
     EventItemAddedSignal = Signal(EventItem)
@@ -35,7 +35,7 @@ class DashboardViewModel(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.EventItems: List[EventItem] = []
-        self.CurrentWindowHandle: Optional[int] = None
+        self.TargetWindowService = TargetWindowService()
         self.LiveThread: Optional[LiveCaptureService] = None
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
         self.TriggerThread: Optional[TriggerMonitorService] = None
@@ -60,41 +60,34 @@ class DashboardViewModel(QObject):
             self.EventItemRemovedSignal.emit(index)
 
     def FindWindow(self, title: str) -> Optional[int]:
-        windowHandle = FindHwndByTitle(title)
-        self.CurrentWindowHandle = windowHandle
+        windowHandle = self.TargetWindowService.FindWindow(title)
         self.WindowHandleUpdated.emit(windowHandle)
         return windowHandle
 
     def GetPidByHwnd(self, windowHandle: int) -> Optional[int]:
-        if not windowHandle:
-            return None
-        return FindPidByHwnd(windowHandle)
+        return self.TargetWindowService.GetPidByHwnd(windowHandle)
 
     def GetCurrentTargetPid(self) -> Optional[int]:
-        if not self.CurrentWindowHandle:
-            return None
-        return FindPidByHwnd(self.CurrentWindowHandle)
+        return self.TargetWindowService.GetCurrentTargetPid()
 
     def HasTargetWindow(self) -> bool:
-        return self.CurrentWindowHandle is not None
+        return self.TargetWindowService.HasTargetWindow()
 
     def KeyNameFromVk(self, virtualKeyCode: int) -> str:
         return KeyNameFromVk(virtualKeyCode)
 
     def LaunchApplication(self, path: str) -> Optional[int]:
-        if path:
-            return LaunchHwndByExecutable(path)
-        return None
+        return self.TargetWindowService.LaunchApplication(path)
 
     def ResizeTargetWindow(self, width: int, height: int) -> None:
-        if self.CurrentWindowHandle:
-            ResizeWindow(self.CurrentWindowHandle, width, height)
+        self.TargetWindowService.ResizeTargetWindow(width, height)
 
     def ToggleCapture(self, active: bool) -> None:
-        if active and self.CurrentWindowHandle:
+        hwnd = self.TargetWindowService.CurrentWindowHandle
+        if active and hwnd:
             self.StopCapture()
             self.LiveThread = LiveCaptureService(
-                window_handle=self.CurrentWindowHandle,
+                window_handle=hwnd,
                 interval_ms=200,
                 on_image=self._handleImageCaptured,
             )
@@ -123,7 +116,7 @@ class DashboardViewModel(QObject):
 
         self.TriggerThread = TriggerMonitorService(
             get_event_items=lambda: self.EventItems,
-            get_window_handle=lambda: self.CurrentWindowHandle,
+            get_window_handle=lambda: self.TargetWindowService.CurrentWindowHandle,
             poll_interval_ms=50,
             on_event_detected=self._onEventDetected,
             on_event_disabled=self.EventItemChangedSignal.emit,
@@ -336,18 +329,20 @@ class DashboardViewModel(QObject):
         self.EventItemChangedSignal.emit(eventItem)
 
     def TrySendMouseClick(self, normalizedX: float, normalizedY: float) -> bool:
-        if not self.CurrentWindowHandle:
+        hwnd = self.TargetWindowService.CurrentWindowHandle
+        if not hwnd:
             return False
-        SendMouseClickToWindow(self.CurrentWindowHandle, normalizedX, normalizedY)
+        SendMouseClickToWindow(hwnd, normalizedX, normalizedY)
         return True
 
     def TrySendKeystrokeByName(self, keyName: str) -> bool:
-        if not self.CurrentWindowHandle:
+        hwnd = self.TargetWindowService.CurrentWindowHandle
+        if not hwnd:
             return False
         virtualKeyCode = VkFromKeyName(keyName)
         if not virtualKeyCode:
             return False
-        SendKeystrokeToWindow(self.CurrentWindowHandle, virtualKeyCode)
+        SendKeystrokeToWindow(hwnd, virtualKeyCode)
         return True
 
     @property
