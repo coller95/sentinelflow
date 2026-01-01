@@ -5,7 +5,7 @@ from typing import Optional
 from Src.Helper import (
     FindHwndByTitle,
     FindPidByHwnd,
-    LaunchHwndByExecutable,
+    LaunchProcessByExecutable,
     ResizeWindow,
 )
 
@@ -43,7 +43,7 @@ class TargetWindowService:
 
     def LaunchApplication(self, path: str) -> Optional[int]:
         if path:
-            return LaunchHwndByExecutable(path)
+            return LaunchProcessByExecutable(path)
         return None
 
     def ResizeTargetWindow(self, width: int, height: int) -> None:

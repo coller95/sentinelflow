@@ -43,7 +43,7 @@ def FindPidByHwnd(hwnd: HWND) -> PID:
     return pid
 
 
-def LaunchHwndByExecutable(executablePath: str) -> PID:
+def LaunchProcessByExecutable(executablePath: str) -> PID:
     """Launch an application by its executable path (or command) and return its PID.
 
     Notes:
