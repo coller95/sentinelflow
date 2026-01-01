@@ -17,7 +17,7 @@ from Src.Models import (
     ActionItem, EventItem, MacroStep, RectangleRegion
 )
 
-from Src.Engine.SentinelServices import TriggerMonitorService, LiveCaptureService
+from Src.Engine.SentinelControllerService import SentinelControllerService
 from Src.Engine.TargetWindowService import TargetWindowService
 
 class DashboardViewModel(QObject):
@@ -36,9 +36,20 @@ class DashboardViewModel(QObject):
         super().__init__()
         self.EventItems: List[EventItem] = []
         self.TargetWindowService = TargetWindowService()
-        self.LiveThread: Optional[LiveCaptureService] = None
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
-        self.TriggerThread: Optional[TriggerMonitorService] = None
+
+        self.SentinelController = SentinelControllerService(
+            get_event_items=lambda: self.EventItems,
+            get_window_handle=lambda: self.TargetWindowService.CurrentWindowHandle,
+            poll_interval_ms=50,
+            capture_interval_ms=200,
+            on_image=self._onCaptureImage,
+            on_event_detected=self._onEventDetected,
+            on_event_disabled=self.EventItemChangedSignal.emit,
+            on_flow_state_changed=self.EventExecutionStateChangedSignal.emit,
+            on_flow_hotkey_changed=self.EventExecutionStateHotkeyChangedSignal.emit,
+            on_match_score_updated=self.MatchScoreUpdated.emit,
+        )
 
         self._selectedEventItem : Optional[EventItem] = None
         self._captureMousePositionNormalized: Optional[tuple[float, float]] = None
@@ -84,52 +95,23 @@ class DashboardViewModel(QObject):
 
     def ToggleCapture(self, active: bool) -> None:
         hwnd = self.TargetWindowService.CurrentWindowHandle
-        if active and hwnd:
-            self.StopCapture()
-            self.LiveThread = LiveCaptureService(
-                window_handle=hwnd,
-                interval_ms=200,
-                on_image=self._handleImageCaptured,
-            )
-            self.LiveThread.Start()
-        else:
-            self.StopCapture()
+        self.SentinelController.ToggleCapture(active, hwnd)
 
     def GetLastLiveImage(self) -> Optional[np.ndarray[Any, Any]]:
         return self.LastLiveImage
 
-    def _handleImageCaptured(self, image: Optional[np.ndarray[Any, Any]]) -> None:
+    def _onCaptureImage(self, image: Optional[np.ndarray[Any, Any]]) -> None:
         self.LastLiveImage = image
         self.CaptureImageReady.emit(image)
 
-        if self.TriggerThread is not None:
-            self.TriggerThread.SetImage(image)
-
     def StopCapture(self) -> None:
-        if self.LiveThread is not None:
-            self.LiveThread.Stop()
-            self.LiveThread = None
+        self.SentinelController.StopCapture()
 
     def StartSentinel(self) -> None:
-        if self.TriggerThread is not None:
-            return
-
-        self.TriggerThread = TriggerMonitorService(
-            get_event_items=lambda: self.EventItems,
-            get_window_handle=lambda: self.TargetWindowService.CurrentWindowHandle,
-            poll_interval_ms=50,
-            on_event_detected=self._onEventDetected,
-            on_event_disabled=self.EventItemChangedSignal.emit,
-            on_flow_state_changed=self.EventExecutionStateChangedSignal.emit,
-            on_flow_hotkey_changed=self.EventExecutionStateHotkeyChangedSignal.emit,
-            on_match_score_updated=self.MatchScoreUpdated.emit,
-        )
-        self.TriggerThread.Start()
+        self.SentinelController.StartSentinel()
 
     def StopSentinel(self) -> None:
-        if self.TriggerThread is not None:
-            self.TriggerThread.Stop()
-            self.TriggerThread = None
+        self.SentinelController.StopSentinel()
 
     def _onEventDetected(self, event: EventItem) -> None:
         # Note: execution is performed by TriggerMonitorService (if a window handle is available).
@@ -137,7 +119,7 @@ class DashboardViewModel(QObject):
 
     def SaveState(self, filePath: str) -> None:
         try:
-            flowHotkey = self.TriggerThread.GetFlowHotkey() if self.TriggerThread else []
+            flowHotkey = self.SentinelController.GetFlowHotkey()
             data_to_save: Dict[str, Any] = {
                 "events": self.EventItems,
                 "settings": flowHotkey,  # A second object
@@ -176,8 +158,7 @@ class DashboardViewModel(QObject):
                 
             # ---------------------------
             # Populate the UI/Model
-            if self.TriggerThread is not None:
-                self.TriggerThread.SetFlowEnabled(False)  # Ensure flow is off during loading
+            self.SentinelController.SetFlowEnabled(False)  # Ensure flow is off during loading
                 
             self.EventItems.clear()
             for event in loadedEvents:
@@ -190,19 +171,16 @@ class DashboardViewModel(QObject):
                 self.EventItemAddedSignal.emit(event)
 
             # Apply settings (also allow clearing hotkey by saving empty list)
-            if self.TriggerThread is not None:
-                self.TriggerThread.SetFlowHotkey(loadedHotkey)
+            self.SentinelController.SetFlowHotkey(loadedHotkey)
         except Exception as e:
             print(f"LoadState Error: {e}")
             raise e
 
     def ToggleSentinelFlow(self) -> None:
-        if self.TriggerThread:
-            self.TriggerThread.ToggleFlowEnabled()
+        self.SentinelController.ToggleFlowEnabled()
 
     def SetSentinelFlowHotkey(self, virtualKeyCodes: List[int]) -> None:
-        if self.TriggerThread is not None:
-            self.TriggerThread.SetFlowHotkey(virtualKeyCodes)
+        self.SentinelController.SetFlowHotkey(virtualKeyCodes)
 
     def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None:
         eventItem.IsEnabled = isEnabled
