@@ -15,14 +15,13 @@ from PySide6.QtCore import (
 from Src.Helper import (
     SendKeystrokeToWindow, SendMouseClickToWindow, CaptureWindowByHwnd,
     FindHwndByTitle, LaunchHwndByExecutable, ResizeWindow, IsHotkeyActive,
-    FindPidByHwnd,
-    KeyNameFromVk, VkFromKeyName, CropImage, MatchTemplate,
-    EstimateProgressBarPercentage
+    FindPidByHwnd, KeyNameFromVk, VkFromKeyName
 )
 from Src.Models import (
     ActivationType, InputType, 
     ActionItem, EventItem, MacroStep, RectangleRegion
 )
+from Src.TriggerEngine import TriggerEngine
 
 
 class TriggerMonitorThread(QThread):
@@ -53,6 +52,7 @@ class TriggerMonitorThread(QThread):
         self._flowEnabled: bool = True
         self._flowHotkeyVirtualKeyCodes: List[int] = []
         self._flowHotkeyIsCurrentlyHeld: bool = False
+        self._engine = TriggerEngine()
 
     def SetImage(self, image: Optional[np.ndarray[Any, Any]]) -> None:
         """
@@ -118,103 +118,16 @@ class TriggerMonitorThread(QThread):
             # Iterate over a snapshot to avoid concurrent-modification issues
             eventItemsSnapshot = list(self._viewModel.EventItems)
 
-            # Process each event
-            for index, event in enumerate(eventItemsSnapshot):
-                if not event.IsEnabled:
-                    continue
+            result = self._engine.evaluate(eventItemsSnapshot, localImage)
 
-                if event.SelectedActivationType == ActivationType.Hotkey:
-                    if len(event.ActivationVirtualKeyCodes) == 0:
-                        continue
-                        
-                    isDownNow = IsHotkeyActive(event.ActivationVirtualKeyCodes)
-                    if event.IsCurrentlyHeld and not isDownNow:
-                        self.EventTriggered.emit(event)
-                    event.IsCurrentlyHeld = isDownNow
-                    
-                elif event.SelectedActivationType == ActivationType.Loop:
-                    if event.LoopCount < 0:
-                        continue
-                    elif event.LoopCount > 0 and event.LoopCounter >= event.LoopCount:
-                        event.IsEnabled = False
-                        event.ResetTransientState()
-                        self.EventDisabled.emit(event)
-                        continue  # IMPORTANT: don't trigger after auto-disabling
-                        
-                    # Handle loop timing
-                    if time.time() * 1000 - event.TimeOfLastTriggerMilliseconds < event.IntervalMilliseconds:
-                        continue
-                        
-                    event.LoopCounter += 1
-                    event.TimeOfLastTriggerMilliseconds = time.time() * 1000
-                    self.EventTriggered.emit(event)
-                    
-                elif event.SelectedActivationType == ActivationType.ImageMatchRoi:
-                    if localImage is None or event.TemplateImage is None:
-                        continue
-                        
-                    localImageRoi = CropImage(localImage, (
-                        event.Roi.XNormalized, 
-                        event.Roi.YNormalized, 
-                        event.Roi.WidthNormalized, 
-                        event.Roi.HeightNormalized
-                    ))
-                    
-                    event.MatchScore = MatchTemplate(localImageRoi, event.TemplateImage)
-                    self.MatchScoreUpdated.emit(event.MatchScore)
-                    
-                    if event.TriggerOnThresholdExceed:
-                        isConditionMet = event.MatchScore >= event.Threshold
-                    else:
-                        isConditionMet = event.MatchScore < event.Threshold
-                        
-                    currentTimeMs = int(time.time() * 1000)
-                    timeSinceLastTrigger = currentTimeMs - event.TimeOfLastTriggerMilliseconds
+            for event in result.triggered:
+                self.EventTriggered.emit(event)
 
-                    # Logic Gates
-                    isRisingEdge = isConditionMet and not event.IsCurrentlyHeld
-                    isRetrigger = isConditionMet and (timeSinceLastTrigger > event.RetriggerTimeMilliseconds)
+            for event in result.disabled:
+                self.EventDisabled.emit(event)
 
-                    if isRisingEdge or isRetrigger:
-                        self.EventTriggered.emit(event)
-                        event.TimeOfLastTriggerMilliseconds = currentTimeMs
-
-                    # Sync state
-                    event.IsCurrentlyHeld = isConditionMet
-                        
-                elif event.SelectedActivationType in (ActivationType.ProgressBar, ActivationType.ProgressBar):
-                    if localImage is None:
-                        continue
-                        
-                    localImageRoi = CropImage(localImage, (
-                        event.Roi.XNormalized, 
-                        event.Roi.YNormalized, 
-                        event.Roi.WidthNormalized, 
-                        event.Roi.HeightNormalized
-                    ))
-                    
-                    event.PercentFilled = EstimateProgressBarPercentage(localImageRoi)
-                    self.MatchScoreUpdated.emit((index, event.PercentFilled))
-
-                    
-                    if event.TriggerOnThresholdExceed:
-                        isConditionMet = event.PercentFilled >= event.Threshold
-                    else:
-                        isConditionMet = event.PercentFilled < event.Threshold
-                        
-                    currentTimeMs = int(time.time() * 1000)
-                    timeSinceLastTrigger = currentTimeMs - event.TimeOfLastTriggerMilliseconds
-
-                    # Logic Gates
-                    isRisingEdge = isConditionMet and not event.IsCurrentlyHeld
-                    isRetrigger = isConditionMet and (timeSinceLastTrigger > event.RetriggerTimeMilliseconds)
-
-                    if isRisingEdge or isRetrigger:
-                        self.EventTriggered.emit(event)
-                        event.TimeOfLastTriggerMilliseconds = currentTimeMs
-
-                    # Sync state
-                    event.IsCurrentlyHeld = isConditionMet
+            for matchUpdate in result.match_updates:
+                self.MatchScoreUpdated.emit(matchUpdate)
             
             time.sleep(self._pollIntervalMs / 1000.0)
 
