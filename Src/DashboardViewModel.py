@@ -16,6 +16,7 @@ from Src.Engine.InputAutomationService import InputAutomationService
 from Src.Engine.StatePersistenceService import StatePersistenceService
 from Src.Engine.EventEditingService import EventEditingService
 from Src.Engine.EventListService import EventListService
+from Src.Engine.DashboardViewStateService import DashboardViewStateService
 
 class DashboardViewModel(QObject):
     EventItemAddedSignal = Signal(EventItem)
@@ -37,6 +38,7 @@ class DashboardViewModel(QObject):
         self.StatePersistenceService = StatePersistenceService()
         self.EventEditingService = EventEditingService()
         self.EventListService = EventListService()
+        self.ViewState = DashboardViewStateService()
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
 
         self.SentinelController = SentinelControllerService(
@@ -52,9 +54,6 @@ class DashboardViewModel(QObject):
             on_match_score_updated=self.MatchScoreUpdated.emit,
         )
 
-        self._selectedEventItem : Optional[EventItem] = None
-        self._captureMousePositionNormalized: Optional[tuple[float, float]] = None
-        
         self.StartSentinel()  # Initialize the sentinel monitoring
 
     def AddEvent(self) -> None:
@@ -63,7 +62,7 @@ class DashboardViewModel(QObject):
         self.EventItemAddedSignal.emit(newEvent)
 
     def RemoveEvent(self) -> None:
-        index = self.EventListService.RemoveSelectedEvent(self.EventItems, self._selectedEventItem)
+        index = self.EventListService.RemoveSelectedEvent(self.EventItems, self.ViewState.SelectedEventItem)
         if index is not None:
             self.EventItemRemovedSignal.emit(index)
 
@@ -164,80 +163,80 @@ class DashboardViewModel(QObject):
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedEventName(self, name: str) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem:
             return
         self.EventEditingService.UpdateEventName(eventItem, name)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedActivationType(self, activationType: ActivationType) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem:
             return
         self.EventEditingService.UpdateActivationType(eventItem, activationType)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedLoopCount(self, loopCount: int) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem:
             return
         self.EventEditingService.UpdateLoopCount(eventItem, loopCount)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedLoopIntervalMs(self, intervalMs: int) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem:
             return
         self.EventEditingService.UpdateLoopIntervalMs(eventItem, intervalMs)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedThreshold(self, threshold: float) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem:
             return
         self.EventEditingService.UpdateThreshold(eventItem, threshold)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedTriggerOnThresholdExceed(self, isEnabled: bool) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem:
             return
         self.EventEditingService.UpdateTriggerOnThresholdExceed(eventItem, isEnabled)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedRetriggerTimeMs(self, retriggerTimeMs: float) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem:
             return
         self.EventEditingService.UpdateRetriggerTimeMs(eventItem, retriggerTimeMs)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedActivationHotkey(self, virtualKeyCodes: List[int]) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem:
             return
         self.EventEditingService.UpdateActivationHotkey(eventItem, virtualKeyCodes)
         self.EventItemChangedSignal.emit(eventItem)
 
     def SetSelectedTemplateAndRoi(self, templateImage: np.ndarray[Any, Any], roi: RectangleRegion) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem:
             return
         self.EventEditingService.SetTemplateAndRoi(eventItem, templateImage, roi)
         self.EventItemChangedSignal.emit(eventItem)
 
     def AddSelectedMouseStepFromCapturedPosition(self) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem or not eventItem.AssignedAction:
             return
-        if self._captureMousePositionNormalized is None:
+        if self.ViewState.CaptureMousePositionNormalized is None:
             raise ValueError("No mouse position captured")
-        normalizedX, normalizedY = self._captureMousePositionNormalized
+        normalizedX, normalizedY = self.ViewState.CaptureMousePositionNormalized
         self.EventEditingService.AddMouseStep(eventItem, normalizedX, normalizedY)
         self.EventItemChangedSignal.emit(eventItem)
 
     def AddSelectedKeyboardStep(self, virtualKeyCode: Any) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem or not eventItem.AssignedAction:
             return
 
@@ -245,21 +244,21 @@ class DashboardViewModel(QObject):
         self.EventItemChangedSignal.emit(eventItem)
 
     def AddSelectedDelayStep(self, milliseconds: int) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem or not eventItem.AssignedAction:
             return
         self.EventEditingService.AddDelayStep(eventItem, milliseconds)
         self.EventItemChangedSignal.emit(eventItem)
 
     def RemoveSelectedStep(self, index: int) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem or not eventItem.AssignedAction:
             return
         self.EventEditingService.RemoveStep(eventItem, index)
         self.EventItemChangedSignal.emit(eventItem)
 
     def MoveSelectedStep(self, fromIndex: int, toIndex: int) -> None:
-        eventItem = self._selectedEventItem
+        eventItem = self.ViewState.SelectedEventItem
         if not eventItem or not eventItem.AssignedAction:
             return
         self.EventEditingService.MoveStep(eventItem, fromIndex, toIndex)
@@ -275,17 +274,17 @@ class DashboardViewModel(QObject):
 
     @property
     def SelectedEventItem(self) -> Optional[EventItem]:
-        return self._selectedEventItem
+        return self.ViewState.SelectedEventItem
 
     @SelectedEventItem.setter
     def SelectedEventItem(self, event: Optional[EventItem]) -> None:        
-        self._selectedEventItem = event
+        self.ViewState.SelectedEventItem = event
         self.EventItemSelectedSignal.emit(event)
 
     @property
     def CaptureMousePositionNormalized(self) -> Optional[tuple[float, float]]:
-        return self._captureMousePositionNormalized
+        return self.ViewState.CaptureMousePositionNormalized
     
     @CaptureMousePositionNormalized.setter
     def CaptureMousePositionNormalized(self, point: Optional[tuple[float, float]]) -> None:
-        self._captureMousePositionNormalized = point
+        self.ViewState.CaptureMousePositionNormalized = point
