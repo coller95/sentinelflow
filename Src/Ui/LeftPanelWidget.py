@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from Src.Models import EventItem
-from Src.UiShared import (
+from Src.Ui.UiShared import (
     BUTTON_STYLE_RUNNING,
     BUTTON_STYLE_STOPPED,
     HotkeyCaptureDialog,

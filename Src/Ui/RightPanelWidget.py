@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QDialog
 )
 from Src.Models import RectangleRegion, ActivationType, InputType, ActionItem, EventItem
-from Src.UiShared import (
+from Src.Ui.UiShared import (
     HotkeyCaptureDialog,
     CropperWidget,
 )

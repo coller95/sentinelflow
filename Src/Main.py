@@ -48,9 +48,9 @@ from Src.Models import (
     ActionItem, EventItem, MacroStep, RectangleRegion
 )
 
-from Src.LeftPanelWidget import LeftPanelWidget
-from Src.CenterPanelWidget import CenterPanelWidget
-from Src.RightPanelWidget import RightPanelWidget
+from Src.Ui.LeftPanelWidget import LeftPanelWidget
+from Src.Ui.CenterPanelWidget import CenterPanelWidget
+from Src.Ui.RightPanelWidget import RightPanelWidget
 
 
 # =============================================================================
@@ -448,11 +448,19 @@ class DashboardViewModel(QObject):
         """Stop the live capture thread."""
         if self.LiveThread:
             self.LiveThread.Stop()
+
+            # Disconnect only the connections we created (typed-safe).
             try:
-                self.LiveThread.ImageCaptured.disconnect()
-            except RuntimeError:
+                self.LiveThread.ImageCaptured.disconnect(self._handleImageCaptured)
+            except (RuntimeError, TypeError):
                 pass
-                
+
+            if self.TriggerThread is not None:
+                try:
+                    self.LiveThread.ImageCaptured.disconnect(self.TriggerThread.SetImage)
+                except (RuntimeError, TypeError):
+                    pass
+
             self.LiveThread.wait()
             self.LiveThread = None
 
@@ -689,10 +697,29 @@ class DashboardViewModel(QObject):
         """Stop the trigger monitoring thread."""
         if self.TriggerThread:
             self.TriggerThread.Stop()
+
+            # Disconnect only the connections we created (typed-safe).
             try:
-                self.TriggerThread.disconnect()
+                self.TriggerThread.EventTriggered.disconnect(self._onEventTriggered)
             except (RuntimeError, TypeError):
                 pass
+            try:
+                self.TriggerThread.EventDisabled.disconnect(self.EventItemChangedSignal)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                self.TriggerThread.FlowStateChanged.disconnect(self.EventExecutionStateChangedSignal)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                self.TriggerThread.FlowHotkeyChanged.disconnect(self.EventExecutionStateHotkeyChangedSignal)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                self.TriggerThread.MatchScoreUpdated.disconnect(self.MatchScoreUpdated)
+            except (RuntimeError, TypeError):
+                pass
+
             self.TriggerThread = None
 
     @property

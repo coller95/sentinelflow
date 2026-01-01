@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QFileDialog
 )
 
-from Src.UiShared import ClickableImageLabel
+from Src.Ui.UiShared import ClickableImageLabel
 
 class DashboardViewModelProtocol(Protocol):
     WindowHandleUpdated: Any
