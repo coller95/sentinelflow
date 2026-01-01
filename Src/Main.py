@@ -365,6 +365,9 @@ class DashboardViewModel(QObject):
             return None
         return FindPidByHwnd(windowHandle)
 
+    def KeyNameFromVk(self, virtualKeyCode: int) -> str:
+        return KeyNameFromVk(virtualKeyCode)
+
     def LaunchApplication(self, path: str) -> Optional[int]:
         """
         Launch an application from the specified path.

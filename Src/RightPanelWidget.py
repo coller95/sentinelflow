@@ -8,9 +8,6 @@ from PySide6.QtWidgets import (
     QComboBox, QListWidget, QListWidgetItem, QCheckBox, QInputDialog, QMessageBox, 
     QDialog
 )
-
-
-from Src.Helper import KeyNameFromVk
 from Src.Models import RectangleRegion, ActivationType, InputType, ActionItem, EventItem
 from Src.UiShared import (
     HotkeyCaptureDialog,
@@ -47,6 +44,7 @@ class DashboardViewModelProtocol(Protocol):
     def AddSelectedDelayStep(self, milliseconds: int) -> None: ...
     def MoveSelectedStep(self, fromIndex: int, toIndex: int) -> None: ...
     def RemoveSelectedStep(self, index: int) -> None: ...
+    def KeyNameFromVk(self, virtualKeyCode: int) -> str: ...
 
 class RightPanelWidget(QWidget):
     """
@@ -378,7 +376,7 @@ class RightPanelWidget(QWidget):
         dialog = HotkeyCaptureDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.ViewModel.UpdateSelectedActivationHotkey(dialog.CapturedVirtualKeyCodes)
-            self.activationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, dialog.CapturedVirtualKeyCodes)))
+            self.activationHotkeyEdit.setText(", ".join(map(self.ViewModel.KeyNameFromVk, dialog.CapturedVirtualKeyCodes)))
 
     def _onSelectRoi(self) -> None:
         """Handle select ROI button click."""
@@ -470,7 +468,7 @@ class RightPanelWidget(QWidget):
             self.activationDropdown.setCurrentIndex(index)
         self.activationDropdown.setEnabled(True)
 
-        self.activationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventItem.ActivationVirtualKeyCodes)))
+        self.activationHotkeyEdit.setText(", ".join(map(self.ViewModel.KeyNameFromVk, eventItem.ActivationVirtualKeyCodes)))
         self.activationHotkeyButton.setEnabled(True)
 
         self.loopCountEdit.setText(str(eventItem.LoopCount))

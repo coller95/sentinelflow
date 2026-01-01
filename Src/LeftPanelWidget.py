@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QFileDialog, QMessageBox, QLineEdit, QSizePolicy, QDialog
 )
 
-from Src.Helper import KeyNameFromVk
 from Src.Models import EventItem
 from Src.UiShared import (
     BUTTON_STYLE_RUNNING,
@@ -39,6 +38,7 @@ class DashboardViewModelProtocol(Protocol):
     def LoadState(self, filePath: str) -> None: ...
     def ToggleSentinelFlow(self) -> None: ...
     def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None: ...
+    def KeyNameFromVk(self, virtualKeyCode: int) -> str: ...
 
 class LeftPanelWidget(QWidget):    
     """
@@ -199,4 +199,4 @@ class LeftPanelWidget(QWidget):
             self.EventExecutionStateButton.setStyleSheet(BUTTON_STYLE_STOPPED)
 
     def _onEventExecutionStateHotkeyChangedSignal(self, hotkeyList: List[int]) -> None:
-        self.EventExecutionStateHotkeyEdit.setText(", ".join(map(KeyNameFromVk, hotkeyList)))
+        self.EventExecutionStateHotkeyEdit.setText(", ".join(map(self.ViewModel.KeyNameFromVk, hotkeyList)))
