@@ -19,7 +19,7 @@ class ActivationType(Enum):
     Hotkey = auto()
     Loop = auto()
     ImageMatchRoi = auto()
-    ProgessBar = auto()
+    ProgressBar = auto()
 
 class InputType(Enum):
     """Types of macro input steps."""
@@ -219,7 +219,7 @@ class EventItem:
         activationType: ActivationType = ActivationType.NotSet,
         loopCount: int = 0,
         intervalMilliseconds: int = 1000,
-        roi: RectangleRegion = RectangleRegion(0.0, 0.0, 1.0, 1.0),
+        roi: Optional[RectangleRegion] = None,  # FIX: avoid shared mutable default
         threshold: float = 0.99,
         retriggerTimeMilliseconds: float = 2000
     ) -> None:
@@ -245,7 +245,7 @@ class EventItem:
         self._loopCounter: int = 0
         self._intervalMilliseconds: int = intervalMilliseconds
         self._timeOfLastTriggerMilliseconds: float = 0.0
-        self._roi: RectangleRegion = roi
+        self._roi: RectangleRegion = roi if roi is not None else RectangleRegion(0.0, 0.0, 1.0, 1.0)
         self._threshold: float = threshold
         self._triggerOnThresholdExceed: bool = True
         self._retriggerTimeMilliseconds: float = retriggerTimeMilliseconds
@@ -423,6 +423,14 @@ class EventItem:
     def AssignedAction(self, value: ActionItem) -> None:
         """Set the action assigned to this event."""
         self._assignedAction = value
+
+    def ResetTransientState(self) -> None:
+        """Reset counters/edge-detection state so enabling/type changes behave predictably."""
+        self._isCurrentlyHeld = False
+        self._loopCounter = 0
+        self._timeOfLastTriggerMilliseconds = 0.0
+        self._matchScore = 0.0
+        self._percentFilled = 0.0
 
     def Trigger(self, windowHandle: int) -> None:
         """

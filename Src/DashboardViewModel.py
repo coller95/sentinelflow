@@ -96,27 +96,33 @@ class TriggerMonitorThread(QThread):
     def run(self) -> None:
         """Main thread execution loop."""
         while self._isRunning:
-            # Check flow hotkey
-            isDownNow = IsHotkeyActive(self._flowHotkeyVirtualKeyCodes)
-            if self._flowHotkeyIsCurrentlyHeld and not isDownNow:
-                self.ToggleFlowEnabled()
-            self._flowHotkeyIsCurrentlyHeld = isDownNow
-            
+            # Check flow hotkey (only if configured)
+            if self._flowHotkeyVirtualKeyCodes:
+                isDownNow = IsHotkeyActive(self._flowHotkeyVirtualKeyCodes)
+                if self._flowHotkeyIsCurrentlyHeld and not isDownNow:
+                    self.ToggleFlowEnabled()
+                self._flowHotkeyIsCurrentlyHeld = isDownNow
+            else:
+                self._flowHotkeyIsCurrentlyHeld = False
+
             if not self._flowEnabled:
                 time.sleep(self._pollIntervalMs / 1000.0)
                 continue
-                
+
             # Copy image for processing
             localImage: Optional[np.ndarray[Any, Any]] = None
             with QMutexLocker(self._imageMutex):
                 localImage = self._currentImage
                 self._currentImage = None
 
+            # Iterate over a snapshot to avoid concurrent-modification issues
+            eventItemsSnapshot = list(self._viewModel.EventItems)
+
             # Process each event
-            for index, event in enumerate(self._viewModel.EventItems):
+            for index, event in enumerate(eventItemsSnapshot):
                 if not event.IsEnabled:
                     continue
-                    
+
                 if event.SelectedActivationType == ActivationType.Hotkey:
                     if len(event.ActivationVirtualKeyCodes) == 0:
                         continue
@@ -129,11 +135,12 @@ class TriggerMonitorThread(QThread):
                 elif event.SelectedActivationType == ActivationType.Loop:
                     if event.LoopCount < 0:
                         continue
-                    elif event.LoopCount > 0:
-                        if event.LoopCounter >= event.LoopCount:
-                            event.IsEnabled = False
-                            self.EventDisabled.emit(event)
-                            
+                    elif event.LoopCount > 0 and event.LoopCounter >= event.LoopCount:
+                        event.IsEnabled = False
+                        event.ResetTransientState()
+                        self.EventDisabled.emit(event)
+                        continue  # IMPORTANT: don't trigger after auto-disabling
+                        
                     # Handle loop timing
                     if time.time() * 1000 - event.TimeOfLastTriggerMilliseconds < event.IntervalMilliseconds:
                         continue
@@ -175,7 +182,7 @@ class TriggerMonitorThread(QThread):
                     # Sync state
                     event.IsCurrentlyHeld = isConditionMet
                         
-                elif event.SelectedActivationType == ActivationType.ProgessBar:
+                elif event.SelectedActivationType in (ActivationType.ProgressBar, ActivationType.ProgressBar):
                     if localImage is None:
                         continue
                         
@@ -396,7 +403,7 @@ class DashboardViewModel(QObject):
         """Get the most recently captured image (read-only access for the View)."""
         return self.LastLiveImage
 
-    def _handleImageCaptured(self, image: np.ndarray[Any, Any]) -> None:
+    def _handleImageCaptured(self, image: Optional[np.ndarray[Any, Any]]) -> None:
         """
         Handle a captured image.
         
@@ -506,11 +513,16 @@ class DashboardViewModel(QObject):
                 
             self.EventItems.clear()
             for event in loadedEvents:
+                # Best-effort: ensure fresh transient state after load
+                try:
+                    event.ResetTransientState()
+                except Exception:
+                    pass
                 self.EventItems.append(event)
                 self.EventItemAddedSignal.emit(event)
-                
-            # Apply settings if they exist
-            if self.TriggerThread and loadedHotkey:
+
+            # Apply settings (also allow clearing hotkey by saving empty list)
+            if self.TriggerThread is not None:
                 self.TriggerThread.SetFlowHotkey(loadedHotkey)
         except Exception as e:
             print(f"LoadState Error: {e}")
@@ -529,7 +541,7 @@ class DashboardViewModel(QObject):
     def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None:
         """Enable/disable an event and reset transient counters."""
         eventItem.IsEnabled = isEnabled
-        eventItem.LoopCounter = 0
+        eventItem.ResetTransientState()
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedEventName(self, name: str) -> None:
@@ -544,6 +556,7 @@ class DashboardViewModel(QObject):
         if not eventItem:
             return
         eventItem.SelectedActivationType = activationType
+        eventItem.ResetTransientState()
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedLoopCount(self, loopCount: int) -> None:

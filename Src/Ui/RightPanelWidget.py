@@ -519,7 +519,7 @@ class RightPanelWidget(QWidget):
         else:
             self.loopWidget.hide()
 
-        if activationType in (ActivationType.ImageMatchRoi, ActivationType.ProgessBar):
+        if activationType in (ActivationType.ImageMatchRoi, ActivationType.ProgressBar):
             self.roiWidget.show()
             self.thresholdWidget.show()
             self.triggerOnThresholdExceedWidget.show()
