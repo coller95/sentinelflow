@@ -21,7 +21,7 @@ from Src.Models import (
     ActivationType, InputType, 
     ActionItem, EventItem, MacroStep, RectangleRegion
 )
-from Src.TriggerEngine import TriggerEngine
+from Engine.ActivationEngine import ActivationEngine
 
 
 class TriggerMonitorThread(QThread):
@@ -52,7 +52,7 @@ class TriggerMonitorThread(QThread):
         self._flowEnabled: bool = True
         self._flowHotkeyVirtualKeyCodes: List[int] = []
         self._flowHotkeyIsCurrentlyHeld: bool = False
-        self._engine = TriggerEngine()
+        self._engine = ActivationEngine()
 
     def SetImage(self, image: Optional[np.ndarray[Any, Any]]) -> None:
         """

@@ -23,7 +23,7 @@ class EngineResult:
     match_updates: List[object]
 
 
-class TriggerEngine:
+class ActivationEngine:
     """Pure logic for evaluating events against inputs."""
 
     def evaluate(self, events: List[EventItem], localImage: Optional[np.ndarray[Any, Any]]) -> EngineResult:
