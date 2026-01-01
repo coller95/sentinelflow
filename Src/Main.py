@@ -4,7 +4,6 @@ Description: PySide6 GUI application for window automation using MVVM pattern.
 Author: SentinelFlow Team
 Version: 1.0.0
 """
-# pylint: disable=too-many-lines
 # =============================================================================
 # IMPORTS
 # =============================================================================
