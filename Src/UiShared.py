@@ -4,9 +4,9 @@ import numpy as np
 import cv2
 from typing import List, Optional, Final, Callable, Any
 
-from PySide6.QtCore import Qt, QPoint, QRect, QSize
-from PySide6.QtGui import QKeyEvent, QMouseEvent, QResizeEvent, QPixmap, QImage
-from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget, QRubberBand 
+from PySide6.QtCore import Qt, QPoint, QRect, QSize, Signal
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QResizeEvent, QPixmap, QImage, QPaintEvent, QPainter, QPen
+from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget, QRubberBand
 
 
 BUTTON_STYLE_RUNNING: Final[str] = """
@@ -249,3 +249,80 @@ class CropperWidget(QWidget):
         # Important: QImage uses the underlying buffer of the ndarray.
         # We must return a copy as a Pixmap to avoid memory access issues.
         return QPixmap.fromImage(qImage)
+
+
+
+class ClickableImageLabel(QLabel):
+    """
+    An image label that emits a signal when clicked with normalized coordinates.
+    
+    Signals:
+        Clicked: Emitted when the label is clicked
+        
+    Properties:
+        NormalizedX: Normalized X coordinate of the marker
+        NormalizedY: Normalized Y coordinate of the marker
+    """
+    Clicked = Signal(QPoint)
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        """
+        Initialize the clickable image label.
+        
+        Args:
+            parent: Parent widget
+        """
+        super().__init__(parent)
+        self.NormalizedX: Optional[float] = None
+        self.NormalizedY: Optional[float] = None
+        self.setMouseTracking(True)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """
+        Handle mouse press events.
+        
+        Args:
+            event: Mouse event
+        """
+        if event.button() == Qt.MouseButton.LeftButton:
+            width, height = self.width(), self.height()
+            if width > 0 and height > 0:
+                self.NormalizedX = event.position().x() / width
+                self.NormalizedY = event.position().y() / height
+                self.Clicked.emit(event.position().toPoint())
+                self.update()
+
+    def SetMarkerNormalized(self, normalizedX: float, normalizedY: float) -> None:
+        """
+        Set the marker position using normalized coordinates.
+        
+        Args:
+            normalizedX: Normalized X coordinate (0.0 to 1.0)
+            normalizedY: Normalized Y coordinate (0.0 to 1.0)
+        """
+        self.NormalizedX = normalizedX
+        self.NormalizedY = normalizedY
+        self.update()
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """
+        Handle paint events to draw the marker.
+        
+        Args:
+            event: Paint event
+        """
+        super().paintEvent(event)
+        if self.NormalizedX is None or self.NormalizedY is None:
+            return
+            
+        x = int(self.NormalizedX * self.width())
+        y = int(self.NormalizedY * self.height())
+        
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(Qt.GlobalColor.red, 2))
+        
+        size = 10
+        painter.drawLine(x - size, y, x + size, y)
+        painter.drawLine(x, y - size, x, y + size)
+
