@@ -4,8 +4,10 @@ Description: Window management, image processing, and input simulation utilities
 Naming Convention: Microsoft CamelCase Guidelines.
 """
 import ctypes
+import shlex
 import subprocess
 import time
+from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
 import cv2
@@ -42,8 +44,49 @@ def FindPidByHwnd(hwnd: HWND) -> PID:
 
 
 def LaunchHwndByExecutable(executablePath: str) -> PID:
-    """Launch an application by its executable path and return its PID."""
-    process = subprocess.Popen(executablePath, shell=True)
+    """Launch an application by its executable path (or command) and return its PID.
+
+    Notes:
+        - Prefers `shell=False` for existing .exe/.com paths so spaces work reliably.
+        - Falls back to `shell=True` for complex command strings or batch files.
+    """
+    command = executablePath.strip()
+    if not command:
+        raise ValueError("Executable path cannot be empty.")
+
+    try:
+        argv = shlex.split(command, posix=False)
+    except ValueError:
+        argv = [command]
+
+    # If the user types an unquoted path with spaces, `shlex.split` will split it.
+    # Recover by joining tokens until we find an existing executable path.
+    recoveredArgv: Optional[List[str]] = None
+    if argv:
+        for i in range(1, len(argv) + 1):
+            candidate = " ".join(argv[:i]).strip('"')
+            candidatePath = Path(candidate)
+            if candidatePath.exists() and candidatePath.suffix.lower() in (".exe", ".com"):
+                recoveredArgv = [candidate] + argv[i:]
+                break
+
+    argvToUse = recoveredArgv or argv
+
+    exeCandidate = argvToUse[0].strip('"') if argvToUse else command.strip('"')
+    exePath = Path(exeCandidate)
+    suffix = exePath.suffix.lower()
+
+    useShell = True
+    popenArg: object = command
+
+    if exePath.exists() and suffix in (".exe", ".com"):
+        useShell = False
+        popenArg = argvToUse
+    elif exePath.exists() and suffix in (".bat", ".cmd"):
+        useShell = True
+        popenArg = command
+
+    process = subprocess.Popen(popenArg, shell=useShell)
     time.sleep(1.5)  # Allow time for window creation
     return process.pid
 
