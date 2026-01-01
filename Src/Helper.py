@@ -43,7 +43,7 @@ def FindPidByHwnd(hwnd: HWND) -> PID:
 
 def LaunchHwndByExecutable(executablePath: str) -> PID:
     """Launch an application by its executable path and return its PID."""
-    process = subprocess.Popen([executablePath], shell=True)
+    process = subprocess.Popen(executablePath, shell=True)
     time.sleep(1.5)  # Allow time for window creation
     return process.pid
 
