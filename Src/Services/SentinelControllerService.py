@@ -5,7 +5,7 @@ from typing import Callable, List, Optional, Any
 import numpy as np
 
 from Src.Models import EventItem
-from Src.Engine.SentinelServices import TriggerMonitorService, LiveCaptureService
+from Src.Services.SentinelServices import TriggerMonitorService, LiveCaptureService
 
 
 class SentinelControllerService:

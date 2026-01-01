@@ -10,13 +10,13 @@ from Src.Models import (
     EventItem, RectangleRegion
 )
 
-from Src.Engine.SentinelControllerService import SentinelControllerService
-from Src.Engine.TargetWindowService import TargetWindowService
-from Src.Engine.InputAutomationService import InputAutomationService
-from Src.Engine.StatePersistenceService import StatePersistenceService
-from Src.Engine.EventEditingService import EventEditingService
-from Src.Engine.EventListService import EventListService
-from Src.Engine.DashboardViewStateService import DashboardViewStateService
+from Src.Services.SentinelControllerService import SentinelControllerService
+from Src.Services.TargetWindowService import TargetWindowService
+from Src.Services.InputAutomationService import InputAutomationService
+from Src.Services.StatePersistenceService import StatePersistenceService
+from Src.Services.EventEditingService import EventEditingService
+from Src.Services.EventListService import EventListService
+from Src.Services.DashboardViewStateService import DashboardViewStateService
 
 class DashboardViewModel(QObject):
     EventItemAddedSignal = Signal(EventItem)
