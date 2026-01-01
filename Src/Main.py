@@ -1594,103 +1594,77 @@ class RightPanelWidget(QWidget):
             QMessageBox.warning(self, "Error", "Invalid retrigger time.")
 
 
-class DashboardView(QWidget):
-    """
-    Main UI view for the SentinelFlow dashboard.
-    
-    Properties:
-        ViewModel: Reference to the dashboard view model
-    """
+class CenterPanelWidget(QWidget):
+    """Center panel widget containing target management, live capture, and interaction controls."""
+
     def __init__(self, viewModel: DashboardViewModel) -> None:
-        """
-        Initialize the dashboard view.
-        
-        Args:
-            viewModel: View model for this view
-        """
         super().__init__()
         self.ViewModel = viewModel
-        self._initializeComponents()
+        self._setupCenterPanel()
         self._wireUpBindings()
 
-    def _initializeComponents(self) -> None:
-        """Initialize all UI components."""
-        self.setWindowTitle("SentinelFlow Dashboard")
-        self.resize(1000, 650)
-        
-        self.mainLayout = QHBoxLayout(self)
-        self.mainLayout.setContentsMargins(0, 0, 0, 0)
-        self.mainLayout.setSpacing(5)
-        
-        # Panels
-        self.leftPanel = LeftPanelWidget(self.ViewModel)
-        self.rightPanel = RightPanelWidget(self.ViewModel)
-        self.mainLayout.addWidget(self.leftPanel, 0)
-        self.mainLayout.addLayout(self._setupCenterPanel(), 1)
-        self.mainLayout.addWidget(self.rightPanel, 0)
-
-    def _setupCenterPanel(self) -> QVBoxLayout:
+    def _setupCenterPanel(self) -> None:
         """Set up the center panel with application management and live view."""
-        layout = QVBoxLayout()
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
-        
+
         mgmtGroupBox = QGroupBox("Target Application Management")
         mgmtGroupBox.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        
+
         groupMasterLayout = QVBoxLayout()
         groupMasterLayout.setContentsMargins(10, 15, 10, 10)
-        
+
         # Row 1: Exe
         exeLayout = QHBoxLayout()
         self.exePathEdit = QLineEdit(r"C:\Users\HONG\Desktop\frozenthrone1.26\war3.exe -window")
         self.browseButton = QPushButton("Browse")
         self.launchButton = QPushButton("Launch")
-        
+
         exeLayout.addWidget(QLabel("Path:"))
         exeLayout.addWidget(self.exePathEdit)
         exeLayout.addWidget(self.browseButton)
         exeLayout.addWidget(self.launchButton)
         groupMasterLayout.addLayout(exeLayout)
-        
+
         # Row 2: Proc
         procLayout = QHBoxLayout()
         self.titleEdit = QLineEdit("Warcraft III")
         self.findWindowButton = QPushButton("Find Process")
         self.pidLabel = QLabel("Pid: -")
-        
+
         procLayout.addWidget(QLabel("Title:"))
         procLayout.addWidget(self.titleEdit)
         procLayout.addWidget(self.findWindowButton)
         procLayout.addWidget(self.pidLabel)
         groupMasterLayout.addLayout(procLayout)
-        
+
         # Row 3: Metrics
         resLayout = QHBoxLayout()
         self.resizeWidthEdit = QLineEdit("640")
         self.resizeHeightEdit = QLineEdit("480")
         self.resizeWindowButton = QPushButton("Resize Window")
-        
+
         resLayout.addWidget(QLabel("W:"))
         resLayout.addWidget(self.resizeWidthEdit)
         resLayout.addWidget(QLabel("H:"))
         resLayout.addWidget(self.resizeHeightEdit)
         resLayout.addWidget(self.resizeWindowButton)
         groupMasterLayout.addLayout(resLayout)
-        
+
         groupMasterLayout.addStretch(1)
         mgmtGroupBox.setLayout(groupMasterLayout)
-        
+
         # Live View
         self.liveCaptureButton = QPushButton("Start Live Capture")
         self.liveCaptureButton.setCheckable(True)
-        
+
         self.liveImageLabel = ClickableImageLabel()
         self.liveImageLabel.setScaledContents(True)
         self.liveImageLabel.setMinimumSize(640, 480)
         self.liveImageLabel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self.liveImageLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+
         # Interaction
         interactLayout = QHBoxLayout()
         self.keystrokeEdit = QLineEdit()
@@ -1698,7 +1672,7 @@ class DashboardView(QWidget):
         self.mouseXEdit = QLineEdit()
         self.mouseYEdit = QLineEdit()
         self.sendClickButton = QPushButton("Send Click")
-        
+
         interactLayout.addWidget(self.keystrokeEdit)
         interactLayout.addWidget(self.sendKeystrokeButton)
         interactLayout.addSpacing(10)
@@ -1707,37 +1681,32 @@ class DashboardView(QWidget):
         interactLayout.addWidget(QLabel("Y:"))
         interactLayout.addWidget(self.mouseYEdit)
         interactLayout.addWidget(self.sendClickButton)
-        
+
         layout.addWidget(mgmtGroupBox)
         layout.addWidget(self.liveCaptureButton)
         layout.addWidget(self.liveImageLabel)
         layout.addLayout(interactLayout)
-        
-        return layout
 
     def _wireUpBindings(self) -> None:
         """Connect UI signals to ViewModel methods and ViewModel signals to UI updates."""
-        # --- View to ViewModel ---
-        
         self.findWindowButton.clicked.connect(lambda: self.ViewModel.FindWindow(self.titleEdit.text().strip()))
         self.browseButton.clicked.connect(self._onBrowseExecutable)
         self.launchButton.clicked.connect(self._onLaunchExecutable)
         self.resizeWindowButton.clicked.connect(self._onResizeRequested)
-        
+
         self.liveCaptureButton.toggled.connect(self._onToggleCapture)
-        
+
         # Interaction
         self.liveImageLabel.Clicked.connect(self._onImageClicked)
         self.sendClickButton.clicked.connect(self._onSendMouseClick)
         self.sendKeystrokeButton.clicked.connect(self._onSendKeystroke)
-        
+
         self.mouseXEdit.textChanged.connect(self._onManualCoordsChanged)
         self.mouseYEdit.textChanged.connect(self._onManualCoordsChanged)
-        
+
         # --- ViewModel to View ---
         self.ViewModel.WindowHandleUpdated.connect(self._updateUiWindowHandleInfo)
         self.ViewModel.CaptureImageReady.connect(self._updateUiImage)
-
 
     def _onBrowseExecutable(self) -> None:
         """Handle browse executable button click."""
@@ -1760,26 +1729,16 @@ class DashboardView(QWidget):
             QMessageBox.warning(self, "Error", "Invalid dimensions.")
 
     def _onToggleCapture(self, checked: bool) -> None:
-        """
-        Handle live capture toggle.
-        
-        Args:
-            checked: Whether capture is enabled
-        """
+        """Handle live capture toggle."""
         if checked and not self.ViewModel.CurrentWindowHandle:
             self.liveCaptureButton.setChecked(False)
             QMessageBox.warning(self, "Error", "Please find a window first.")
             return
-            
+
         self.ViewModel.ToggleCapture(checked)
 
     def _onImageClicked(self, position: QPoint) -> None:
-        """
-        Handle image click events.
-        
-        Args:
-            position: Click position
-        """
+        """Handle image click events."""
         normalizedX = float(position.x()) / self.liveImageLabel.width()
         normalizedY = float(position.y()) / self.liveImageLabel.height()
         self.mouseXEdit.setText(f"{normalizedX:.7f}")
@@ -1814,14 +1773,8 @@ class DashboardView(QWidget):
             else:
                 QMessageBox.warning(self, "Error", f"Unknown key: {keyName}")
 
-
     def _updateUiWindowHandleInfo(self, windowHandle: Optional[int]) -> None:
-        """
-        Update UI with window handle information.
-        
-        Args:
-            windowHandle: Window handle
-        """
+        """Update UI with window handle information."""
         if windowHandle:
             self.pidLabel.setText(f"PID: {FindPidByHwnd(windowHandle)}")
         else:
@@ -1829,22 +1782,55 @@ class DashboardView(QWidget):
             QMessageBox.warning(self, "Error", "Window not found.")
 
     def _updateUiImage(self, image: Optional[np.ndarray[Any, Any]]) -> None:
-        """
-        Update UI with a new image.
-        
-        Args:
-            image: Image data to display
-        """
+        """Update UI with a new image."""
         if image is not None:
             height, width, channels = image.shape
             qImage = QImage(image.data, width, height, channels * width, QImage.Format.Format_BGR888)
             pixmap = QPixmap.fromImage(qImage).scaled(
-                self.liveImageLabel.width(), self.liveImageLabel.height(),
-                Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                self.liveImageLabel.width(),
+                self.liveImageLabel.height(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
             )
             self.liveImageLabel.setPixmap(pixmap)
         else:
             self.liveImageLabel.clear()
+
+
+class DashboardView(QWidget):
+    """
+    Main UI view for the SentinelFlow dashboard.
+    
+    Properties:
+        ViewModel: Reference to the dashboard view model
+    """
+    def __init__(self, viewModel: DashboardViewModel) -> None:
+        """
+        Initialize the dashboard view.
+        
+        Args:
+            viewModel: View model for this view
+        """
+        super().__init__()
+        self.ViewModel = viewModel
+        self._initializeComponents()
+
+    def _initializeComponents(self) -> None:
+        """Initialize all UI components."""
+        self.setWindowTitle("SentinelFlow Dashboard")
+        self.resize(1000, 650)
+        
+        self.mainLayout = QHBoxLayout(self)
+        self.mainLayout.setContentsMargins(0, 0, 0, 0)
+        self.mainLayout.setSpacing(5)
+        
+        # Panels
+        self.leftPanel = LeftPanelWidget(self.ViewModel)
+        self.centerPanel = CenterPanelWidget(self.ViewModel)
+        self.rightPanel = RightPanelWidget(self.ViewModel)
+        self.mainLayout.addWidget(self.leftPanel, 0)
+        self.mainLayout.addWidget(self.centerPanel, 1)
+        self.mainLayout.addWidget(self.rightPanel, 0)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """
