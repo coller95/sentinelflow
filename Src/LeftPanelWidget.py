@@ -24,8 +24,6 @@ class DashboardViewModelProtocol(Protocol):
     EventExecutionStateChangedSignal: Any
     EventExecutionStateHotkeyChangedSignal: Any
 
-    TriggerThread: Any
-
     @property
     def SelectedEventItem(self) -> Optional[EventItem]: ...
 
@@ -37,6 +35,7 @@ class DashboardViewModelProtocol(Protocol):
     def SaveState(self, filePath: str) -> None: ...
     def LoadState(self, filePath: str) -> None: ...
     def ToggleSentinelFlow(self) -> None: ...
+    def SetSentinelFlowHotkey(self, virtualKeyCodes: List[int]) -> None: ...
     def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None: ...
     def KeyNameFromVk(self, virtualKeyCode: int) -> str: ...
 
@@ -158,8 +157,7 @@ class LeftPanelWidget(QWidget):
     def _onEventExecutionStateHotkeyClicked(self) -> None:
         dialog = HotkeyCaptureDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            if self.ViewModel.TriggerThread is not None:
-                self.ViewModel.TriggerThread.SetFlowHotkey(dialog.CapturedVirtualKeyCodes)
+            self.ViewModel.SetSentinelFlowHotkey(dialog.CapturedVirtualKeyCodes)
     
     # Property Editing
     def _onEventItemChanged(self, item: QListWidgetItem) -> None:

@@ -13,7 +13,7 @@ class DashboardViewModelProtocol(Protocol):
     WindowHandleUpdated: Any
     CaptureImageReady: Any
 
-    CurrentWindowHandle: Optional[int]
+    def HasTargetWindow(self) -> bool: ...
 
     @property
     def CaptureMousePositionNormalized(self) -> Optional[tuple[float, float]]: ...
@@ -22,7 +22,7 @@ class DashboardViewModelProtocol(Protocol):
     def CaptureMousePositionNormalized(self, point: Optional[tuple[float, float]]) -> None: ...
 
     def FindWindow(self, title: str) -> Optional[int]: ...
-    def GetPidByHwnd(self, windowHandle: int) -> Optional[int]: ...
+    def GetCurrentTargetPid(self) -> Optional[int]: ...
     def LaunchApplication(self, path: str) -> Optional[int]: ...
     def ResizeTargetWindow(self, width: int, height: int) -> None: ...
     def ToggleCapture(self, active: bool) -> None: ...
@@ -166,7 +166,7 @@ class CenterPanelWidget(QWidget):
 
     def _onToggleCapture(self, checked: bool) -> None:
         """Handle live capture toggle."""
-        if checked and not self.ViewModel.CurrentWindowHandle:
+        if checked and not self.ViewModel.HasTargetWindow():
             self.liveCaptureButton.setChecked(False)
             QMessageBox.warning(self, "Error", "Please find a window first.")
             return
@@ -212,12 +212,13 @@ class CenterPanelWidget(QWidget):
 
     def _updateUiWindowHandleInfo(self, windowHandle: Optional[int]) -> None:
         """Update UI with window handle information."""
-        if windowHandle:
-            pid = self.ViewModel.GetPidByHwnd(windowHandle)
-            self.pidLabel.setText(f"PID: {pid if pid is not None else '-'}")
-        else:
+        if not windowHandle:
             self.pidLabel.setText("PID: -")
             QMessageBox.warning(self, "Error", "Window not found.")
+            return
+
+        pid = self.ViewModel.GetCurrentTargetPid()
+        self.pidLabel.setText(f"PID: {pid if pid is not None else '-'}")
 
     def _updateUiImage(self, image: Optional[np.ndarray[Any, Any]]) -> None:
         """Update UI with a new image."""

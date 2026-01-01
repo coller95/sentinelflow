@@ -365,6 +365,16 @@ class DashboardViewModel(QObject):
             return None
         return FindPidByHwnd(windowHandle)
 
+    def GetCurrentTargetPid(self) -> Optional[int]:
+        """Get the PID for the currently selected target window (if any)."""
+        if not self.CurrentWindowHandle:
+            return None
+        return FindPidByHwnd(self.CurrentWindowHandle)
+
+    def HasTargetWindow(self) -> bool:
+        """Return True if a target window is currently selected."""
+        return self.CurrentWindowHandle is not None
+
     def KeyNameFromVk(self, virtualKeyCode: int) -> str:
         return KeyNameFromVk(virtualKeyCode)
 
@@ -411,6 +421,10 @@ class DashboardViewModel(QObject):
             self.LiveThread.start()
         else:
             self.StopCapture()
+
+    def GetLastLiveImage(self) -> Optional[np.ndarray[Any, Any]]:
+        """Get the most recently captured image (read-only access for the View)."""
+        return self.LastLiveImage
 
     def _handleImageCaptured(self, image: np.ndarray[Any, Any]) -> None:
         """
@@ -528,6 +542,11 @@ class DashboardViewModel(QObject):
         """Toggle the sentinel flow state."""
         if self.TriggerThread:
             self.TriggerThread.ToggleFlowEnabled()
+
+    def SetSentinelFlowHotkey(self, virtualKeyCodes: List[int]) -> None:
+        """Set the global flow hotkey (encapsulates TriggerThread access)."""
+        if self.TriggerThread is not None:
+            self.TriggerThread.SetFlowHotkey(virtualKeyCodes)
 
     def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None:
         """Enable/disable an event and reset transient counters."""

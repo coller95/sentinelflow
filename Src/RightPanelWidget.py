@@ -24,7 +24,7 @@ class DashboardViewModelProtocol(Protocol):
     @SelectedEventItem.setter
     def SelectedEventItem(self, event: Optional[EventItem]) -> None: ...
 
-    LastLiveImage: Optional[Any]
+    def GetLastLiveImage(self) -> Optional[Any]: ...
 
     def UpdateSelectedEventName(self, name: str) -> None: ...
     def UpdateSelectedActivationType(self, activationType: ActivationType) -> None: ...
@@ -380,11 +380,12 @@ class RightPanelWidget(QWidget):
 
     def _onSelectRoi(self) -> None:
         """Handle select ROI button click."""
-        if self.ViewModel.LastLiveImage is None:
+        lastLiveImage = self.ViewModel.GetLastLiveImage()
+        if lastLiveImage is None:
             QMessageBox.warning(self, "Error", "Please start the capture before selecting an ROI.")
             return
 
-        self.cropper = CropperWidget(self.ViewModel.LastLiveImage, self._handleNewCrop)
+        self.cropper = CropperWidget(lastLiveImage, self._handleNewCrop)
         self.cropper.show()
 
     def _handleNewCrop(
