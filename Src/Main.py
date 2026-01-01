@@ -543,11 +543,11 @@ class DashboardViewModel(QObject):
         eventItem.SelectedActivationType = activationType
         self.EventItemChangedSignal.emit(eventItem)
 
-    def UpdateSelectedLoopCount(self, count: int) -> None:
+    def UpdateSelectedLoopCount(self, loopCount: int) -> None:
         eventItem = self._selectedEventItem
         if not eventItem:
             return
-        eventItem.LoopCount = count
+        eventItem.LoopCount = loopCount
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedLoopIntervalMs(self, intervalMs: int) -> None:
