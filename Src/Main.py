@@ -530,8 +530,7 @@ class DashboardViewModel(QObject):
             self.EventItems.clear()
             for event in loadedEvents:
                 self.EventItems.append(event)
-            if hasattr(self, 'EventAdded') and loadedEvents:
-                self.EventItemAddedSignal.emit(loadedEvents[-1])
+                self.EventItemAddedSignal.emit(event)
                 
             # Apply settings if they exist
             if self.TriggerThread and loadedHotkey:
@@ -544,6 +543,135 @@ class DashboardViewModel(QObject):
         """Toggle the sentinel flow state."""
         if self.TriggerThread:
             self.TriggerThread.ToggleFlowEnabled()
+
+    def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None:
+        """Enable/disable an event and reset transient counters."""
+        eventItem.IsEnabled = isEnabled
+        eventItem.LoopCounter = 0
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def UpdateSelectedEventName(self, name: str) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem:
+            return
+        eventItem.Name = name
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def UpdateSelectedActivationType(self, activationType: ActivationType) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem:
+            return
+        eventItem.SelectedActivationType = activationType
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def UpdateSelectedLoopCount(self, count: int) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem:
+            return
+        eventItem.LoopCount = count
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def UpdateSelectedLoopIntervalMs(self, intervalMs: int) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem:
+            return
+        eventItem.IntervalMilliseconds = intervalMs
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def UpdateSelectedThreshold(self, threshold: float) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem:
+            return
+        eventItem.Threshold = threshold
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def UpdateSelectedTriggerOnThresholdExceed(self, isEnabled: bool) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem:
+            return
+        eventItem.TriggerOnThresholdExceed = isEnabled
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def UpdateSelectedRetriggerTimeMs(self, retriggerTimeMs: float) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem:
+            return
+        eventItem.RetriggerTimeMilliseconds = retriggerTimeMs
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def UpdateSelectedActivationHotkey(self, virtualKeyCodes: List[int]) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem:
+            return
+        eventItem.ActivationVirtualKeyCodes = virtualKeyCodes
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def SetSelectedTemplateAndRoi(self, templateImage: np.ndarray[Any, Any], roi: RectangleRegion) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem:
+            return
+        eventItem.TemplateImage = templateImage
+        eventItem.Roi = roi
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def AddSelectedMouseStepFromCapturedPosition(self) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem or not eventItem.AssignedAction:
+            return
+        if self._captureMousePositionNormalized is None:
+            raise ValueError("No mouse position captured")
+        normalizedX, normalizedY = self._captureMousePositionNormalized
+        newStep = MacroStep(InputType.Mouse, (normalizedX, normalizedY), f"Click at ({normalizedX:.7f}, {normalizedY:.7f})")
+        eventItem.AssignedAction.AddStep(newStep)
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def AddSelectedKeyboardStep(self, virtualKeyCode: int) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem or not eventItem.AssignedAction:
+            return
+        newStep = MacroStep(InputType.Keyboard, virtualKeyCode, f"Press \"{KeyNameFromVk(virtualKeyCode)}\"")
+        eventItem.AssignedAction.AddStep(newStep)
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def AddSelectedDelayStep(self, milliseconds: int) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem or not eventItem.AssignedAction:
+            return
+        newStep = MacroStep(InputType.Delay, milliseconds, f"Wait {milliseconds}ms")
+        eventItem.AssignedAction.AddStep(newStep)
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def RemoveSelectedStep(self, index: int) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem or not eventItem.AssignedAction:
+            return
+        eventItem.AssignedAction.RemoveStep(index)
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def MoveSelectedStep(self, fromIndex: int, toIndex: int) -> None:
+        eventItem = self._selectedEventItem
+        if not eventItem or not eventItem.AssignedAction:
+            return
+        steps = eventItem.AssignedAction.MacroSteps
+        if fromIndex < 0 or fromIndex >= len(steps) or toIndex < 0 or toIndex >= len(steps):
+            return
+        steps[fromIndex], steps[toIndex] = steps[toIndex], steps[fromIndex]
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def TrySendMouseClick(self, normalizedX: float, normalizedY: float) -> bool:
+        if not self.CurrentWindowHandle:
+            return False
+        SendMouseClickToWindow(self.CurrentWindowHandle, normalizedX, normalizedY)
+        return True
+
+    def TrySendKeystrokeByName(self, keyName: str) -> bool:
+        if not self.CurrentWindowHandle:
+            return False
+        virtualKeyCode = VkFromKeyName(keyName)
+        if not virtualKeyCode:
+            return False
+        SendKeystrokeToWindow(self.CurrentWindowHandle, virtualKeyCode)
+        return True
 
     @property
     def SelectedEventItem(self) -> Optional[EventItem]:\
@@ -1003,8 +1131,8 @@ class LeftPanelWidget(QWidget):
     # Property Editing
     def _onEventItemChanged(self, item: QListWidgetItem) -> None:
         eventItem: EventItem = item.data(Qt.ItemDataRole.UserRole)
-        eventItem.IsEnabled = item.checkState() == Qt.CheckState.Checked
-        eventItem.LoopCounter = 0 # TODO: need to move to view model
+        isEnabled = item.checkState() == Qt.CheckState.Checked
+        self.ViewModel.SetEventEnabled(eventItem, isEnabled)
 
     # from view model
     def _onEventAddedSignal(self, eventItem: EventItem) -> None:
@@ -1025,6 +1153,7 @@ class LeftPanelWidget(QWidget):
             item = self.eventListWidget.item(index)
             storedEventItem: EventItem = item.data(Qt.ItemDataRole.UserRole)
             if storedEventItem == eventItem:
+                item.setText(eventItem.Name)
                 item.setCheckState(Qt.CheckState.Checked if eventItem.IsEnabled else Qt.CheckState.Unchecked)
                 break
 
@@ -1287,9 +1416,7 @@ class RightPanelWidget(QWidget):
         if not eventItem:
             return
             
-        steps = eventItem.AssignedAction.MacroSteps
-        
-        steps[currentRow], steps[targetRow] = steps[targetRow], steps[currentRow]
+        self.ViewModel.MoveSelectedStep(currentRow, targetRow)
         
         item = self.macroStepListWidget.takeItem(currentRow)
         self.macroStepListWidget.insertItem(targetRow, item)
@@ -1318,11 +1445,7 @@ class RightPanelWidget(QWidget):
 
     def _onCommitEventName(self) -> None:
         """Commit event name changes."""
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-        eventItem.Name = self.eventNameEdit.text().strip()
-        self.ViewModel.SelectedEventItem = eventItem  # Trigger update
+        self.ViewModel.UpdateSelectedEventName(self.eventNameEdit.text().strip())
 
     def _onAddStepClicked(self) -> None:
         """Handle add step button click."""
@@ -1335,16 +1458,13 @@ class RightPanelWidget(QWidget):
             if stepTypeName in InputType.__members__:
                 stepType = InputType[stepTypeName]
                 # Create a default step based on type
-                newStep = None
                 if stepType == InputType.Mouse:
                     try:
-                        if self.ViewModel.CaptureMousePositionNormalized is None:
-                            QMessageBox.warning(self, "Error", "No mouse position captured. Please capture a position first.")
-                            return
-                        normalizedX, normalizedY = self.ViewModel.CaptureMousePositionNormalized
-                        newStep = MacroStep(InputType.Mouse, (normalizedX, normalizedY), f"Click at ({normalizedX:.7f}, {normalizedY:.7f})")
+                        self.ViewModel.AddSelectedMouseStepFromCapturedPosition()
+                        self._refreshMacroStepList(eventItem.AssignedAction)
+                        return
                     except ValueError:
-                        QMessageBox.warning(self, "Error", "Invalid coordinates.")
+                        QMessageBox.warning(self, "Error", "No mouse position captured. Please capture a position first.")
                         return
                 elif stepType == InputType.Keyboard:
                     dialog = HotkeyCaptureDialog(self)
@@ -1352,7 +1472,7 @@ class RightPanelWidget(QWidget):
                         # We take the first key from the captured list
                         if dialog.CapturedVirtualKeyCodes:
                             virtualKeyCode = dialog.CapturedVirtualKeyCodes[0]
-                            newStep = MacroStep(InputType.Keyboard, virtualKeyCode, f"Press \"{KeyNameFromVk(virtualKeyCode)}\"")
+                            self.ViewModel.AddSelectedKeyboardStep(virtualKeyCode)
                         else:
                             return
                     else:
@@ -1360,34 +1480,26 @@ class RightPanelWidget(QWidget):
                 elif stepType == InputType.Delay:
                     milliseconds, ok = QInputDialog.getInt(self, "Add Delay", "Milliseconds (ms):", 100, 1, 60000, 10)
                     if ok:
-                        newStep = MacroStep(InputType.Delay, milliseconds, f"Wait {milliseconds}ms")
+                        self.ViewModel.AddSelectedDelayStep(milliseconds)
                     else:
                         return
-                
-                if newStep is not None:
-                    eventItem.AssignedAction.AddStep(newStep)
-                    self._refreshMacroStepList(eventItem.AssignedAction)
+
+                self._refreshMacroStepList(eventItem.AssignedAction)
 
     def _onRemoveStepClicked(self) -> None:
         """Handle remove step button click."""
         currentRow = self.macroStepListWidget.currentRow()
         eventItem = self.ViewModel.SelectedEventItem
-        if eventItem and currentRow >= 0:
-            if eventItem.AssignedAction:
-                eventItem.AssignedAction.RemoveStep(currentRow)
-                self._refreshMacroStepList(eventItem.AssignedAction)
+        if eventItem and currentRow >= 0 and eventItem.AssignedAction:
+            self.ViewModel.RemoveSelectedStep(currentRow)
+            self._refreshMacroStepList(eventItem.AssignedAction)
 
     def _onCaptureHotkey(self) -> None:
         """Handle capture hotkey button click."""
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-
         dialog = HotkeyCaptureDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            eventItem.ActivationVirtualKeyCodes = dialog.CapturedVirtualKeyCodes
-            self.activationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventItem.ActivationVirtualKeyCodes))
-            )
+            self.ViewModel.UpdateSelectedActivationHotkey(dialog.CapturedVirtualKeyCodes)
+            self.activationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, dialog.CapturedVirtualKeyCodes)))
 
     def _onSelectRoi(self) -> None:
         """Handle select ROI button click."""
@@ -1406,12 +1518,10 @@ class RightPanelWidget(QWidget):
         normalizedWidth: float,
         normalizedHeight: float,
     ) -> None:
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-
-        eventItem.TemplateImage = cvImage
-        eventItem.Roi = RectangleRegion(normalizedX, normalizedY, normalizedWidth, normalizedHeight)
+        self.ViewModel.SetSelectedTemplateAndRoi(
+            cvImage,
+            RectangleRegion(normalizedX, normalizedY, normalizedWidth, normalizedHeight),
+        )
 
         self._setButtonWithImage(self.roiButton, cvImage)
         self.roiXEdit.setText(f"{normalizedX:.4f}")
@@ -1543,53 +1653,35 @@ class RightPanelWidget(QWidget):
             self.retriggerTimeWidget.hide()
 
     def _onCommitActivationType(self, index: int) -> None:
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-
         typeName = self.activationDropdown.currentText()
-        eventItem.SelectedActivationType = ActivationType[typeName]
-        self._updateVisibilityForActivation(eventItem.SelectedActivationType)
+        activationType = ActivationType[typeName]
+        self.ViewModel.UpdateSelectedActivationType(activationType)
+        self._updateVisibilityForActivation(activationType)
 
     def _onCommitLoopCount(self) -> None:
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
         try:
-            eventItem.LoopCount = int(self.loopCountEdit.text())
+            self.ViewModel.UpdateSelectedLoopCount(int(self.loopCountEdit.text()))
         except ValueError:
             QMessageBox.warning(self, "Error", "Invalid loop count.")
 
     def _onCommitLoopInterval(self) -> None:
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
         try:
-            eventItem.IntervalMilliseconds = int(self.loopIntervalEdit.text())
+            self.ViewModel.UpdateSelectedLoopIntervalMs(int(self.loopIntervalEdit.text()))
         except ValueError:
             QMessageBox.warning(self, "Error", "Invalid interval.")
 
     def _onCommitThreshold(self) -> None:
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
         try:
-            eventItem.Threshold = float(self.thresholdEdit.text())
+            self.ViewModel.UpdateSelectedThreshold(float(self.thresholdEdit.text()))
         except ValueError:
             QMessageBox.warning(self, "Error", "Invalid threshold.")
 
     def _onCommitTriggerOnThresholdExceed(self, state: int) -> None:
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-        eventItem.TriggerOnThresholdExceed = state != 0
+        self.ViewModel.UpdateSelectedTriggerOnThresholdExceed(state != 0)
 
     def _onCommitRetriggerTime(self) -> None:
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
         try:
-            eventItem.RetriggerTimeMilliseconds = float(self.retriggerTimeEdit.text())
+            self.ViewModel.UpdateSelectedRetriggerTimeMs(float(self.retriggerTimeEdit.text()))
         except ValueError:
             QMessageBox.warning(self, "Error", "Invalid retrigger time.")
 
@@ -1756,22 +1848,23 @@ class CenterPanelWidget(QWidget):
 
     def _onSendMouseClick(self) -> None:
         """Handle send mouse click button click."""
-        if self.ViewModel.CurrentWindowHandle:
-            try:
-                normalizedX, normalizedY = float(self.mouseXEdit.text()), float(self.mouseYEdit.text())
-                SendMouseClickToWindow(self.ViewModel.CurrentWindowHandle, normalizedX, normalizedY)
-            except ValueError:
-                QMessageBox.warning(self, "Error", "Invalid coordinates.")
+        try:
+            normalizedX, normalizedY = float(self.mouseXEdit.text()), float(self.mouseYEdit.text())
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid coordinates.")
+            return
+
+        if not self.ViewModel.TrySendMouseClick(normalizedX, normalizedY):
+            QMessageBox.warning(self, "Error", "No target window selected.")
 
     def _onSendKeystroke(self) -> None:
         """Handle send keystroke button click."""
         keyName = self.keystrokeEdit.text().strip()
-        if keyName and self.ViewModel.CurrentWindowHandle:
-            virtualKeyCode = VkFromKeyName(keyName)
-            if virtualKeyCode:
-                SendKeystrokeToWindow(self.ViewModel.CurrentWindowHandle, virtualKeyCode)
-            else:
-                QMessageBox.warning(self, "Error", f"Unknown key: {keyName}")
+        if not keyName:
+            return
+
+        if not self.ViewModel.TrySendKeystrokeByName(keyName):
+            QMessageBox.warning(self, "Error", f"Failed to send key: {keyName}")
 
     def _updateUiWindowHandleInfo(self, windowHandle: Optional[int]) -> None:
         """Update UI with window handle information."""
