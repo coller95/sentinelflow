@@ -7,7 +7,7 @@ from PySide6.QtCore import Signal, QObject
 
 from Src.Models import (
     ActivationType,
-    ActionItem, EventItem, RectangleRegion
+    EventItem, RectangleRegion
 )
 
 from Src.Engine.SentinelControllerService import SentinelControllerService
@@ -15,6 +15,7 @@ from Src.Engine.TargetWindowService import TargetWindowService
 from Src.Engine.InputAutomationService import InputAutomationService
 from Src.Engine.StatePersistenceService import StatePersistenceService
 from Src.Engine.EventEditingService import EventEditingService
+from Src.Engine.EventListService import EventListService
 
 class DashboardViewModel(QObject):
     EventItemAddedSignal = Signal(EventItem)
@@ -35,6 +36,7 @@ class DashboardViewModel(QObject):
         self.InputAutomationService = InputAutomationService()
         self.StatePersistenceService = StatePersistenceService()
         self.EventEditingService = EventEditingService()
+        self.EventListService = EventListService()
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
 
         self.SentinelController = SentinelControllerService(
@@ -56,17 +58,13 @@ class DashboardViewModel(QObject):
         self.StartSentinel()  # Initialize the sentinel monitoring
 
     def AddEvent(self) -> None:
-        newAction = ActionItem()
-        newEvent = EventItem(name="New Event", action=newAction)
+        newEvent = self.EventListService.CreateDefaultEvent()
         self.EventItems.append(newEvent)
         self.EventItemAddedSignal.emit(newEvent)
 
     def RemoveEvent(self) -> None:
-        if self._selectedEventItem is None:
-            return
-        index = self.EventItems.index(self._selectedEventItem)
-        if 0 <= index < len(self.EventItems):
-            self.EventItems.pop(index)
+        index = self.EventListService.RemoveSelectedEvent(self.EventItems, self._selectedEventItem)
+        if index is not None:
             self.EventItemRemovedSignal.emit(index)
 
     def FindWindow(self, title: str) -> Optional[int]:
