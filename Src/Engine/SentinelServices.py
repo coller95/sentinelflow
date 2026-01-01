@@ -7,23 +7,26 @@ import numpy as np
 from Src.Helper import CaptureWindowByHwnd, IsHotkeyActive
 from Src.Models import EventItem
 from Src.Engine.ActivationEngine import ActivationEngine
+from Src.Engine.ActionExecutorEngine import ActionExecutorEngine
 
 
 class TriggerMonitorService:
     def __init__(
         self,
         get_event_items: Callable[[], List[EventItem]],
+        get_window_handle: Optional[Callable[[], Optional[int]]] = None,
         poll_interval_ms: int = 50,
-        on_event_triggered: Optional[Callable[[EventItem], None]] = None,
+        on_event_detected: Optional[Callable[[EventItem], None]] = None,
         on_event_disabled: Optional[Callable[[EventItem], None]] = None,
         on_flow_state_changed: Optional[Callable[[bool], None]] = None,
         on_flow_hotkey_changed: Optional[Callable[[List[int]], None]] = None,
         on_match_score_updated: Optional[Callable[[object], None]] = None,
     ) -> None:
         self._get_event_items = get_event_items
+        self._get_window_handle = get_window_handle
         self._poll_interval_ms = poll_interval_ms
 
-        self._on_event_triggered = on_event_triggered
+        self._on_event_detected = on_event_detected
         self._on_event_disabled = on_event_disabled
         self._on_flow_state_changed = on_flow_state_changed
         self._on_flow_hotkey_changed = on_flow_hotkey_changed
@@ -40,6 +43,7 @@ class TriggerMonitorService:
         self._flow_hotkey_is_currently_held = False
 
         self._activation_engine = ActivationEngine()
+        self._action_executor = ActionExecutorEngine()
 
     def Start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -102,9 +106,16 @@ class TriggerMonitorService:
 
             activation = self._activation_engine.loop(event_items_snapshot, local_image)
 
-            if self._on_event_triggered is not None:
+            # Execute actions on the same monitoring thread (optional).
+            if self._get_window_handle is not None:
+                hwnd = self._get_window_handle()
+                if hwnd is not None:
+                    for event in activation.triggered:
+                        self._action_executor.execute_event(hwnd, event)
+
+            if self._on_event_detected is not None:
                 for event in activation.triggered:
-                    self._on_event_triggered(event)
+                    self._on_event_detected(event)
 
             if self._on_event_disabled is not None:
                 for event in activation.disabled:

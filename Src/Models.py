@@ -1,14 +1,7 @@
-import time
 import numpy as np
 from enum import Enum, auto
-from typing import (
-    List, Optional, Any, cast
-)
+from typing import List, Optional, Any
 
-# Local imports
-from Src.Helper import (
-    SendKeystrokeToWindow, SendMouseClickToWindow, SendKeyChordToWindow
-)
 
 # =============================================================================
 # ENUMERATIONS
@@ -125,49 +118,6 @@ class MacroStep:
         """Get the value of this macro step."""
         return self._value
 
-    def Execute(self, windowHandle: int) -> None:
-        """
-        Execute this macro step on the specified window.
-        
-        Args:
-            windowHandle: Handle to the target window
-        """
-        if self._inputType == InputType.Keyboard:
-            self._sendKeystroke(windowHandle, self._value)
-        elif self._inputType == InputType.Mouse:
-            # self._value is expected to be a tuple (xNormalized, yNormalized)
-            self._sendMouseClick(windowHandle, self._value[0], self._value[1])
-        elif self._inputType == InputType.Delay:
-            # self._value is milliseconds
-            time.sleep(self._value / 1000.0)
-
-    def _sendKeystroke(self, hwnd: int, virtualKeyCode: Any) -> None:
-        """
-        Send a keyboard keystroke to the specified window.
-        
-        Args:
-            hwnd: Window handle
-            virtualKeyCode: Virtual key code
-        """
-        if isinstance(virtualKeyCode, (list, tuple)):
-            seq = cast(list[int] | tuple[int, ...], virtualKeyCode)
-            keys = [int(vk) for vk in seq]
-            SendKeyChordToWindow(hwnd, keys)
-            return
-
-        SendKeystrokeToWindow(hwnd, int(virtualKeyCode))
-
-    def _sendMouseClick(self, hwnd: int, xNormalized: float, yNormalized: float) -> None:
-        """
-        Send a mouse click to normalized coordinates in the specified window.
-        
-        Args:
-            hwnd: Window handle
-            xNormalized: Normalized X coordinate (0.0 to 1.0)
-            yNormalized: Normalized Y coordinate (0.0 to 1.0)
-        """
-        SendMouseClickToWindow(hwnd, xNormalized, yNormalized)
-
 
 class ActionItem:
     """Represents a collection of macro steps that form an action."""
@@ -199,19 +149,6 @@ class ActionItem:
         """
         if 0 <= index < len(self._macroSteps):
             self._macroSteps.pop(index)
-
-    def Execute(self, windowHandle: int) -> None:
-        """
-        Execute all macro steps in this action on the specified window.
-        
-        Args:
-            windowHandle: Handle to the target window
-        """
-        if not self._macroSteps:
-            return
-            
-        for step in self._macroSteps:
-            step.Execute(windowHandle)
 
 
 class EventItem:
@@ -438,12 +375,3 @@ class EventItem:
         self._matchScore = 0.0
         self._percentFilled = 0.0
 
-    def Trigger(self, windowHandle: int) -> None:
-        """
-        Trigger the event's assigned action on the specified window.
-        
-        Args:
-            windowHandle: Handle to the target window
-        """
-        if self._enabled and self._assignedAction:
-            self._assignedAction.Execute(windowHandle)

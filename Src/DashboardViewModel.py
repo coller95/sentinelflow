@@ -123,8 +123,9 @@ class DashboardViewModel(QObject):
 
         self.TriggerThread = TriggerMonitorService(
             get_event_items=lambda: self.EventItems,
+            get_window_handle=lambda: self.CurrentWindowHandle,
             poll_interval_ms=50,
-            on_event_triggered=self._onEventTriggered,
+            on_event_detected=self._onEventDetected,
             on_event_disabled=self.EventItemChangedSignal.emit,
             on_flow_state_changed=self.EventExecutionStateChangedSignal.emit,
             on_flow_hotkey_changed=self.EventExecutionStateHotkeyChangedSignal.emit,
@@ -137,8 +138,9 @@ class DashboardViewModel(QObject):
             self.TriggerThread.Stop()
             self.TriggerThread = None
 
-    def _onEventTriggered(self, event: EventItem) -> None:
-        print(f"Event Triggered: {event.Name}")
+    def _onEventDetected(self, event: EventItem) -> None:
+        # Note: execution is performed by TriggerMonitorService (if a window handle is available).
+        print(f"Event Detected: {event.Name}")
 
     def SaveState(self, filePath: str) -> None:
         try:
