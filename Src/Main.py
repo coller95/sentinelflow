@@ -349,6 +349,7 @@ class DashboardViewModel(QObject):
         self.TriggerThread: Optional[TriggerMonitorThread] = None
 
         self._selectedEventItem : Optional[EventItem] = None
+        self._captureMousePositionNormalized: Optional[tuple[float, float]] = None
         
         self.StartSentinel()  # Initialize the sentinel monitoring
 
@@ -553,7 +554,13 @@ class DashboardViewModel(QObject):
         self._selectedEventItem = event
         self.EventItemSelectedSignal.emit(event)
 
-
+    @property
+    def CaptureMousePositionNormalized(self) -> Optional[tuple[float, float]]:
+        return self._captureMousePositionNormalized
+    
+    @CaptureMousePositionNormalized.setter
+    def CaptureMousePositionNormalized(self, point: Optional[tuple[float, float]]) -> None:
+        self._captureMousePositionNormalized = point
 
 # =============================================================================
 # VIEW CLASSES
@@ -1033,132 +1040,20 @@ class LeftPanelWidget(QWidget):
         self.EventExecutionStateHotkeyEdit.setText(", ".join(map(KeyNameFromVk, hotkeyList)))
 
 
-class DashboardView(QWidget):
+class RightPanelWidget(QWidget):
     """
-    Main UI view for the SentinelFlow dashboard.
-    
-    Properties:
-        ViewModel: Reference to the dashboard view model
+    Right panel widget containing event configuration controls.
     """
-    def __init__(self, viewModel: DashboardViewModel) -> None:
-        """
-        Initialize the dashboard view.
-        
-        Args:
-            viewModel: View model for this view
-        """
+    def __init__(self, viewModel : DashboardViewModel) -> None:
         super().__init__()
         self.ViewModel = viewModel
-        self._initializeComponents()
+        self._setupRightPanel()
         self._wireUpBindings()
 
-    def _initializeComponents(self) -> None:
-        """Initialize all UI components."""
-        self.setWindowTitle("SentinelFlow Dashboard")
-        self.resize(1000, 650)
+    def _setupRightPanel(self) -> None:
+        self.setFixedWidth(350)
         
-        self.mainLayout = QHBoxLayout(self)
-        self.mainLayout.setContentsMargins(0, 0, 0, 0)
-        self.mainLayout.setSpacing(5)
-        
-        # Panels
-        self.mainLayout.addWidget(LeftPanelWidget(self.ViewModel), 0)
-        self.mainLayout.addLayout(self._setupCenterPanel(), 1)
-        self.mainLayout.addWidget(self._setupRightPanel(), 0)
-
-    def _setupCenterPanel(self) -> QVBoxLayout:
-        """Set up the center panel with application management and live view."""
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(5)
-        
-        mgmtGroupBox = QGroupBox("Target Application Management")
-        mgmtGroupBox.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        
-        groupMasterLayout = QVBoxLayout()
-        groupMasterLayout.setContentsMargins(10, 15, 10, 10)
-        
-        # Row 1: Exe
-        exeLayout = QHBoxLayout()
-        self.exePathEdit = QLineEdit(r"C:\Users\HONG\Desktop\frozenthrone1.26\war3.exe -window")
-        self.browseButton = QPushButton("Browse")
-        self.launchButton = QPushButton("Launch")
-        
-        exeLayout.addWidget(QLabel("Path:"))
-        exeLayout.addWidget(self.exePathEdit)
-        exeLayout.addWidget(self.browseButton)
-        exeLayout.addWidget(self.launchButton)
-        groupMasterLayout.addLayout(exeLayout)
-        
-        # Row 2: Proc
-        procLayout = QHBoxLayout()
-        self.titleEdit = QLineEdit("Warcraft III")
-        self.findWindowButton = QPushButton("Find Process")
-        self.pidLabel = QLabel("Pid: -")
-        
-        procLayout.addWidget(QLabel("Title:"))
-        procLayout.addWidget(self.titleEdit)
-        procLayout.addWidget(self.findWindowButton)
-        procLayout.addWidget(self.pidLabel)
-        groupMasterLayout.addLayout(procLayout)
-        
-        # Row 3: Metrics
-        resLayout = QHBoxLayout()
-        self.resizeWidthEdit = QLineEdit("640")
-        self.resizeHeightEdit = QLineEdit("480")
-        self.resizeWindowButton = QPushButton("Resize Window")
-        
-        resLayout.addWidget(QLabel("W:"))
-        resLayout.addWidget(self.resizeWidthEdit)
-        resLayout.addWidget(QLabel("H:"))
-        resLayout.addWidget(self.resizeHeightEdit)
-        resLayout.addWidget(self.resizeWindowButton)
-        groupMasterLayout.addLayout(resLayout)
-        
-        groupMasterLayout.addStretch(1)
-        mgmtGroupBox.setLayout(groupMasterLayout)
-        
-        # Live View
-        self.liveCaptureButton = QPushButton("Start Live Capture")
-        self.liveCaptureButton.setCheckable(True)
-        
-        self.liveImageLabel = ClickableImageLabel()
-        self.liveImageLabel.setScaledContents(True)
-        self.liveImageLabel.setMinimumSize(640, 480)
-        self.liveImageLabel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
-        self.liveImageLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # Interaction
-        interactLayout = QHBoxLayout()
-        self.keystrokeEdit = QLineEdit()
-        self.sendKeystrokeButton = QPushButton("Send Key")
-        self.mouseXEdit = QLineEdit()
-        self.mouseYEdit = QLineEdit()
-        self.sendClickButton = QPushButton("Send Click")
-        
-        interactLayout.addWidget(self.keystrokeEdit)
-        interactLayout.addWidget(self.sendKeystrokeButton)
-        interactLayout.addSpacing(10)
-        interactLayout.addWidget(QLabel("X:"))
-        interactLayout.addWidget(self.mouseXEdit)
-        interactLayout.addWidget(QLabel("Y:"))
-        interactLayout.addWidget(self.mouseYEdit)
-        interactLayout.addWidget(self.sendClickButton)
-        
-        layout.addWidget(mgmtGroupBox)
-        layout.addWidget(self.liveCaptureButton)
-        layout.addWidget(self.liveImageLabel)
-        layout.addLayout(interactLayout)
-        
-        return layout
-
-    def _setupRightPanel(self) -> QWidget:
-        """Set up the right panel with event configuration controls."""
-        # Create a container to fix the width
-        rightPanelContainer = QWidget()
-        rightPanelContainer.setFixedWidth(350)
-        
-        layout = QVBoxLayout(rightPanelContainer)
+        layout = QVBoxLayout(self)
         self.eventSettingsHeader = QLabel("<b>Event Settings</b>")
         
         # Event Properties
@@ -1350,20 +1245,9 @@ class DashboardView(QWidget):
         layout.addWidget(self.stepDropDown)
         layout.addLayout(stepButtonLayout)
         layout.addStretch()
-        
-        return rightPanelContainer
-    
+
     def _wireUpBindings(self) -> None:
-        """Connect UI signals to ViewModel methods and ViewModel signals to UI updates."""
         # --- View to ViewModel ---
-        
-        self.findWindowButton.clicked.connect(lambda: self.ViewModel.FindWindow(self.titleEdit.text().strip()))
-        self.browseButton.clicked.connect(self._onBrowseExecutable)
-        self.launchButton.clicked.connect(self._onLaunchExecutable)
-        self.resizeWindowButton.clicked.connect(self._onResizeRequested)
-        
-        self.liveCaptureButton.toggled.connect(self._onToggleCapture)
-        
         self.buttonMoveUp.clicked.connect(lambda: self._moveStep(-1))
         self.buttonMoveDown.clicked.connect(lambda: self._moveStep(1))
         
@@ -1372,15 +1256,7 @@ class DashboardView(QWidget):
         
         self.activationHotkeyButton.clicked.connect(self._onCaptureHotkey)
         self.roiButton.clicked.connect(self._onSelectRoi)
-        
         # Interaction
-        self.liveImageLabel.Clicked.connect(self._onImageClicked)
-        self.sendClickButton.clicked.connect(self._onSendMouseClick)
-        self.sendKeystrokeButton.clicked.connect(self._onSendKeystroke)
-        
-        self.mouseXEdit.textChanged.connect(self._onManualCoordsChanged)
-        self.mouseYEdit.textChanged.connect(self._onManualCoordsChanged)
-        
         self.thresholdMatchScoreCopyButton.clicked.connect(self._onCopyMatchScoreToThreshold)
         
         # Property Editing
@@ -1393,46 +1269,60 @@ class DashboardView(QWidget):
         self.thresholdEdit.editingFinished.connect(self._onCommitThreshold)
         self.triggerOnThresholdExceedCheckbox.stateChanged.connect(self._onCommitTriggerOnThresholdExceed)
         self.retriggerTimeEdit.editingFinished.connect(self._onCommitRetriggerTime)
-        
+
         # --- ViewModel to View ---
-        self.ViewModel.WindowHandleUpdated.connect(self._updateUiWindowHandleInfo)
-        self.ViewModel.CaptureImageReady.connect(self._updateUiImage)
-        self.ViewModel.MatchScoreUpdated.connect(self._updateUiEventMatchScore)
         self.ViewModel.EventItemSelectedSignal.connect(self._onEventItemSelectedSignal)
+        self.ViewModel.MatchScoreUpdated.connect(self._updateUiEventMatchScore)
 
-    def _onBrowseExecutable(self) -> None:
-        """Handle browse executable button click."""
-        path, _ = QFileDialog.getOpenFileName(self, "Select EXE", "", "Executables (*.exe)")
-        if path:
-            self.exePathEdit.setText(path)
-
-    def _onLaunchExecutable(self) -> None:
-        """Handle launch executable button click."""
-        pid = self.ViewModel.LaunchApplication(self.exePathEdit.text().strip())
-        if pid:
-            QMessageBox.information(self, "Success", f"Launched PID: {pid}")
-
-    def _onResizeRequested(self) -> None:
-        """Handle resize window button click."""
-        try:
-            width, height = int(self.resizeWidthEdit.text()), int(self.resizeHeightEdit.text())
-            self.ViewModel.ResizeTargetWindow(width, height)
-        except ValueError:
-            QMessageBox.warning(self, "Error", "Invalid dimensions.")
-
-    def _onToggleCapture(self, checked: bool) -> None:
-        """
-        Handle live capture toggle.
-        
-        Args:
-            checked: Whether capture is enabled
-        """
-        if checked and not self.ViewModel.CurrentWindowHandle:
-            self.liveCaptureButton.setChecked(False)
-            QMessageBox.warning(self, "Error", "Please find a window first.")
+    def _moveStep(self, direction: int) -> None:
+        currentRow = self.macroStepListWidget.currentRow()
+        if currentRow == -1:
             return
             
-        self.ViewModel.ToggleCapture(checked)
+        targetRow = currentRow + direction
+        if targetRow < 0 or targetRow >= self.macroStepListWidget.count():
+            return
+            
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+            
+        steps = eventItem.AssignedAction.MacroSteps
+        
+        steps[currentRow], steps[targetRow] = steps[targetRow], steps[currentRow]
+        
+        item = self.macroStepListWidget.takeItem(currentRow)
+        self.macroStepListWidget.insertItem(targetRow, item)
+        
+        self.macroStepListWidget.setCurrentRow(targetRow)
+
+    def _refreshMacroStepList(self, actionObj: ActionItem) -> None:
+        """
+        Refresh the macro step list UI.
+        
+        Args:
+            actionObj: Action containing the steps
+        """
+        self.macroStepListWidget.clear()
+        for step in actionObj.MacroSteps:
+            # Check if it's a dict (raw data) or an object
+            description = ""
+            if isinstance(step, dict):
+                description = cast(Dict[str, Any], step).get("Description", "Unknown Step")
+            else:
+                description = step.Description
+                
+            item = QListWidgetItem(description)
+            item.setData(Qt.ItemDataRole.UserRole, step)  # Store the step data/object
+            self.macroStepListWidget.addItem(item)
+
+    def _onCommitEventName(self) -> None:
+        """Commit event name changes."""
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        eventItem.Name = self.eventNameEdit.text().strip()
+        self.ViewModel.SelectedEventItem = eventItem  # Trigger update
 
     def _onAddStepClicked(self) -> None:
         """Handle add step button click."""
@@ -1448,7 +1338,10 @@ class DashboardView(QWidget):
                 newStep = None
                 if stepType == InputType.Mouse:
                     try:
-                        normalizedX, normalizedY = float(self.mouseXEdit.text()), float(self.mouseYEdit.text())
+                        if self.ViewModel.CaptureMousePositionNormalized is None:
+                            QMessageBox.warning(self, "Error", "No mouse position captured. Please capture a position first.")
+                            return
+                        normalizedX, normalizedY = self.ViewModel.CaptureMousePositionNormalized
                         newStep = MacroStep(InputType.Mouse, (normalizedX, normalizedY), f"Click at ({normalizedX:.7f}, {normalizedY:.7f})")
                     except ValueError:
                         QMessageBox.warning(self, "Error", "Invalid coordinates.")
@@ -1489,20 +1382,19 @@ class DashboardView(QWidget):
         eventItem = self.ViewModel.SelectedEventItem
         if not eventItem:
             return
-            
+
         dialog = HotkeyCaptureDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             eventItem.ActivationVirtualKeyCodes = dialog.CapturedVirtualKeyCodes
-            # Show the raw VKs on the button for debugging/clarity
-            self.activationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventItem.ActivationVirtualKeyCodes)))
+            self.activationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventItem.ActivationVirtualKeyCodes))
+            )
 
     def _onSelectRoi(self) -> None:
         """Handle select ROI button click."""
         if self.ViewModel.LastLiveImage is None:
-            # Handle the case where there is no image
             QMessageBox.warning(self, "Error", "Please start the capture before selecting an ROI.")
             return
-            
+
         self.cropper = CropperWidget(self.ViewModel.LastLiveImage, self._handleNewCrop)
         self.cropper.show()
 
@@ -1512,39 +1404,22 @@ class DashboardView(QWidget):
         normalizedX: float,
         normalizedY: float,
         normalizedWidth: float,
-        normalizedHeight: float
+        normalizedHeight: float,
     ) -> None:
-        """
-        Handle a new crop selection.
-        
-        Args:
-            cvImage: Cropped image data
-            normalizedX: Normalized X coordinate
-            normalizedY: Normalized Y coordinate
-            normalizedWidth: Normalized width
-            normalizedHeight: Normalized height
-        """
-        # set model
         eventItem = self.ViewModel.SelectedEventItem
-        if eventItem:
-            eventItem.TemplateImage = cvImage
-            eventItem.Roi = RectangleRegion(normalizedX, normalizedY, normalizedWidth, normalizedHeight)
-            
-            # set view
-            self._setButtonWithImage(self.roiButton, cvImage)
-            self.roiXEdit.setText(f"{normalizedX:.4f}")
-            self.roiYEdit.setText(f"{normalizedY:.4f}")
-            self.roiWEdit.setText(f"{normalizedWidth:.4f}")
-            self.roiHEdit.setText(f"{normalizedHeight:.4f}")
+        if not eventItem:
+            return
+
+        eventItem.TemplateImage = cvImage
+        eventItem.Roi = RectangleRegion(normalizedX, normalizedY, normalizedWidth, normalizedHeight)
+
+        self._setButtonWithImage(self.roiButton, cvImage)
+        self.roiXEdit.setText(f"{normalizedX:.4f}")
+        self.roiYEdit.setText(f"{normalizedY:.4f}")
+        self.roiWEdit.setText(f"{normalizedWidth:.4f}")
+        self.roiHEdit.setText(f"{normalizedHeight:.4f}")
 
     def _setButtonWithImage(self, button: QPushButton, cvImage: np.ndarray[Any, Any]) -> None:
-        """
-        Set a button's icon to display an image.
-        
-        Args:
-            button: Button to update
-            cvImage: Image data to display
-        """
         height, width, _channel = cvImage.shape
         bytesPerLine = 3 * width
         cvRgb = cv2.cvtColor(cvImage, cv2.COLOR_BGR2RGB)
@@ -1555,12 +1430,348 @@ class DashboardView(QWidget):
         button.setIconSize(button.size())
         button.setText("")
 
-    def _onCaptureSentinelHotkey(self) -> None:
-        """Handle capture sentinel hotkey button click."""
-        dialog = HotkeyCaptureDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            if self.ViewModel.TriggerThread is not None:
-                self.ViewModel.TriggerThread.SetFlowHotkey(dialog.CapturedVirtualKeyCodes)
+    def _onCopyMatchScoreToThreshold(self) -> None:
+        """Handle copy match score to threshold button click."""
+        self.thresholdEdit.setText(self.thresholdMatchScoreLabel.text())
+
+    def _updateUiEventMatchScore(self, score: object) -> None:
+        """Update the live match score label."""
+        displayValue: object = score
+        if isinstance(score, (tuple, list)):
+            scoreSequence = cast(list[Any], score)
+            if len(scoreSequence) >= 2:
+                displayValue = scoreSequence[1]
+        self.thresholdMatchScoreLabel.setText(f"{displayValue}")
+
+    def _onEventItemSelectedSignal(self, eventItem: Optional[EventItem]) -> None:
+        if not eventItem:
+            self.eventNameEdit.clear()
+            self.macroStepListWidget.clear()
+
+            self.eventNameEdit.setEnabled(False)
+            self.activationDropdown.setEnabled(False)
+            self.activationHotkeyButton.setEnabled(False)
+            self.loopCountEdit.setEnabled(False)
+            self.loopIntervalEdit.setEnabled(False)
+            self.stepDropDown.setEnabled(False)
+            self.addStepButton.setEnabled(False)
+            self.deleteStepButton.setEnabled(False)
+            self.buttonMoveUp.setEnabled(False)
+            self.buttonMoveDown.setEnabled(False)
+            self.thresholdEdit.setEnabled(False)
+            self.triggerOnThresholdExceedCheckbox.setEnabled(False)
+            self.retriggerTimeEdit.setEnabled(False)
+            self.roiButton.setEnabled(False)
+
+            self.activationHotkeyWidget.hide()
+            self.loopWidget.hide()
+            self.roiWidget.hide()
+            self.thresholdWidget.hide()
+            self.triggerOnThresholdExceedWidget.hide()
+            self.retriggerTimeWidget.hide()
+            return
+
+        self.eventNameEdit.setText(eventItem.Name)
+        self.eventNameEdit.setEnabled(True)
+
+        activation = eventItem.SelectedActivationType
+        typeName = activation.name if hasattr(activation, "name") else str(activation)
+        index = self.activationDropdown.findText(typeName)
+        if index >= 0:
+            self.activationDropdown.setCurrentIndex(index)
+        self.activationDropdown.setEnabled(True)
+
+        self.activationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventItem.ActivationVirtualKeyCodes)))
+        self.activationHotkeyButton.setEnabled(True)
+
+        self.loopCountEdit.setText(str(eventItem.LoopCount))
+        self.loopIntervalEdit.setText(str(eventItem.IntervalMilliseconds))
+        self.loopCountEdit.setEnabled(True)
+        self.loopIntervalEdit.setEnabled(True)
+
+        self.roiXEdit.setText(f"{eventItem.Roi.XNormalized:.4f}")
+        self.roiYEdit.setText(f"{eventItem.Roi.YNormalized:.4f}")
+        self.roiWEdit.setText(f"{eventItem.Roi.WidthNormalized:.4f}")
+        self.roiHEdit.setText(f"{eventItem.Roi.HeightNormalized:.4f}")
+
+        if eventItem.TemplateImage is not None:
+            self._setButtonWithImage(self.roiButton, eventItem.TemplateImage)
+        else:
+            self.roiButton.setIcon(QIcon())
+            self.roiButton.setText("Select from Image")
+
+        self.roiButton.setEnabled(True)
+
+        self.thresholdEdit.setText(f"{eventItem.Threshold}")
+        self.thresholdEdit.setEnabled(True)
+
+        self.triggerOnThresholdExceedCheckbox.setChecked(eventItem.TriggerOnThresholdExceed)
+        self.triggerOnThresholdExceedCheckbox.setEnabled(True)
+
+        self.retriggerTimeEdit.setText(str(eventItem.RetriggerTimeMilliseconds))
+        self.retriggerTimeEdit.setEnabled(True)
+
+        self._updateVisibilityForActivation(eventItem.SelectedActivationType)
+
+        self._refreshMacroStepList(eventItem.AssignedAction)
+        self.stepDropDown.setEnabled(True)
+        self.addStepButton.setEnabled(True)
+        self.deleteStepButton.setEnabled(True)
+        self.buttonMoveUp.setEnabled(True)
+        self.buttonMoveDown.setEnabled(True)
+
+    def _updateVisibilityForActivation(self, activationType: ActivationType) -> None:
+        if activationType == ActivationType.Hotkey:
+            self.activationHotkeyWidget.show()
+        else:
+            self.activationHotkeyWidget.hide()
+
+        if activationType == ActivationType.Loop:
+            self.loopWidget.show()
+        else:
+            self.loopWidget.hide()
+
+        if activationType in (ActivationType.ImageMatchRoi, ActivationType.ProgessBar):
+            self.roiWidget.show()
+            self.thresholdWidget.show()
+            self.triggerOnThresholdExceedWidget.show()
+            self.retriggerTimeWidget.show()
+        else:
+            self.roiWidget.hide()
+            self.thresholdWidget.hide()
+            self.triggerOnThresholdExceedWidget.hide()
+            self.retriggerTimeWidget.hide()
+
+    def _onCommitActivationType(self, index: int) -> None:
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+
+        typeName = self.activationDropdown.currentText()
+        eventItem.SelectedActivationType = ActivationType[typeName]
+        self._updateVisibilityForActivation(eventItem.SelectedActivationType)
+
+    def _onCommitLoopCount(self) -> None:
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        try:
+            eventItem.LoopCount = int(self.loopCountEdit.text())
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid loop count.")
+
+    def _onCommitLoopInterval(self) -> None:
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        try:
+            eventItem.IntervalMilliseconds = int(self.loopIntervalEdit.text())
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid interval.")
+
+    def _onCommitThreshold(self) -> None:
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        try:
+            eventItem.Threshold = float(self.thresholdEdit.text())
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid threshold.")
+
+    def _onCommitTriggerOnThresholdExceed(self, state: int) -> None:
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        eventItem.TriggerOnThresholdExceed = state != 0
+
+    def _onCommitRetriggerTime(self) -> None:
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        try:
+            eventItem.RetriggerTimeMilliseconds = float(self.retriggerTimeEdit.text())
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid retrigger time.")
+
+
+class DashboardView(QWidget):
+    """
+    Main UI view for the SentinelFlow dashboard.
+    
+    Properties:
+        ViewModel: Reference to the dashboard view model
+    """
+    def __init__(self, viewModel: DashboardViewModel) -> None:
+        """
+        Initialize the dashboard view.
+        
+        Args:
+            viewModel: View model for this view
+        """
+        super().__init__()
+        self.ViewModel = viewModel
+        self._initializeComponents()
+        self._wireUpBindings()
+
+    def _initializeComponents(self) -> None:
+        """Initialize all UI components."""
+        self.setWindowTitle("SentinelFlow Dashboard")
+        self.resize(1000, 650)
+        
+        self.mainLayout = QHBoxLayout(self)
+        self.mainLayout.setContentsMargins(0, 0, 0, 0)
+        self.mainLayout.setSpacing(5)
+        
+        # Panels
+        self.leftPanel = LeftPanelWidget(self.ViewModel)
+        self.rightPanel = RightPanelWidget(self.ViewModel)
+        self.mainLayout.addWidget(self.leftPanel, 0)
+        self.mainLayout.addLayout(self._setupCenterPanel(), 1)
+        self.mainLayout.addWidget(self.rightPanel, 0)
+
+    def _setupCenterPanel(self) -> QVBoxLayout:
+        """Set up the center panel with application management and live view."""
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5)
+        
+        mgmtGroupBox = QGroupBox("Target Application Management")
+        mgmtGroupBox.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        
+        groupMasterLayout = QVBoxLayout()
+        groupMasterLayout.setContentsMargins(10, 15, 10, 10)
+        
+        # Row 1: Exe
+        exeLayout = QHBoxLayout()
+        self.exePathEdit = QLineEdit(r"C:\Users\HONG\Desktop\frozenthrone1.26\war3.exe -window")
+        self.browseButton = QPushButton("Browse")
+        self.launchButton = QPushButton("Launch")
+        
+        exeLayout.addWidget(QLabel("Path:"))
+        exeLayout.addWidget(self.exePathEdit)
+        exeLayout.addWidget(self.browseButton)
+        exeLayout.addWidget(self.launchButton)
+        groupMasterLayout.addLayout(exeLayout)
+        
+        # Row 2: Proc
+        procLayout = QHBoxLayout()
+        self.titleEdit = QLineEdit("Warcraft III")
+        self.findWindowButton = QPushButton("Find Process")
+        self.pidLabel = QLabel("Pid: -")
+        
+        procLayout.addWidget(QLabel("Title:"))
+        procLayout.addWidget(self.titleEdit)
+        procLayout.addWidget(self.findWindowButton)
+        procLayout.addWidget(self.pidLabel)
+        groupMasterLayout.addLayout(procLayout)
+        
+        # Row 3: Metrics
+        resLayout = QHBoxLayout()
+        self.resizeWidthEdit = QLineEdit("640")
+        self.resizeHeightEdit = QLineEdit("480")
+        self.resizeWindowButton = QPushButton("Resize Window")
+        
+        resLayout.addWidget(QLabel("W:"))
+        resLayout.addWidget(self.resizeWidthEdit)
+        resLayout.addWidget(QLabel("H:"))
+        resLayout.addWidget(self.resizeHeightEdit)
+        resLayout.addWidget(self.resizeWindowButton)
+        groupMasterLayout.addLayout(resLayout)
+        
+        groupMasterLayout.addStretch(1)
+        mgmtGroupBox.setLayout(groupMasterLayout)
+        
+        # Live View
+        self.liveCaptureButton = QPushButton("Start Live Capture")
+        self.liveCaptureButton.setCheckable(True)
+        
+        self.liveImageLabel = ClickableImageLabel()
+        self.liveImageLabel.setScaledContents(True)
+        self.liveImageLabel.setMinimumSize(640, 480)
+        self.liveImageLabel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self.liveImageLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # Interaction
+        interactLayout = QHBoxLayout()
+        self.keystrokeEdit = QLineEdit()
+        self.sendKeystrokeButton = QPushButton("Send Key")
+        self.mouseXEdit = QLineEdit()
+        self.mouseYEdit = QLineEdit()
+        self.sendClickButton = QPushButton("Send Click")
+        
+        interactLayout.addWidget(self.keystrokeEdit)
+        interactLayout.addWidget(self.sendKeystrokeButton)
+        interactLayout.addSpacing(10)
+        interactLayout.addWidget(QLabel("X:"))
+        interactLayout.addWidget(self.mouseXEdit)
+        interactLayout.addWidget(QLabel("Y:"))
+        interactLayout.addWidget(self.mouseYEdit)
+        interactLayout.addWidget(self.sendClickButton)
+        
+        layout.addWidget(mgmtGroupBox)
+        layout.addWidget(self.liveCaptureButton)
+        layout.addWidget(self.liveImageLabel)
+        layout.addLayout(interactLayout)
+        
+        return layout
+
+    def _wireUpBindings(self) -> None:
+        """Connect UI signals to ViewModel methods and ViewModel signals to UI updates."""
+        # --- View to ViewModel ---
+        
+        self.findWindowButton.clicked.connect(lambda: self.ViewModel.FindWindow(self.titleEdit.text().strip()))
+        self.browseButton.clicked.connect(self._onBrowseExecutable)
+        self.launchButton.clicked.connect(self._onLaunchExecutable)
+        self.resizeWindowButton.clicked.connect(self._onResizeRequested)
+        
+        self.liveCaptureButton.toggled.connect(self._onToggleCapture)
+        
+        # Interaction
+        self.liveImageLabel.Clicked.connect(self._onImageClicked)
+        self.sendClickButton.clicked.connect(self._onSendMouseClick)
+        self.sendKeystrokeButton.clicked.connect(self._onSendKeystroke)
+        
+        self.mouseXEdit.textChanged.connect(self._onManualCoordsChanged)
+        self.mouseYEdit.textChanged.connect(self._onManualCoordsChanged)
+        
+        # --- ViewModel to View ---
+        self.ViewModel.WindowHandleUpdated.connect(self._updateUiWindowHandleInfo)
+        self.ViewModel.CaptureImageReady.connect(self._updateUiImage)
+
+
+    def _onBrowseExecutable(self) -> None:
+        """Handle browse executable button click."""
+        path, _ = QFileDialog.getOpenFileName(self, "Select EXE", "", "Executables (*.exe)")
+        if path:
+            self.exePathEdit.setText(path)
+
+    def _onLaunchExecutable(self) -> None:
+        """Handle launch executable button click."""
+        pid = self.ViewModel.LaunchApplication(self.exePathEdit.text().strip())
+        if pid:
+            QMessageBox.information(self, "Success", f"Launched PID: {pid}")
+
+    def _onResizeRequested(self) -> None:
+        """Handle resize window button click."""
+        try:
+            width, height = int(self.resizeWidthEdit.text()), int(self.resizeHeightEdit.text())
+            self.ViewModel.ResizeTargetWindow(width, height)
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid dimensions.")
+
+    def _onToggleCapture(self, checked: bool) -> None:
+        """
+        Handle live capture toggle.
+        
+        Args:
+            checked: Whether capture is enabled
+        """
+        if checked and not self.ViewModel.CurrentWindowHandle:
+            self.liveCaptureButton.setChecked(False)
+            QMessageBox.warning(self, "Error", "Please find a window first.")
+            return
+            
+        self.ViewModel.ToggleCapture(checked)
 
     def _onImageClicked(self, position: QPoint) -> None:
         """
@@ -1579,14 +1790,10 @@ class DashboardView(QWidget):
         try:
             normalizedX = float(self.mouseXEdit.text()) if self.mouseXEdit.text() else 0.0
             normalizedY = float(self.mouseYEdit.text()) if self.mouseYEdit.text() else 0.0
+            self.ViewModel.CaptureMousePositionNormalized = (normalizedX, normalizedY)
             self.liveImageLabel.SetMarkerNormalized(normalizedX, normalizedY)
         except ValueError:
             pass
-
-    def _onCopyMatchScoreToThreshold(self) -> None:
-        """Handle copy match score to threshold button click."""
-        scoreText = self.thresholdMatchScoreLabel.text()
-        self.thresholdEdit.setText(scoreText)
 
     def _onSendMouseClick(self) -> None:
         """Handle send mouse click button click."""
@@ -1606,235 +1813,6 @@ class DashboardView(QWidget):
                 SendKeystrokeToWindow(self.ViewModel.CurrentWindowHandle, virtualKeyCode)
             else:
                 QMessageBox.warning(self, "Error", f"Unknown key: {keyName}")
-
-    def _onEventItemSelectedSignal(self, eventItem: EventItem) -> None:
-        if not eventItem:
-            self.eventNameEdit.clear()
-            self.macroStepListWidget.clear()
-            self.eventNameEdit.setEnabled(False)
-            self.activationDropdown.setEnabled(False)
-            self.activationHotkeyButton.setEnabled(False)
-            self.loopCountEdit.setEnabled(False)
-            self.loopIntervalEdit.setEnabled(False)
-            self.stepDropDown.setEnabled(False)
-            self.addStepButton.setEnabled(False)
-            self.deleteStepButton.setEnabled(False)
-            self.buttonMoveUp.setEnabled(False)
-            self.buttonMoveDown.setEnabled(False)
-            self.thresholdEdit.setEnabled(False)
-            self.triggerOnThresholdExceedCheckbox.setEnabled(False)
-            self.retriggerTimeEdit.setEnabled(False)
-            self.roiButton.setEnabled(False)
-            return
-            
-
-        self.eventNameEdit.setText(eventItem.Name)
-        self.eventNameEdit.setEnabled(True)
-        
-        activation = eventItem.SelectedActivationType
-        typeName = activation.name if hasattr(activation, 'name') else str(activation)
-        index = self.activationDropdown.findText(typeName)
-        if index >= 0:
-            self.activationDropdown.setCurrentIndex(index)
-            
-        self.activationDropdown.setEnabled(True)
-        
-        self.activationHotkeyEdit.setText(", ".join(map(KeyNameFromVk, eventItem.ActivationVirtualKeyCodes)))
-        self.activationHotkeyButton.setEnabled(True)
-        
-        self.loopCountEdit.setText(str(eventItem.LoopCount))
-        self.loopIntervalEdit.setText(str(eventItem.IntervalMilliseconds))
-        self.loopCountEdit.setEnabled(True)
-        self.loopIntervalEdit.setEnabled(True)
-        
-        self.roiXEdit.setText(f"{eventItem.Roi.XNormalized:.4f}")
-        self.roiYEdit.setText(f"{eventItem.Roi.YNormalized:.4f}")
-        self.roiWEdit.setText(f"{eventItem.Roi.WidthNormalized:.4f}")
-        self.roiHEdit.setText(f"{eventItem.Roi.HeightNormalized:.4f}")
-        
-        if eventItem.TemplateImage is not None:
-            self._setButtonWithImage(self.roiButton, eventItem.TemplateImage)
-        else:
-            self.roiButton.setIcon(QIcon())  # Optionally clear the icon if no image
-            self.roiButton.setText("Select from Image")
-            
-        self.roiButton.setEnabled(True)
-        
-        self.thresholdEdit.setText(f"{eventItem.Threshold}")
-        self.thresholdEdit.setEnabled(True)
-        
-        self.triggerOnThresholdExceedCheckbox.setChecked(eventItem.TriggerOnThresholdExceed)
-        self.triggerOnThresholdExceedCheckbox.setEnabled(True)
-
-        self.retriggerTimeEdit.setText(str(eventItem.RetriggerTimeMilliseconds))
-        self.retriggerTimeEdit.setEnabled(True)
-        
-        self._refreshMacroStepList(eventItem.AssignedAction)
-        
-        self.stepDropDown.setEnabled(True)
-        self.addStepButton.setEnabled(True)
-        self.deleteStepButton.setEnabled(True)
-        self.buttonMoveUp.setEnabled(True)
-        self.buttonMoveDown.setEnabled(True)
-
-    def _refreshMacroStepList(self, actionObj: ActionItem) -> None:
-        """
-        Refresh the macro step list UI.
-        
-        Args:
-            actionObj: Action containing the steps
-        """
-        self.macroStepListWidget.clear()
-        for step in actionObj.MacroSteps:
-            # Check if it's a dict (raw data) or an object
-            description = ""
-            if isinstance(step, dict):
-                description = cast(Dict[str, Any], step).get("Description", "Unknown Step")
-            else:
-                description = step.Description
-                
-            item = QListWidgetItem(description)
-            item.setData(Qt.ItemDataRole.UserRole, step)  # Store the step data/object
-            self.macroStepListWidget.addItem(item)
-
-    def _onCommitEventName(self) -> None:
-        """Commit event name changes."""
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-        eventItem.Name = self.eventNameEdit.text().strip()
-        self.ViewModel.SelectedEventItem = eventItem  # Trigger update
-
-    def _onCommitActivationType(self, index: int) -> None:
-        """
-        Commit activation type changes.
-        
-        Args:
-            index: Selected index
-        """
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-        typeName = self.activationDropdown.currentText()
-        # Update via the new property name
-        eventItem.SelectedActivationType = ActivationType[typeName]
-        
-        if eventItem.SelectedActivationType == ActivationType.Hotkey:
-            self.activationHotkeyWidget.show()
-        else:
-            self.activationHotkeyWidget.hide()
-            
-        if eventItem.SelectedActivationType == ActivationType.Loop:
-            self.loopWidget.show()
-        else:
-            self.loopWidget.hide()
-            
-        if eventItem.SelectedActivationType == ActivationType.ImageMatchRoi:
-            self.roiWidget.show()
-            self.thresholdWidget.show()
-            self.triggerOnThresholdExceedWidget.show()
-            self.retriggerTimeWidget.show()
-        elif eventItem.SelectedActivationType == ActivationType.ProgessBar:
-            self.roiWidget.show()
-            self.thresholdWidget.show()
-            self.triggerOnThresholdExceedWidget.show()
-            self.retriggerTimeWidget.show()
-        else:
-            self.roiWidget.hide()
-            self.thresholdWidget.hide()
-            self.triggerOnThresholdExceedWidget.hide()
-            self.retriggerTimeWidget.hide()
-
-    def _onCommitLoopCount(self) -> None:
-        """Commit loop count changes."""
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-        try:
-            count = int(self.loopCountEdit.text())
-            eventItem.LoopCount = count
-        except ValueError:
-            QMessageBox.warning(self, "Error", "Invalid loop count.")
-
-    def _onCommitLoopInterval(self) -> None:
-        """Commit loop interval changes."""
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-        try:
-            interval = int(self.loopIntervalEdit.text())
-            eventItem.IntervalMilliseconds = interval
-        except ValueError:
-            QMessageBox.warning(self, "Error", "Invalid interval.")
-
-    def _onCommitThreshold(self) -> None:
-        """Commit threshold changes."""
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-        try:
-            threshold = float(self.thresholdEdit.text())
-            eventItem.Threshold = threshold
-        except ValueError:
-            QMessageBox.warning(self, "Error", "Invalid threshold.")
-
-    def _onCommitTriggerOnThresholdExceed(self, checked: bool) -> None:
-        """
-        Commit trigger when match changes.
-        
-        Args:
-            checked: Check state
-        """
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-        eventItem.TriggerOnThresholdExceed = checked
-
-    def _onCommitRetriggerTime(self) -> None:
-        """Commit retrigger time changes."""
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-        try:
-            retriggerTime = float(self.retriggerTimeEdit.text())
-            eventItem.RetriggerTimeMilliseconds = retriggerTime
-        except ValueError:
-            QMessageBox.warning(self, "Error", "Invalid retrigger time.")
-
-    def _moveStep(self, direction: int) -> None:
-        """
-        Move a step up or down in the list.
-        
-        Args:
-            direction: -1 for Up, 1 for Down
-        """
-        # 1. Get current selection
-        currentRow = self.macroStepListWidget.currentRow()
-        if currentRow == -1:
-            return
-            
-        # 2. Calculate target row and check boundaries
-        targetRow = currentRow + direction
-        if targetRow < 0 or targetRow >= self.macroStepListWidget.count():
-            return
-            
-        # 3. Get the Action object from the selected Event
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-            
-        steps = eventItem.AssignedAction.MacroSteps
-        
-        # 4. Swap in the Python List (The Data Model)
-        steps[currentRow], steps[targetRow] = steps[targetRow], steps[currentRow]
-        
-        # 5. Swap in the UI (The View)
-        # We take the item out and re-insert it at the new position
-        item = self.macroStepListWidget.takeItem(currentRow)
-        self.macroStepListWidget.insertItem(targetRow, item)
-        
-        # 6. Keep the moved item selected so the user can click multiple times
-        self.macroStepListWidget.setCurrentRow(targetRow)
 
 
     def _updateUiWindowHandleInfo(self, windowHandle: Optional[int]) -> None:
@@ -1867,15 +1845,6 @@ class DashboardView(QWidget):
             self.liveImageLabel.setPixmap(pixmap)
         else:
             self.liveImageLabel.clear()
-
-    def _updateUiEventMatchScore(self, score: float) -> None:
-        """
-        Update UI with event match score.
-        
-        Args:
-            eventTuple: Tuple containing (index, score)
-        """
-        self.thresholdMatchScoreLabel.setText(f"{score}")
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """
