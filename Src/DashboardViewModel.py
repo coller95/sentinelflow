@@ -8,10 +8,7 @@ import numpy as np
 from PySide6.QtCore import Signal, QObject
 
 # Local imports
-from Src.Helper import (
-    SendKeystrokeToWindow, SendMouseClickToWindow,
-    KeyNameFromVk, VkFromKeyName
-)
+from Src.Helper import KeyNameFromVk
 from Src.Models import (
     ActivationType, InputType, 
     ActionItem, EventItem, MacroStep, RectangleRegion
@@ -19,6 +16,7 @@ from Src.Models import (
 
 from Src.Engine.SentinelControllerService import SentinelControllerService
 from Src.Engine.TargetWindowService import TargetWindowService
+from Src.Engine.InputAutomationService import InputAutomationService
 
 class DashboardViewModel(QObject):
     EventItemAddedSignal = Signal(EventItem)
@@ -36,6 +34,7 @@ class DashboardViewModel(QObject):
         super().__init__()
         self.EventItems: List[EventItem] = []
         self.TargetWindowService = TargetWindowService()
+        self.InputAutomationService = InputAutomationService()
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
 
         self.SentinelController = SentinelControllerService(
@@ -85,7 +84,7 @@ class DashboardViewModel(QObject):
         return self.TargetWindowService.HasTargetWindow()
 
     def KeyNameFromVk(self, virtualKeyCode: int) -> str:
-        return KeyNameFromVk(virtualKeyCode)
+        return self.InputAutomationService.KeyNameFromVk(virtualKeyCode)
 
     def LaunchApplication(self, path: str) -> Optional[int]:
         return self.TargetWindowService.LaunchApplication(path)
@@ -308,20 +307,11 @@ class DashboardViewModel(QObject):
 
     def TrySendMouseClick(self, normalizedX: float, normalizedY: float) -> bool:
         hwnd = self.TargetWindowService.CurrentWindowHandle
-        if not hwnd:
-            return False
-        SendMouseClickToWindow(hwnd, normalizedX, normalizedY)
-        return True
+        return self.InputAutomationService.TrySendMouseClick(hwnd, normalizedX, normalizedY)
 
     def TrySendKeystrokeByName(self, keyName: str) -> bool:
         hwnd = self.TargetWindowService.CurrentWindowHandle
-        if not hwnd:
-            return False
-        virtualKeyCode = VkFromKeyName(keyName)
-        if not virtualKeyCode:
-            return False
-        SendKeystrokeToWindow(hwnd, virtualKeyCode)
-        return True
+        return self.InputAutomationService.TrySendKeystrokeByName(hwnd, keyName)
 
     @property
     def SelectedEventItem(self) -> Optional[EventItem]:
