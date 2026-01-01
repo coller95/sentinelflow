@@ -1,7 +1,5 @@
-import os
-import pickle
 from typing import (
-    cast, List, Optional, Any, Dict
+    cast, List, Optional, Any
 )
 # Third-party imports
 import numpy as np
@@ -17,6 +15,7 @@ from Src.Models import (
 from Src.Engine.SentinelControllerService import SentinelControllerService
 from Src.Engine.TargetWindowService import TargetWindowService
 from Src.Engine.InputAutomationService import InputAutomationService
+from Src.Engine.StatePersistenceService import StatePersistenceService
 
 class DashboardViewModel(QObject):
     EventItemAddedSignal = Signal(EventItem)
@@ -35,6 +34,7 @@ class DashboardViewModel(QObject):
         self.EventItems: List[EventItem] = []
         self.TargetWindowService = TargetWindowService()
         self.InputAutomationService = InputAutomationService()
+        self.StatePersistenceService = StatePersistenceService()
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
 
         self.SentinelController = SentinelControllerService(
@@ -119,14 +119,7 @@ class DashboardViewModel(QObject):
     def SaveState(self, filePath: str) -> None:
         try:
             flowHotkey = self.SentinelController.GetFlowHotkey()
-            data_to_save: Dict[str, Any] = {
-                "events": self.EventItems,
-                "settings": flowHotkey,  # A second object
-                "version": "1.0.0"
-            }
-            
-            with open(filePath, 'wb') as file:
-                pickle.dump(data_to_save, file)
+            self.StatePersistenceService.SaveState(filePath, events=self.EventItems, flow_hotkey=flowHotkey)
                 
             print(f"State successfully saved to {filePath}")
         except Exception as e:
@@ -134,26 +127,13 @@ class DashboardViewModel(QObject):
             raise e
 
     def LoadState(self, filePath: str) -> None:
-        if not os.path.exists(filePath):
-            return
-            
         try:
-            with open(filePath, 'rb') as file:
-                data = pickle.load(file)
-                
-            # --- SMART LOADING LOGIC ---
-            loadedEvents: List[EventItem] = []
-            loadedHotkey: List[int] = []
-            
-            if isinstance(data, dict):
-                # New Format: Dictionary containing events and settings
-                dataDict: Dict[str, Any] = cast(Dict[str, Any], data)
-                loadedEvents = cast(List[EventItem], dataDict.get("events", []))
-                loadedHotkey = cast(List[int], dataDict.get("settings", []))
-                print(f"Loading new format (v{dataDict.get('version', '1.0.0')})")
-            else:
-                print("Unknown data format in save file.")
+            loaded = self.StatePersistenceService.LoadState(filePath)
+            if loaded is None:
                 return
+
+            loadedEvents, loadedHotkey, loadedVersion = loaded
+            print(f"Loading new format (v{loadedVersion})")
                 
             # ---------------------------
             # Populate the UI/Model
