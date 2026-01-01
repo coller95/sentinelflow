@@ -1,21 +1,20 @@
 from typing import (
-    cast, List, Optional, Any
+    List, Optional, Any
 )
 # Third-party imports
 import numpy as np
 from PySide6.QtCore import Signal, QObject
 
-# Local imports
-from Src.Helper import KeyNameFromVk
 from Src.Models import (
-    ActivationType, InputType, 
-    ActionItem, EventItem, MacroStep, RectangleRegion
+    ActivationType,
+    ActionItem, EventItem, RectangleRegion
 )
 
 from Src.Engine.SentinelControllerService import SentinelControllerService
 from Src.Engine.TargetWindowService import TargetWindowService
 from Src.Engine.InputAutomationService import InputAutomationService
 from Src.Engine.StatePersistenceService import StatePersistenceService
+from Src.Engine.EventEditingService import EventEditingService
 
 class DashboardViewModel(QObject):
     EventItemAddedSignal = Signal(EventItem)
@@ -35,6 +34,7 @@ class DashboardViewModel(QObject):
         self.TargetWindowService = TargetWindowService()
         self.InputAutomationService = InputAutomationService()
         self.StatePersistenceService = StatePersistenceService()
+        self.EventEditingService = EventEditingService()
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
 
         self.SentinelController = SentinelControllerService(
@@ -162,73 +162,70 @@ class DashboardViewModel(QObject):
         self.SentinelController.SetFlowHotkey(virtualKeyCodes)
 
     def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None:
-        eventItem.IsEnabled = isEnabled
-        eventItem.ResetTransientState()
+        self.EventEditingService.SetEventEnabled(eventItem, isEnabled)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedEventName(self, name: str) -> None:
         eventItem = self._selectedEventItem
         if not eventItem:
             return
-        eventItem.Name = name
+        self.EventEditingService.UpdateEventName(eventItem, name)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedActivationType(self, activationType: ActivationType) -> None:
         eventItem = self._selectedEventItem
         if not eventItem:
             return
-        eventItem.SelectedActivationType = activationType
-        eventItem.ResetTransientState()
+        self.EventEditingService.UpdateActivationType(eventItem, activationType)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedLoopCount(self, loopCount: int) -> None:
         eventItem = self._selectedEventItem
         if not eventItem:
             return
-        eventItem.LoopCount = loopCount
+        self.EventEditingService.UpdateLoopCount(eventItem, loopCount)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedLoopIntervalMs(self, intervalMs: int) -> None:
         eventItem = self._selectedEventItem
         if not eventItem:
             return
-        eventItem.IntervalMilliseconds = intervalMs
+        self.EventEditingService.UpdateLoopIntervalMs(eventItem, intervalMs)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedThreshold(self, threshold: float) -> None:
         eventItem = self._selectedEventItem
         if not eventItem:
             return
-        eventItem.Threshold = threshold
+        self.EventEditingService.UpdateThreshold(eventItem, threshold)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedTriggerOnThresholdExceed(self, isEnabled: bool) -> None:
         eventItem = self._selectedEventItem
         if not eventItem:
             return
-        eventItem.TriggerOnThresholdExceed = isEnabled
+        self.EventEditingService.UpdateTriggerOnThresholdExceed(eventItem, isEnabled)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedRetriggerTimeMs(self, retriggerTimeMs: float) -> None:
         eventItem = self._selectedEventItem
         if not eventItem:
             return
-        eventItem.RetriggerTimeMilliseconds = retriggerTimeMs
+        self.EventEditingService.UpdateRetriggerTimeMs(eventItem, retriggerTimeMs)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedActivationHotkey(self, virtualKeyCodes: List[int]) -> None:
         eventItem = self._selectedEventItem
         if not eventItem:
             return
-        eventItem.ActivationVirtualKeyCodes = virtualKeyCodes
+        self.EventEditingService.UpdateActivationHotkey(eventItem, virtualKeyCodes)
         self.EventItemChangedSignal.emit(eventItem)
 
     def SetSelectedTemplateAndRoi(self, templateImage: np.ndarray[Any, Any], roi: RectangleRegion) -> None:
         eventItem = self._selectedEventItem
         if not eventItem:
             return
-        eventItem.TemplateImage = templateImage
-        eventItem.Roi = roi
+        self.EventEditingService.SetTemplateAndRoi(eventItem, templateImage, roi)
         self.EventItemChangedSignal.emit(eventItem)
 
     def AddSelectedMouseStepFromCapturedPosition(self) -> None:
@@ -238,8 +235,7 @@ class DashboardViewModel(QObject):
         if self._captureMousePositionNormalized is None:
             raise ValueError("No mouse position captured")
         normalizedX, normalizedY = self._captureMousePositionNormalized
-        newStep = MacroStep(InputType.Mouse, (normalizedX, normalizedY), f"Click at ({normalizedX:.7f}, {normalizedY:.7f})")
-        eventItem.AssignedAction.AddStep(newStep)
+        self.EventEditingService.AddMouseStep(eventItem, normalizedX, normalizedY)
         self.EventItemChangedSignal.emit(eventItem)
 
     def AddSelectedKeyboardStep(self, virtualKeyCode: Any) -> None:
@@ -247,42 +243,28 @@ class DashboardViewModel(QObject):
         if not eventItem or not eventItem.AssignedAction:
             return
 
-        if isinstance(virtualKeyCode, (list, tuple)):
-            seq = cast(list[int] | tuple[int, ...], virtualKeyCode)
-            keys = [int(vk) for vk in seq]
-            names = [KeyNameFromVk(vk) for vk in keys]
-            description = f"Press \"{' + '.join(names)}\""
-            newStep = MacroStep(InputType.Keyboard, keys, description)
-        else:
-            vk = int(virtualKeyCode)
-            newStep = MacroStep(InputType.Keyboard, vk, f"Press \"{KeyNameFromVk(vk)}\"")
-
-        eventItem.AssignedAction.AddStep(newStep)
+        self.EventEditingService.AddKeyboardStep(eventItem, virtualKeyCode)
         self.EventItemChangedSignal.emit(eventItem)
 
     def AddSelectedDelayStep(self, milliseconds: int) -> None:
         eventItem = self._selectedEventItem
         if not eventItem or not eventItem.AssignedAction:
             return
-        newStep = MacroStep(InputType.Delay, milliseconds, f"Wait {milliseconds}ms")
-        eventItem.AssignedAction.AddStep(newStep)
+        self.EventEditingService.AddDelayStep(eventItem, milliseconds)
         self.EventItemChangedSignal.emit(eventItem)
 
     def RemoveSelectedStep(self, index: int) -> None:
         eventItem = self._selectedEventItem
         if not eventItem or not eventItem.AssignedAction:
             return
-        eventItem.AssignedAction.RemoveStep(index)
+        self.EventEditingService.RemoveStep(eventItem, index)
         self.EventItemChangedSignal.emit(eventItem)
 
     def MoveSelectedStep(self, fromIndex: int, toIndex: int) -> None:
         eventItem = self._selectedEventItem
         if not eventItem or not eventItem.AssignedAction:
             return
-        steps = eventItem.AssignedAction.MacroSteps
-        if fromIndex < 0 or fromIndex >= len(steps) or toIndex < 0 or toIndex >= len(steps):
-            return
-        steps[fromIndex], steps[toIndex] = steps[toIndex], steps[fromIndex]
+        self.EventEditingService.MoveStep(eventItem, fromIndex, toIndex)
         self.EventItemChangedSignal.emit(eventItem)
 
     def TrySendMouseClick(self, normalizedX: float, normalizedY: float) -> bool:
