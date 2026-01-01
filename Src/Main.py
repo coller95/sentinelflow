@@ -14,7 +14,7 @@ import sys
 import time
 import pickle
 from typing import (
-    cast, List, Optional, Any, Callable, Dict, Final
+    cast, List, Optional, Any, Callable, Dict
 )
 # Third-party imports
 import numpy as np
@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QDialog, QInputDialog, QRubberBand, QCheckBox
 )
 from PySide6.QtGui import (
-    QPainter, QPen, QImage, QPixmap, QIcon, QKeyEvent,
+    QPainter, QPen, QImage, QPixmap, QIcon,
     QMouseEvent, QPaintEvent, QResizeEvent, QCloseEvent
 )
 # Local imports
@@ -44,37 +44,19 @@ from Src.Models import (
     ActivationType, InputType, 
     ActionItem, EventItem, MacroStep, RectangleRegion
 )
+
+from Src.UiShared import HotkeyCaptureDialog
+
+from Src.LeftPanelWidget import LeftPanelWidget
+
+
 # =============================================================================
 # CONSTANTS AND GLOBAL CONFIGURATION
 # =============================================================================
 # High DPI Scaling setup
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-# UI styling constants
-BUTTON_STYLE_RUNNING: Final[str] = """
-QPushButton {
-    background-color: #c0392b; /* Darker Red */
-    color: white;
-    border-radius: 6px;
-    font-weight: bold;
-    padding: 8px;
-}
-QPushButton:hover {
-    background-color: #e74c3c; /* Brighter Red */
-}
-"""
-BUTTON_STYLE_STOPPED: Final[str] = """
-QPushButton {
-    background-color: #27ae60; /* Darker Green */
-    color: white;
-    border-radius: 6px;
-    font-weight: bold;
-    padding: 8px;
-}
-QPushButton:hover {
-    background-color: #2ecc71; /* Brighter Green */
-}
-"""
+# UI styling constants are in Src.UiShared
 # =============================================================================
 # VIEWMODEL CLASSES
 # =============================================================================
@@ -768,56 +750,6 @@ class ClickableImageLabel(QLabel):
         painter.drawLine(x, y - size, x, y + size)
 
 
-class HotkeyCaptureDialog(QDialog):
-    """
-    Dialog that captures a key combination when keys are pressed and released.
-    
-    Properties:
-        CapturedVirtualKeyCodes: List of captured virtual key codes
-    """
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        """
-        Initialize the hotkey capture dialog.
-        
-        Args:
-            parent: Parent widget
-        """
-        super().__init__(parent)
-        self.setWindowTitle("Capture Hotkey Combination")
-        self.setFixedSize(250, 100)
-        self.CapturedVirtualKeyCodes: List[int] = []
-        self._currentVirtualKeyCodes: set[int] = set()
-        
-        layout = QVBoxLayout(self)
-        self.StatusLabel = QLabel("Holding: 0 keys", alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.StatusLabel)
-        self.setModal(True)
-
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        """
-        Handle key press events.
-        
-        Args:
-            event: Key event
-        """
-        virtualKeyCode = event.nativeVirtualKey()
-        if virtualKeyCode > 0:
-            self._currentVirtualKeyCodes.add(virtualKeyCode)
-            self.StatusLabel.setText(f"Holding: {len(self._currentVirtualKeyCodes)} keys")
-
-    def keyReleaseEvent(self, event: QKeyEvent) -> None:
-        """
-        Handle key release events.
-        
-        Args:
-            event: Key event
-        """
-        # When keys are released, we finalize the list
-        if self._currentVirtualKeyCodes:
-            self.CapturedVirtualKeyCodes = list(self._currentVirtualKeyCodes)
-            self.accept()
-
-
 class CropperWidget(QWidget):
     """
     A PySide ROI selector that mimics the behavior of the Tkinter version.
@@ -1006,167 +938,6 @@ class CropperWidget(QWidget):
         # We must return a copy as a Pixmap to avoid memory access issues.
         return QPixmap.fromImage(qImage)
 
-
-class LeftPanelWidget(QWidget):    
-    """
-    Left panel widget containing event management controls.
-    """
-    def __init__(self, viewModel : DashboardViewModel) -> None:
-        super().__init__()
-        self.ViewModel = viewModel
-        self._setupLeftPanel()
-        self._wireUpBindings()
-
-    def _setupLeftPanel(self) -> None:
-        """Set up the left panel with event management controls."""
-
-        layout = QVBoxLayout(self)
-        buttonLayout = QHBoxLayout()
-        
-        self.addEventButton = QPushButton("+")
-        self.removeEventButton = QPushButton("-")
-        self.addEventButton.setFixedWidth(30)
-        self.removeEventButton.setFixedWidth(30)
-        
-        self.saveEventButton = QPushButton("Save")
-        self.loadEventButton = QPushButton("Load")
-        self.saveEventButton.setFixedWidth(40)
-        self.loadEventButton.setFixedWidth(40)
-        
-        buttonLayout.addWidget(self.addEventButton)
-        buttonLayout.addWidget(self.removeEventButton)
-        buttonLayout.addStretch()
-        buttonLayout.addWidget(self.saveEventButton)
-        buttonLayout.addWidget(self.loadEventButton)
-        
-        self.eventListWidget = QListWidget()
-        self.eventListWidget.setFixedWidth(200)
-        self.eventListWidget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
-        
-        layout.addLayout(buttonLayout)
-        layout.addWidget(self.eventListWidget)
-        
-        # Sentinel Control
-        self.EventExecutionStateButton = QPushButton("Stop Sentinel")
-        self.EventExecutionStateButton.setStyleSheet(BUTTON_STYLE_RUNNING)
-        layout.addWidget(self.EventExecutionStateButton)
-        
-        # for Sentinel Control Hotkey capture dialog
-        self.EventExecutionStateHotkeyEdit = QLineEdit()
-        self.EventExecutionStateHotkeyEdit.setReadOnly(True)
-        self.EventExecutionStateHotkeyButton = QPushButton("Capture Sentinel Hotkey")
-        layout.addWidget(self.EventExecutionStateHotkeyEdit)
-        layout.addWidget(self.EventExecutionStateHotkeyButton)
-
-    def _wireUpBindings(self) -> None:
-        """Wire up the UI components to the view model."""
-        # to view model
-        self.addEventButton.clicked.connect(self._onEventAddedClicked)
-        self.removeEventButton.clicked.connect(self._onRemoveEventClicked)
-        self.saveEventButton.clicked.connect(self._onSaveEventClicked)
-        self.loadEventButton.clicked.connect(self._onLoadEventClicked)
-        self.eventListWidget.currentItemChanged.connect(self._onEventListCurrentItemChanged)
-        self.EventExecutionStateButton.clicked.connect(self._onEventExecutionStateClicked)
-        self.EventExecutionStateHotkeyButton.clicked.connect(self._onEventExecutionStateHotkeyClicked)
-
-        # Property Editing
-        self.eventListWidget.itemChanged.connect(self._onEventItemChanged)
-
-        # from view model
-        self.ViewModel.EventItemAddedSignal.connect(self._onEventAddedSignal)
-        self.ViewModel.EventItemRemovedSignal.connect(self._onRemoveEventSignal)
-        self.ViewModel.EventItemSelectedSignal.connect(self._onEventItemSelectedSignal)
-        self.ViewModel.EventItemChangedSignal.connect(self._onEventItemChangedSignal)
-        self.ViewModel.EventExecutionStateChangedSignal.connect(self._onEventExecutionStateChangedSignal)
-        self.ViewModel.EventExecutionStateHotkeyChangedSignal.connect(self._onEventExecutionStateHotkeyChangedSignal)
-
-    def _onEventAddedClicked(self) -> None:
-        self.ViewModel.AddEvent()
-
-    def _onRemoveEventClicked(self) -> None:
-        self.ViewModel.RemoveEvent()
-
-    def _onSaveEventClicked(self) -> None:
-        filePath, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Macro Configuration",
-            "",
-            "Data Files (*.dat);;Pickle Files (*.pkl);;All Files (*)"
-        )
-        if filePath:
-            try:
-                self.ViewModel.SaveState(filePath)
-                QMessageBox.information(self, "Success", "Configuration saved successfully!")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to save file: {e}")
-
-    def _onLoadEventClicked(self) -> None:
-        filePath, _ = QFileDialog.getOpenFileName(
-            self,
-            "Load Macro Configuration",
-            "",
-            "Data Files (*.dat);;Pickle Files (*.pkl);;All Files (*)"
-        )
-        if filePath:
-            try:
-                self.eventListWidget.clear()
-                self.ViewModel.LoadState(filePath)
-                QMessageBox.information(self, "Success", "Configuration loaded successfully!")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to load file: {e}")
-
-    def _onEventListCurrentItemChanged(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
-        eventItem: EventItem = current.data(Qt.ItemDataRole.UserRole)
-        self.ViewModel.SelectedEventItem = eventItem
-
-    def _onEventExecutionStateClicked(self) -> None:
-        self.ViewModel.ToggleSentinelFlow()
-
-    def _onEventExecutionStateHotkeyClicked(self) -> None:
-        dialog = HotkeyCaptureDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            if self.ViewModel.TriggerThread is not None:
-                self.ViewModel.TriggerThread.SetFlowHotkey(dialog.CapturedVirtualKeyCodes)
-    
-    # Property Editing
-    def _onEventItemChanged(self, item: QListWidgetItem) -> None:
-        eventItem: EventItem = item.data(Qt.ItemDataRole.UserRole)
-        isEnabled = item.checkState() == Qt.CheckState.Checked
-        self.ViewModel.SetEventEnabled(eventItem, isEnabled)
-
-    # from view model
-    def _onEventAddedSignal(self, eventItem: EventItem) -> None:
-        item = QListWidgetItem(eventItem.Name)
-        item.setData(Qt.ItemDataRole.UserRole, eventItem)
-        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-        item.setCheckState(Qt.CheckState.Checked if eventItem.IsEnabled else Qt.CheckState.Unchecked)
-        self.eventListWidget.addItem(item)
-
-    def _onRemoveEventSignal(self, index: int) -> None:
-        self.eventListWidget.takeItem(index)
-
-    def _onEventItemSelectedSignal(self, eventItem: EventItem) -> None:
-        self.eventListWidget.currentItem().setText(eventItem.Name)
-
-    def _onEventItemChangedSignal(self, eventItem: EventItem) -> None:
-        for index in range(self.eventListWidget.count()):
-            item = self.eventListWidget.item(index)
-            storedEventItem: EventItem = item.data(Qt.ItemDataRole.UserRole)
-            if storedEventItem == eventItem:
-                item.setText(eventItem.Name)
-                item.setCheckState(Qt.CheckState.Checked if eventItem.IsEnabled else Qt.CheckState.Unchecked)
-                break
-
-    def _onEventExecutionStateChangedSignal(self, isRunning: bool) -> None:
-        if isRunning:
-            self.EventExecutionStateButton.setText("Stop Sentinel")
-            self.EventExecutionStateButton.setStyleSheet(BUTTON_STYLE_RUNNING)
-        else:
-            self.EventExecutionStateButton.setText("Start Sentinel")
-            self.EventExecutionStateButton.setStyleSheet(BUTTON_STYLE_STOPPED)
-
-    def _onEventExecutionStateHotkeyChangedSignal(self, hotkeyList: List[int]) -> None:
-        self.EventExecutionStateHotkeyEdit.setText(", ".join(map(KeyNameFromVk, hotkeyList)))
 
 
 class RightPanelWidget(QWidget):
