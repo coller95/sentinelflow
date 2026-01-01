@@ -13,13 +13,21 @@ import os
 import sys
 import time
 import pickle
+from pathlib import Path
 from typing import (
     cast, List, Optional, Any, Dict
 )
+
+# Ensure project root is on sys.path so `import Src.*` works regardless of CWD.
+# (Helps when you later move this entrypoint into a better `app/` directory.)
+_PROJECT_ROOT = str(Path(__file__).resolve().parents[1])  # ...\sentinelflow
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 # Third-party imports
 import numpy as np
 from PySide6.QtCore import (
-    Signal, QThread, QObject, 
+    Signal, QThread, QObject,
     QMutex, QMutexLocker
 )
 from PySide6.QtWidgets import (
@@ -57,12 +65,12 @@ os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 # =============================================================================
 class TriggerMonitorThread(QThread):
     """Thread responsible for monitoring trigger conditions and executing actions."""
-    
+
     EventTriggered = Signal(EventItem)
     EventDisabled = Signal(EventItem)
     FlowStateChanged = Signal(bool)
     FlowHotkeyChanged = Signal(list)
-    MatchScoreUpdated = Signal(float)  # score
+    MatchScoreUpdated = Signal(object)  # float OR (index:int, value:float)
 
     def __init__(self, viewModel: "DashboardViewModel", pollIntervalMs: int = 50) -> None:
         """
@@ -313,8 +321,8 @@ class DashboardViewModel(QObject):
     EventItemChangedSignal = Signal(EventItem)
 
     WindowHandleUpdated = Signal(object)  # HWND
-    CaptureImageReady = Signal(object)  # Image data\
-    MatchScoreUpdated = Signal(float)  # score
+    CaptureImageReady = Signal(object)  # Image data
+    MatchScoreUpdated = Signal(object)  # float OR (index:int, value:float)
 
     def __init__(self) -> None:
         """Initialize the dashboard view model."""
@@ -677,10 +685,20 @@ class DashboardViewModel(QObject):
         SendKeystrokeToWindow(self.CurrentWindowHandle, virtualKeyCode)
         return True
 
+    def StopSentinel(self) -> None:
+        """Stop the trigger monitoring thread."""
+        if self.TriggerThread:
+            self.TriggerThread.Stop()
+            try:
+                self.TriggerThread.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            self.TriggerThread = None
+
     @property
-    def SelectedEventItem(self) -> Optional[EventItem]:\
+    def SelectedEventItem(self) -> Optional[EventItem]:
         return self._selectedEventItem
-    
+
     @SelectedEventItem.setter
     def SelectedEventItem(self, event: Optional[EventItem]) -> None:        
         self._selectedEventItem = event
@@ -740,18 +758,23 @@ class DashboardView(QWidget):
         Args:
             event: Close event
         """
+        # Stop background work before exiting (important once code is split into app/core dirs).
         self.ViewModel.StopCapture()
+        self.ViewModel.StopSentinel()
         super().closeEvent(event)
 
 # =============================================================================
 # MAIN ENTRY POINT
 # =============================================================================
-if __name__ == "__main__":
+def main() -> int:
     application = QApplication(sys.argv)
-    
+
     # MVVM Initialization
     viewModel = DashboardViewModel()
     view = DashboardView(viewModel)
     view.show()
-    
-    sys.exit(application.exec())
+
+    return application.exec()
+
+if __name__ == "__main__":
+    raise SystemExit(main())
