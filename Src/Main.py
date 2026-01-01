@@ -31,6 +31,7 @@ from PySide6.QtGui import QCloseEvent
 from Src.Helper import (
     SendKeystrokeToWindow, SendMouseClickToWindow, CaptureWindowByHwnd,
     FindHwndByTitle, LaunchHwndByExecutable, ResizeWindow, IsHotkeyActive,
+    FindPidByHwnd,
     KeyNameFromVk, VkFromKeyName, CropImage, MatchTemplate,
     EstimateProgressBarPercentage
 )
@@ -358,6 +359,11 @@ class DashboardViewModel(QObject):
         self.CurrentWindowHandle = windowHandle
         self.WindowHandleUpdated.emit(windowHandle)
         return windowHandle
+
+    def GetPidByHwnd(self, windowHandle: int) -> Optional[int]:
+        if not windowHandle:
+            return None
+        return FindPidByHwnd(windowHandle)
 
     def LaunchApplication(self, path: str) -> Optional[int]:
         """

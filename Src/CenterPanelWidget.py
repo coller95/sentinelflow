@@ -7,7 +7,6 @@ from PySide6.QtWidgets import (
     QMessageBox, QFileDialog
 )
 
-from Src.Helper import FindPidByHwnd
 from Src.UiShared import ClickableImageLabel
 
 class DashboardViewModelProtocol(Protocol):
@@ -23,6 +22,7 @@ class DashboardViewModelProtocol(Protocol):
     def CaptureMousePositionNormalized(self, point: Optional[tuple[float, float]]) -> None: ...
 
     def FindWindow(self, title: str) -> Optional[int]: ...
+    def GetPidByHwnd(self, windowHandle: int) -> Optional[int]: ...
     def LaunchApplication(self, path: str) -> Optional[int]: ...
     def ResizeTargetWindow(self, width: int, height: int) -> None: ...
     def ToggleCapture(self, active: bool) -> None: ...
@@ -213,7 +213,8 @@ class CenterPanelWidget(QWidget):
     def _updateUiWindowHandleInfo(self, windowHandle: Optional[int]) -> None:
         """Update UI with window handle information."""
         if windowHandle:
-            self.pidLabel.setText(f"PID: {FindPidByHwnd(windowHandle)}")
+            pid = self.ViewModel.GetPidByHwnd(windowHandle)
+            self.pidLabel.setText(f"PID: {pid if pid is not None else '-'}")
         else:
             self.pidLabel.setText("PID: -")
             QMessageBox.warning(self, "Error", "Window not found.")
