@@ -26,7 +26,7 @@ class EngineResult:
 class ActivationEngine:
     """Pure logic for evaluating events against inputs."""
 
-    def evaluate(self, events: List[EventItem], localImage: Optional[np.ndarray[Any, Any]]) -> EngineResult:
+    def loop(self, events: List[EventItem], localImage: Optional[np.ndarray[Any, Any]]) -> EngineResult:
         triggered: List[EventItem] = []
         disabled: List[EventItem] = []
         match_updates: List[object] = []

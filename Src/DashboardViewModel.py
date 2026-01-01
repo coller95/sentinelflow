@@ -21,7 +21,9 @@ from Src.Models import (
     ActivationType, InputType, 
     ActionItem, EventItem, MacroStep, RectangleRegion
 )
-from Engine.ActivationEngine import ActivationEngine
+from Src.Engine.ConditionEngine import ConditionEngine
+from Src.Engine.ActivationEngine import ActivationEngine
+from Src.Engine.ActionExecutorEngine import ActionExecutorEngine
 
 
 class TriggerMonitorThread(QThread):
@@ -34,13 +36,6 @@ class TriggerMonitorThread(QThread):
     MatchScoreUpdated = Signal(object)  # float OR (index:int, value:float)
 
     def __init__(self, viewModel: "DashboardViewModel", pollIntervalMs: int = 50) -> None:
-        """
-        Initialize the trigger monitor thread.
-        
-        Args:
-            viewModel: Reference to the dashboard view model
-            pollIntervalMs: Polling interval in milliseconds
-        """
         super().__init__()
         self._viewModel: DashboardViewModel = viewModel
         self._pollIntervalMs: int = pollIntervalMs
@@ -52,87 +47,87 @@ class TriggerMonitorThread(QThread):
         self._flowEnabled: bool = True
         self._flowHotkeyVirtualKeyCodes: List[int] = []
         self._flowHotkeyIsCurrentlyHeld: bool = False
-        self._engine = ActivationEngine()
+        # Engines
+        self._conditionEngine = ConditionEngine()
+        self._activationEngine = ActivationEngine()
+        self._actionExecutorEngine = ActionExecutorEngine()
 
     def SetImage(self, image: Optional[np.ndarray[Any, Any]]) -> None:
-        """
-        Set the current image for processing.
-        
-        Args:
-            image: Image data to process
-        """
         with QMutexLocker(self._imageMutex):
             self._currentImage = image
 
     def SetFlowEnabled(self, isEnabled: bool) -> None:
-        """
-        Set the flow state directly.
-        
-        Args:
-            isEnabled: New flow state
-        """
         self._flowEnabled = isEnabled
         self.FlowStateChanged.emit(self._flowEnabled)
 
     def ToggleFlowEnabled(self) -> None:
-        """Toggle the flow state."""
         self.SetFlowEnabled(not self._flowEnabled)
 
     def SetFlowHotkey(self, virtualKeyCodes: List[int]) -> None:
-        """
-        Set the hotkey to toggle flow state.
-        
-        Args:
-            virtualKeyCodes: List of virtual key codes
-        """
         self._flowHotkeyVirtualKeyCodes = virtualKeyCodes
         print(f"Flow hotkey set to: {virtualKeyCodes}")
         self.FlowHotkeyChanged.emit(virtualKeyCodes)
 
     def GetFlowHotkey(self) -> List[int]:
-        """Get the current flow hotkey virtual key codes."""
         return self._flowHotkeyVirtualKeyCodes
 
+    def _checkFlowHotkeyPressed(self) -> None:
+        # Check flow hotkey (only if configured)
+        if self._flowHotkeyVirtualKeyCodes:
+            isDownNow = IsHotkeyActive(self._flowHotkeyVirtualKeyCodes)
+            if self._flowHotkeyIsCurrentlyHeld and not isDownNow:
+                self.ToggleFlowEnabled()
+            self._flowHotkeyIsCurrentlyHeld = isDownNow
+        else:
+            self._flowHotkeyIsCurrentlyHeld = False
+
+    def _CopyImageForProcessing(self) -> Optional[np.ndarray[Any, Any]]:
+        with QMutexLocker(self._imageMutex):
+            localImage = self._currentImage
+            self._currentImage = None
+            return localImage
+
     def run(self) -> None:
-        """Main thread execution loop."""
         while self._isRunning:
             # Check flow hotkey (only if configured)
-            if self._flowHotkeyVirtualKeyCodes:
-                isDownNow = IsHotkeyActive(self._flowHotkeyVirtualKeyCodes)
-                if self._flowHotkeyIsCurrentlyHeld and not isDownNow:
-                    self.ToggleFlowEnabled()
-                self._flowHotkeyIsCurrentlyHeld = isDownNow
-            else:
-                self._flowHotkeyIsCurrentlyHeld = False
+            self._checkFlowHotkeyPressed()
 
             if not self._flowEnabled:
                 time.sleep(self._pollIntervalMs / 1000.0)
                 continue
 
             # Copy image for processing
-            localImage: Optional[np.ndarray[Any, Any]] = None
-            with QMutexLocker(self._imageMutex):
-                localImage = self._currentImage
-                self._currentImage = None
+            localImage: Optional[np.ndarray[Any, Any]] = self._CopyImageForProcessing()
 
             # Iterate over a snapshot to avoid concurrent-modification issues
             eventItemsSnapshot = list(self._viewModel.EventItems)
 
-            result = self._engine.evaluate(eventItemsSnapshot, localImage)
+            # Update engines (if they have any per-loop logic)
+            # condition = self._conditionEngine.loop(localImage, eventItemsSnapshot)
+            activation = self._activationEngine.loop(eventItemsSnapshot, localImage)
 
-            for event in result.triggered:
+            # if self._viewModel.CurrentWindowHandle is not None:
+            #     self._actionExecutorEngine.loop(windowHandle=self._viewModel.CurrentWindowHandle, events=activation.triggered)
+
+
+
+
+            
+            # TODO update the condtion to Ui later for now use MatchScoreUpdated
+            # TODO update the activation to Ui later using EventTriggered
+
+            for event in activation.triggered: # can be remove if not used
                 self.EventTriggered.emit(event)
 
-            for event in result.disabled:
+            for event in activation.disabled:
                 self.EventDisabled.emit(event)
 
-            for matchUpdate in result.match_updates:
+            for matchUpdate in activation.match_updates:
                 self.MatchScoreUpdated.emit(matchUpdate)
             
             time.sleep(self._pollIntervalMs / 1000.0)
 
     def Stop(self) -> None:
-        """Stop the thread execution."""
         self._isRunning = False
         self.wait()
 
