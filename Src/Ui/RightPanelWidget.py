@@ -346,10 +346,8 @@ class RightPanelWidget(QWidget):
                 elif stepType == InputType.Keyboard:
                     dialog = HotkeyCaptureDialog(self)
                     if dialog.exec() == QDialog.DialogCode.Accepted:
-                        # We take the first key from the captured list
                         if dialog.CapturedVirtualKeyCodes:
-                            virtualKeyCode = dialog.CapturedVirtualKeyCodes[0]
-                            self.ViewModel.AddSelectedKeyboardStep(virtualKeyCode)
+                            self.ViewModel.AddSelectedKeyboardStep(dialog.CapturedVirtualKeyCodes)
                         else:
                             return
                     else:

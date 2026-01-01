@@ -44,7 +44,8 @@ class HotkeyCaptureDialog(QDialog):
         self.setWindowTitle("Capture Hotkey Combination")
         self.setFixedSize(250, 100)
         self.CapturedVirtualKeyCodes: List[int] = []
-        self._currentVirtualKeyCodes: set[int] = set()
+        self._currentVirtualKeyCodes: List[int] = []
+        self._currentVirtualKeyCodeSet: set[int] = set()
 
         layout = QVBoxLayout(self)
         self.StatusLabel = QLabel("Holding: 0 keys", alignment=Qt.AlignmentFlag.AlignCenter)
@@ -54,7 +55,9 @@ class HotkeyCaptureDialog(QDialog):
     def keyPressEvent(self, event: QKeyEvent) -> None:
         virtualKeyCode = event.nativeVirtualKey()
         if virtualKeyCode > 0:
-            self._currentVirtualKeyCodes.add(virtualKeyCode)
+            if virtualKeyCode not in self._currentVirtualKeyCodeSet:
+                self._currentVirtualKeyCodeSet.add(virtualKeyCode)
+                self._currentVirtualKeyCodes.append(virtualKeyCode)
             self.StatusLabel.setText(f"Holding: {len(self._currentVirtualKeyCodes)} keys")
 
     def keyReleaseEvent(self, event: QKeyEvent) -> None:

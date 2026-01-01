@@ -2,12 +2,12 @@ import time
 import numpy as np
 from enum import Enum, auto
 from typing import (
-    List, Optional, Any
+    List, Optional, Any, cast
 )
 
 # Local imports
 from Src.Helper import (
-    SendKeystrokeToWindow, SendMouseClickToWindow
+    SendKeystrokeToWindow, SendMouseClickToWindow, SendKeyChordToWindow
 )
 
 # =============================================================================
@@ -141,7 +141,7 @@ class MacroStep:
             # self._value is milliseconds
             time.sleep(self._value / 1000.0)
 
-    def _sendKeystroke(self, hwnd: int, virtualKeyCode: int) -> None:
+    def _sendKeystroke(self, hwnd: int, virtualKeyCode: Any) -> None:
         """
         Send a keyboard keystroke to the specified window.
         
@@ -149,7 +149,13 @@ class MacroStep:
             hwnd: Window handle
             virtualKeyCode: Virtual key code
         """
-        SendKeystrokeToWindow(hwnd, virtualKeyCode)
+        if isinstance(virtualKeyCode, (list, tuple)):
+            seq = cast(list[int] | tuple[int, ...], virtualKeyCode)
+            keys = [int(vk) for vk in seq]
+            SendKeyChordToWindow(hwnd, keys)
+            return
+
+        SendKeystrokeToWindow(hwnd, int(virtualKeyCode))
 
     def _sendMouseClick(self, hwnd: int, xNormalized: float, yNormalized: float) -> None:
         """

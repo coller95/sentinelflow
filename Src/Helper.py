@@ -250,6 +250,51 @@ def SendKeystrokeToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
     win32api.keybd_event(virtualKey, 0, win32con.KEYEVENTF_KEYUP, 0)  # type: ignore
 
 
+def SendKeyStrokeToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
+    """Backward-compatible alias for SendKeystrokeToWindow."""
+    SendKeystrokeToWindow(hwnd, virtualKey)
+
+
+def SendKeyChordToWindow(hwnd: HWND, virtualKeys: List[VirtualKey]) -> None:
+    """Send a key chord to the specified window.
+
+    Example:
+        SendKeyChordToWindow(hwnd, [win32con.VK_SHIFT, ord('A')])
+
+    Notes:
+        - Interprets the last element as the primary key.
+        - All preceding keys are treated as modifiers held down during the primary key press.
+    """
+    if not hwnd:
+        return
+    if not virtualKeys:
+        return
+
+    # Normalize input and drop invalid values
+    keys: List[VirtualKey] = [VirtualKey(vk) for vk in virtualKeys if int(vk) > 0]
+    if not keys:
+        return
+
+    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    win32gui.SetForegroundWindow(hwnd)
+    time.sleep(0.05)
+
+    modifiers = keys[:-1]
+    primary = keys[-1]
+
+    for vk in modifiers:
+        win32api.keybd_event(vk, 0, 0, 0)  # type: ignore
+        time.sleep(0.005)
+
+    win32api.keybd_event(primary, 0, 0, 0)  # type: ignore
+    time.sleep(0.005)
+    win32api.keybd_event(primary, 0, win32con.KEYEVENTF_KEYUP, 0)  # type: ignore
+
+    for vk in reversed(modifiers):
+        time.sleep(0.005)
+        win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)  # type: ignore
+
+
 def SendMouseClickToWindow(hwnd: HWND, normalizedX: NormalizedCoord, normalizedY: NormalizedCoord) -> None:
     """Send a mouse click to the window at normalized (0.0–1.0) coordinates."""
     if not hwnd:

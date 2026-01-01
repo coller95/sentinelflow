@@ -9,8 +9,8 @@ from PySide6.QtCore import Signal, QObject
 
 # Local imports
 from Src.Helper import (
-    SendKeystrokeToWindow, SendMouseClickToWindow, 
-    FindHwndByTitle, LaunchHwndByExecutable, ResizeWindow, 
+    SendKeystrokeToWindow, SendMouseClickToWindow,
+    FindHwndByTitle, LaunchHwndByExecutable, ResizeWindow,
     FindPidByHwnd, KeyNameFromVk, VkFromKeyName
 )
 from Src.Models import (
@@ -290,11 +290,21 @@ class DashboardViewModel(QObject):
         eventItem.AssignedAction.AddStep(newStep)
         self.EventItemChangedSignal.emit(eventItem)
 
-    def AddSelectedKeyboardStep(self, virtualKeyCode: int) -> None:
+    def AddSelectedKeyboardStep(self, virtualKeyCode: Any) -> None:
         eventItem = self._selectedEventItem
         if not eventItem or not eventItem.AssignedAction:
             return
-        newStep = MacroStep(InputType.Keyboard, virtualKeyCode, f"Press \"{KeyNameFromVk(virtualKeyCode)}\"")
+
+        if isinstance(virtualKeyCode, (list, tuple)):
+            seq = cast(list[int] | tuple[int, ...], virtualKeyCode)
+            keys = [int(vk) for vk in seq]
+            names = [KeyNameFromVk(vk) for vk in keys]
+            description = f"Press \"{' + '.join(names)}\""
+            newStep = MacroStep(InputType.Keyboard, keys, description)
+        else:
+            vk = int(virtualKeyCode)
+            newStep = MacroStep(InputType.Keyboard, vk, f"Press \"{KeyNameFromVk(vk)}\"")
+
         eventItem.AssignedAction.AddStep(newStep)
         self.EventItemChangedSignal.emit(eventItem)
 
