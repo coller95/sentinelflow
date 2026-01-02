@@ -1,8 +1,9 @@
 import time
+from uuid import UUID
 import numpy as np
 from dataclasses import dataclass
 from typing import (
-    List, Optional, Any
+    List, Optional, Any, Set
 )
 from Src.Helper import (
     CropImage, MatchTemplate, IsHotkeyActive,
@@ -19,14 +20,16 @@ from Src.Models import (
 class EngineResult:
     triggered: List[EventItem]
     disabled: List[EventItem]
-    match_updates: List[object]
+    matchUpdates: List[object]
+    activatedEventUuids: Set[UUID]
 
 
 class ActivationEngine:
     def loop(self, events: List[EventItem], localImage: Optional[np.ndarray[Any, Any]]) -> EngineResult:
         triggered: List[EventItem] = []
         disabled: List[EventItem] = []
-        match_updates: List[object] = []
+        matchUpdates: List[object] = []
+        activatedEventUuids: Set[UUID] = set()
 
         for index, event in enumerate(events):
             if not event.IsEnabled:
@@ -39,6 +42,7 @@ class ActivationEngine:
                 isDownNow = IsHotkeyActive(event.ActivationVirtualKeyCodes)
                 if event.IsCurrentlyHeld and not isDownNow:
                     triggered.append(event)
+                    activatedEventUuids.add(event.Uuid)
                 event.IsCurrentlyHeld = isDownNow
 
             elif event.SelectedActivationType == ActivationType.Loop:
@@ -57,6 +61,7 @@ class ActivationEngine:
                 event.LoopCounter += 1
                 event.TimeOfLastTriggerMilliseconds = currentTimeMs
                 triggered.append(event)
+                activatedEventUuids.add(event.Uuid)
 
             elif event.SelectedActivationType == ActivationType.ImageMatchRoi:
                 if localImage is None or event.TemplateImage is None:
@@ -70,7 +75,7 @@ class ActivationEngine:
                 ))
 
                 event.MatchScore = MatchTemplate(localImageRoi, event.TemplateImage)
-                match_updates.append(event.MatchScore)
+                matchUpdates.append(event.MatchScore)
 
                 if event.TriggerOnThresholdExceed:
                     isConditionMet = event.MatchScore >= event.Threshold
@@ -85,6 +90,7 @@ class ActivationEngine:
 
                 if isRisingEdge or isRetrigger:
                     triggered.append(event)
+                    activatedEventUuids.add(event.Uuid)
                     event.TimeOfLastTriggerMilliseconds = currentTimeMs
 
                 event.IsCurrentlyHeld = isConditionMet
@@ -101,7 +107,7 @@ class ActivationEngine:
                 ))
 
                 event.PercentFilled = EstimateProgressBarPercentage(localImageRoi)
-                match_updates.append((index, event.PercentFilled))
+                matchUpdates.append((index, event.PercentFilled))
 
                 if event.TriggerOnThresholdExceed:
                     isConditionMet = event.PercentFilled >= event.Threshold
@@ -116,8 +122,9 @@ class ActivationEngine:
 
                 if isRisingEdge or isRetrigger:
                     triggered.append(event)
+                    activatedEventUuids.add(event.Uuid)
                     event.TimeOfLastTriggerMilliseconds = currentTimeMs
 
                 event.IsCurrentlyHeld = isConditionMet
 
-        return EngineResult(triggered=triggered, disabled=disabled, match_updates=match_updates)
+        return EngineResult(triggered=triggered, disabled=disabled, matchUpdates=matchUpdates, activatedEventUuids=activatedEventUuids)

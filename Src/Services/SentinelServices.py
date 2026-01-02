@@ -7,7 +7,7 @@ import numpy as np
 from Src.Helper import CaptureWindowByHwnd, IsHotkeyActive
 from Src.Models import EventItem
 from Src.Engine.ActivationEngine import ActivationEngine
-from Src.Engine.ActionExecutorEngine import ActionExecutorEngine
+from Src.Engine.ActionExecutorEngine import ActionExecutorEngine, ActionExecutionContext
 
 
 class TriggerMonitorService:
@@ -44,6 +44,8 @@ class TriggerMonitorService:
 
         self._activationEngine = ActivationEngine()
         self._actionExecutor = ActionExecutorEngine()
+
+        self._actionExecutionContext = ActionExecutionContext()
 
     def Start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -106,12 +108,16 @@ class TriggerMonitorService:
 
             activation = self._activationEngine.loop(eventItemsSnapshot, localImage)
 
-            # Execute actions on the same monitoring thread (optional).
             if self._getWindowHandle is not None:
                 hwnd = self._getWindowHandle()
                 if hwnd is not None:
-                    for event in activation.triggered:
-                        self._actionExecutor.ExecuteEvent(hwnd, event)
+                    self._actionExecutionContext = self._actionExecutor.loop(
+                        hwnd,
+                        eventItemsSnapshot,
+                        activation.activatedEventUuids,
+                        self._actionExecutionContext,
+                    )
+
 
             if self._onEventDetected is not None:
                 for event in activation.triggered:
@@ -122,7 +128,7 @@ class TriggerMonitorService:
                     self._onEventDisabled(event)
 
             if self._onMatchScoreUpdated is not None:
-                for update in activation.match_updates:
+                for update in activation.matchUpdates:
                     self._onMatchScoreUpdated(update)
 
             time.sleep(self._pollIntervalMs / 1000.0)

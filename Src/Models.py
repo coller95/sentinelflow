@@ -1,4 +1,5 @@
 import numpy as np
+from uuid import uuid4, UUID
 from enum import Enum, auto
 from typing import List, Optional, Any
 
@@ -118,6 +119,7 @@ class EventItem:
         threshold: float = 0.99,
         retriggerTimeMilliseconds: float = 2000
     ) -> None:
+        self._uuid: UUID = uuid4()
         self._name: str = name
         self._enabled: bool = enabled
         self._selectedActivationType: ActivationType = activationType
@@ -135,6 +137,10 @@ class EventItem:
         self._templateImage: Optional[np.ndarray[Any, Any]] = None
         self._percentFilled: float = 0.0
         self._assignedAction: ActionItem = action
+        
+    @property
+    def Uuid(self) -> UUID:
+        return self._uuid
 
 
     @property
