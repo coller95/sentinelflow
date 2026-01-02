@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from Src.Helper import KeyNameFromVk
 from Src.Models import ActivationType, EventItem, InputType, MacroStep, RectangleRegion
