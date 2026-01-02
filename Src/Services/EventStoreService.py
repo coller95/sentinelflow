@@ -48,3 +48,15 @@ class EventStoreService:
                 return None
             self._events.pop(index)
             return index
+
+    def MoveByIndex(self, fromIndex: int, toIndex: int) -> None:
+        with self._lock:
+            if fromIndex < 0 or toIndex < 0:
+                return
+            if fromIndex >= len(self._events) or toIndex >= len(self._events):
+                return
+            if fromIndex == toIndex:
+                return
+
+            event = self._events.pop(fromIndex)
+            self._events.insert(toIndex, event)

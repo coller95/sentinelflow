@@ -33,6 +33,7 @@ class DashboardViewModelProtocol(Protocol):
 
     def AddEvent(self) -> None: ...
     def RemoveEvent(self) -> None: ...
+    def MoveEvent(self, fromIndex: int, toIndex: int) -> None: ...
     def SaveState(self, filePath: str) -> None: ...
     def LoadState(self, filePath: str) -> None: ...
     def ToggleSentinelFlow(self) -> None: ...
@@ -65,8 +66,12 @@ class LeftPanelWidget(QWidget):
         
         self.addEventButton = QPushButton("+")
         self.removeEventButton = QPushButton("-")
+        self.moveEventUpButton = QPushButton("↑")
+        self.moveEventDownButton = QPushButton("↓")
         self.addEventButton.setFixedWidth(30)
         self.removeEventButton.setFixedWidth(30)
+        self.moveEventUpButton.setFixedWidth(30)
+        self.moveEventDownButton.setFixedWidth(30)
         
         self.saveEventButton = QPushButton("Save")
         self.loadEventButton = QPushButton("Load")
@@ -78,6 +83,8 @@ class LeftPanelWidget(QWidget):
         
         buttonLayout.addWidget(self.addEventButton)
         buttonLayout.addWidget(self.removeEventButton)
+        buttonLayout.addWidget(self.moveEventUpButton)
+        buttonLayout.addWidget(self.moveEventDownButton)
         buttonLayout.addStretch()
         buttonLayout.addWidget(self.saveEventButton)
         buttonLayout.addWidget(self.loadEventButton)
@@ -106,6 +113,8 @@ class LeftPanelWidget(QWidget):
         # to view model
         self.addEventButton.clicked.connect(self._onEventAddedClicked)
         self.removeEventButton.clicked.connect(self._onRemoveEventClicked)
+        self.moveEventUpButton.clicked.connect(self._onMoveEventUpClicked)
+        self.moveEventDownButton.clicked.connect(self._onMoveEventDownClicked)
         self.saveEventButton.clicked.connect(self._onSaveEventClicked)
         self.loadEventButton.clicked.connect(self._onLoadEventClicked)
         self.openConditionsButton.clicked.connect(self._onOpenConditionsClicked)
@@ -132,6 +141,34 @@ class LeftPanelWidget(QWidget):
 
     def _onRemoveEventClicked(self) -> None:
         self.ViewModel.RemoveEvent()
+
+    def _moveEventRow(self, fromRow: int, toRow: int) -> None:
+        if fromRow < 0 or toRow < 0:
+            return
+        if fromRow >= self.eventListWidget.count() or toRow >= self.eventListWidget.count():
+            return
+        if fromRow == toRow:
+            return
+
+        self.ViewModel.MoveEvent(fromRow, toRow)
+
+        item = self.eventListWidget.takeItem(fromRow)
+        if item is None:
+            return
+        self.eventListWidget.insertItem(toRow, item)
+        self.eventListWidget.setCurrentRow(toRow)
+
+    def _onMoveEventUpClicked(self) -> None:
+        currentRow = self.eventListWidget.currentRow()
+        if currentRow <= 0:
+            return
+        self._moveEventRow(currentRow, currentRow - 1)
+
+    def _onMoveEventDownClicked(self) -> None:
+        currentRow = self.eventListWidget.currentRow()
+        if currentRow < 0 or currentRow >= self.eventListWidget.count() - 1:
+            return
+        self._moveEventRow(currentRow, currentRow + 1)
 
     def _onSaveEventClicked(self) -> None:
         filePath, _ = QFileDialog.getSaveFileName(

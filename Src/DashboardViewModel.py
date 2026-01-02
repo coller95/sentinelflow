@@ -79,6 +79,9 @@ class DashboardViewModel(QObject):
         if index is not None:
             self.EventItemRemovedSignal.emit(index)
 
+    def MoveEvent(self, fromIndex: int, toIndex: int) -> None:
+        self.EventStoreService.MoveByIndex(fromIndex, toIndex)
+
     def FindWindow(self, title: str) -> Optional[int]:
         windowHandle = self.TargetWindowService.FindWindow(title)
         self.WindowHandleUpdated.emit(windowHandle)
