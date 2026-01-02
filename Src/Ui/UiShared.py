@@ -50,8 +50,46 @@ class HotkeyCaptureDialog(QDialog):
         layout.addWidget(self.StatusLabel)
         self.setModal(True)
 
+    def _normalizeVirtualKey(self, event: QKeyEvent) -> int:
+        vk = int(event.nativeVirtualKey())
+        scan = int(event.nativeScanCode())
+
+        # Windows VK constants (avoid win32con dependency here)
+        VK_SHIFT = 0x10
+        VK_CONTROL = 0x11
+        VK_MENU = 0x12  # Alt
+        VK_LSHIFT = 0xA0
+        VK_RSHIFT = 0xA1
+        VK_LCONTROL = 0xA2
+        VK_RCONTROL = 0xA3
+        VK_LMENU = 0xA4
+        VK_RMENU = 0xA5
+
+        # Qt usually provides generic VK codes for modifiers; scan code can disambiguate.
+        # Right Ctrl/Alt commonly come through as extended scan codes (E0xx), which Qt
+        # may expose as values > 0xFF (e.g., 0xE01D / 0xE038).
+        if vk == VK_SHIFT:
+            # Left shift scancode: 0x2A, Right shift scancode: 0x36
+            if (scan & 0xFF) == 0x36:
+                return VK_RSHIFT
+            if (scan & 0xFF) == 0x2A:
+                return VK_LSHIFT
+            return vk
+
+        if vk == VK_CONTROL:
+            if (scan & 0xFF) == 0x1D and scan > 0xFF:
+                return VK_RCONTROL
+            return VK_LCONTROL
+
+        if vk == VK_MENU:
+            if (scan & 0xFF) == 0x38 and scan > 0xFF:
+                return VK_RMENU
+            return VK_LMENU
+
+        return vk
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        virtualKeyCode = event.nativeVirtualKey()
+        virtualKeyCode = self._normalizeVirtualKey(event)
         if virtualKeyCode > 0:
             if virtualKeyCode not in self._currentVirtualKeyCodeSet:
                 self._currentVirtualKeyCodeSet.add(virtualKeyCode)

@@ -205,6 +205,20 @@ def VkFromKeyName(keyName: str) -> VirtualKey:
 
 
 def KeyNameFromVk(virtualKey: VirtualKey) -> str:
+    vk = int(virtualKey)
+    if vk == 0xA2:
+        return "LCtrl"
+    if vk == 0xA3:
+        return "RCtrl"
+    if vk == 0xA0:
+        return "LShift"
+    if vk == 0xA1:
+        return "RShift"
+    if vk == 0xA4:
+        return "LAlt"
+    if vk == 0xA5:
+        return "RAlt"
+
     scanCode = int(win32api.MapVirtualKey(virtualKey, 0))  # type: ignore
     lParam = scanCode << 16
     nameBuffer = ctypes.create_unicode_buffer(32)
