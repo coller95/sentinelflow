@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import pickle
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, cast
 
 from Src.Models import ConditionItem, EventItem
 
