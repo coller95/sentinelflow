@@ -16,6 +16,8 @@ class InputType(Enum):
     Mouse = auto()
     Keyboard = auto()
     Delay = auto()
+    KeyboardHold = auto()
+    KeyboardRelease = auto()
 
 
 class ConditionType(Enum):

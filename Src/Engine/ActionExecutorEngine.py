@@ -5,7 +5,13 @@ from uuid import UUID
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, cast
 
-from Src.Helper import SendKeyChordToWindow, SendKeystrokeToWindow, SendMouseClickToWindow
+from Src.Helper import (
+    SendKeyChordToWindow,
+    SendKeystrokeToWindow,
+    SendKeyDownToWindow,
+    SendKeyUpToWindow,
+    SendMouseClickToWindow,
+)
 from Src.Models import ActionItem, EventItem, InputType, MacroStep
 
 
@@ -39,6 +45,18 @@ class KeyboardStepStrategy(StepExecutionStrategy):
         self._sendKeystroke(windowHandle, step.Value)
         return True
 
+
+class KeyboardHoldStepStrategy(StepExecutionStrategy):
+    def execute(self, windowHandle: int, step: MacroStep, state: EventExecutionState) -> bool:
+        SendKeyDownToWindow(windowHandle, int(step.Value))
+        return True
+
+
+class KeyboardReleaseStepStrategy(StepExecutionStrategy):
+    def execute(self, windowHandle: int, step: MacroStep, state: EventExecutionState) -> bool:
+        SendKeyUpToWindow(windowHandle, int(step.Value))
+        return True
+
 class MouseStepStrategy(StepExecutionStrategy):
     def execute(self, windowHandle: int, step: MacroStep, state: EventExecutionState) -> bool:
         value = step.Value
@@ -65,6 +83,8 @@ class ActionExecutorEngine:
     def __init__(self):
         self.stepStrategies : dict[InputType, StepExecutionStrategy] = {
             InputType.Keyboard: KeyboardStepStrategy(self.sendKeystroke),
+            InputType.KeyboardHold: KeyboardHoldStepStrategy(),
+            InputType.KeyboardRelease: KeyboardReleaseStepStrategy(),
             InputType.Mouse: MouseStepStrategy(),
             InputType.Delay: DelayStepStrategy(),
         }

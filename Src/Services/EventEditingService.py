@@ -60,6 +60,22 @@ class EventEditingService:
         newStep = MacroStep(InputType.Keyboard, keys, description)
         eventItem.AssignedAction.AddStep(newStep)
 
+    def AddKeyboardHoldStep(self, eventItem: EventItem, virtualKeyCode: int) -> None:
+        if not eventItem.AssignedAction:
+            return
+        vk = int(virtualKeyCode)
+        name = KeyNameFromVk(vk)
+        newStep = MacroStep(InputType.KeyboardHold, vk, f"Hold \"{name}\"")
+        eventItem.AssignedAction.AddStep(newStep)
+
+    def AddKeyboardReleaseStep(self, eventItem: EventItem, virtualKeyCode: int) -> None:
+        if not eventItem.AssignedAction:
+            return
+        vk = int(virtualKeyCode)
+        name = KeyNameFromVk(vk)
+        newStep = MacroStep(InputType.KeyboardRelease, vk, f"Release \"{name}\"")
+        eventItem.AssignedAction.AddStep(newStep)
+
     def AddDelayStep(self, eventItem: EventItem, milliseconds: int) -> None:
         if not eventItem.AssignedAction:
             return

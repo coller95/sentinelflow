@@ -464,6 +464,20 @@ class DashboardViewModel(QObject):
         self.EventEditingService.AddKeyboardStep(eventItem, virtualKeyCodes)
         self.EventItemChangedSignal.emit(eventItem)
 
+    def AddSelectedKeyboardHoldStep(self, virtualKeyCode: int) -> None:
+        eventItem = self.ViewState.SelectedEventItem
+        if not eventItem or not eventItem.AssignedAction:
+            return
+        self.EventEditingService.AddKeyboardHoldStep(eventItem, virtualKeyCode)
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def AddSelectedKeyboardReleaseStep(self, virtualKeyCode: int) -> None:
+        eventItem = self.ViewState.SelectedEventItem
+        if not eventItem or not eventItem.AssignedAction:
+            return
+        self.EventEditingService.AddKeyboardReleaseStep(eventItem, virtualKeyCode)
+        self.EventItemChangedSignal.emit(eventItem)
+
     def AddSelectedDelayStep(self, milliseconds: int) -> None:
         eventItem = self.ViewState.SelectedEventItem
         if not eventItem or not eventItem.AssignedAction:

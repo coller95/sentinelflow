@@ -57,6 +57,8 @@ class DashboardViewModelProtocol(Protocol):
     def UpdateSelectedCriterionTriggerOnThresholdExceed(self, index: int, isEnabled: bool) -> None: ...
     def AddSelectedMouseStepFromCapturedPosition(self) -> None: ...
     def AddSelectedKeyboardStep(self, virtualKeyCodes: list[int]) -> None: ...
+    def AddSelectedKeyboardHoldStep(self, virtualKeyCode: int) -> None: ...
+    def AddSelectedKeyboardReleaseStep(self, virtualKeyCode: int) -> None: ...
     def AddSelectedDelayStep(self, milliseconds: int) -> None: ...
     def MoveSelectedStep(self, fromIndex: int, toIndex: int) -> None: ...
     def RemoveSelectedStep(self, index: int) -> None: ...
@@ -359,6 +361,17 @@ class RightPanelWidget(QWidget):
                         self.ViewModel.AddSelectedDelayStep(milliseconds)
                     else:
                         return
+                elif stepType == InputType.KeyboardHold or stepType == InputType.KeyboardRelease:
+                    dialog = HotkeyCaptureDialog(self)
+                    if dialog.exec() != QDialog.DialogCode.Accepted:
+                        return
+                    if not dialog.CapturedVirtualKeyCodes:
+                        return
+                    vk = int(dialog.CapturedVirtualKeyCodes[0])
+                    if stepType == InputType.KeyboardHold:
+                        self.ViewModel.AddSelectedKeyboardHoldStep(vk)
+                    else:
+                        self.ViewModel.AddSelectedKeyboardReleaseStep(vk)
 
                 self._refreshMacroStepList(eventItem.AssignedAction)
 

@@ -226,6 +226,28 @@ def SendKeystrokeToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
     win32api.keybd_event(virtualKey, 0, win32con.KEYEVENTF_KEYUP, 0)  # type: ignore
 
 
+def SendKeyDownToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
+    if not hwnd:
+        return
+
+    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    win32gui.SetForegroundWindow(hwnd)
+    time.sleep(0.05)
+
+    win32api.keybd_event(virtualKey, 0, 0, 0)  # type: ignore
+
+
+def SendKeyUpToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
+    if not hwnd:
+        return
+
+    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    win32gui.SetForegroundWindow(hwnd)
+    time.sleep(0.05)
+
+    win32api.keybd_event(virtualKey, 0, win32con.KEYEVENTF_KEYUP, 0)  # type: ignore
+
+
 def SendKeyStrokeToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
     SendKeystrokeToWindow(hwnd, virtualKey)
 
