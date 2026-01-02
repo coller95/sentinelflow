@@ -16,6 +16,7 @@ from Src.Models import (
 
 @dataclass
 class ConditionEngineState:
+    CropImage: Optional[np.ndarray[Any, Any]] = None
     MatchScore: float = 0.0
     PercentFilled: float = 0.0
 
@@ -48,7 +49,7 @@ class ConditionEngine:
         matchScores: Dict[UUID, float] = {}
         percentFilleds: Dict[UUID, float] = {}
         
-        for index, condition in enumerate(conditions):
+        for condition in conditions:
             # Ensure state exists for this event
             if condition.Uuid not in context.States:
                 context.States[condition.Uuid] = ConditionEngineState()
@@ -58,30 +59,30 @@ class ConditionEngine:
                 if localImage is None or condition.TemplateImage is None:
                     continue
 
-                localImageRoi = CropImage(localImage, (
+                state.CropImage = CropImage(localImage, (
                     condition.Roi.XNormalized, 
                     condition.Roi.YNormalized, 
                     condition.Roi.WidthNormalized, 
                     condition.Roi.HeightNormalized
                 ))
 
-                state.MatchScore = MatchTemplate(localImageRoi, condition.TemplateImage)
-                matchUpdates.append(state.MatchScore)
+                state.MatchScore = MatchTemplate(state.CropImage, condition.TemplateImage)
+                matchUpdates.append((condition.Uuid, state.MatchScore, state.CropImage))
                 matchScores[condition.Uuid] = state.MatchScore
 
             elif condition.SelectedConditionType == ConditionType.ProgressBar:
                 if localImage is None:
                     continue
 
-                localImageRoi = CropImage(localImage, (
+                state.CropImage = CropImage(localImage, (
                     condition.Roi.XNormalized, 
                     condition.Roi.YNormalized, 
                     condition.Roi.WidthNormalized, 
                     condition.Roi.HeightNormalized
                 ))
 
-                state.PercentFilled = EstimateProgressBarPercentage(localImageRoi)
-                matchUpdates.append((index, state.PercentFilled))
+                state.PercentFilled = EstimateProgressBarPercentage(state.CropImage)
+                matchUpdates.append((condition.Uuid, state.PercentFilled, state.CropImage))
                 percentFilleds[condition.Uuid] = state.PercentFilled
 
 

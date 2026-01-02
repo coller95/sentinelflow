@@ -13,6 +13,7 @@ from Src.Ui.UiShared import (
     HotkeyCaptureDialog,
     CropperWidget,
 )
+from Src.Ui.ConditionStatusWindow import ConditionStatusWindow
 
 class DashboardViewModelProtocol(Protocol):
     EventItemSelectedSignal: Any
@@ -117,6 +118,9 @@ class RightPanelWidget(QWidget):
         self.conditionDropdown = QComboBox()
         self.conditionDropdown.setEnabled(False)
         self.conditionWidgetLayout.addWidget(self.conditionDropdown)
+        self.conditionStatusButton = QPushButton("Status")
+        self.conditionStatusButton.setEnabled(True)
+        self.conditionWidgetLayout.addWidget(self.conditionStatusButton)
         self.conditionWidget.setLayout(self.conditionWidgetLayout)
         self.conditionWidget.hide()
         
@@ -278,6 +282,7 @@ class RightPanelWidget(QWidget):
         self.activationHotkeyButton.clicked.connect(self._onCaptureHotkey)
         self.roiButton.clicked.connect(self._onSelectRoi)
         self.conditionDropdown.currentIndexChanged.connect(self._onCommitConditionSelection)
+        self.conditionStatusButton.clicked.connect(self._onOpenConditionStatus)
         # Interaction
         self.thresholdMatchScoreCopyButton.clicked.connect(self._onCopyMatchScoreToThreshold)
         
@@ -449,13 +454,30 @@ class RightPanelWidget(QWidget):
         self.thresholdEdit.setText(self.thresholdMatchScoreLabel.text())
 
     def _updateUiEventMatchScore(self, score: object) -> None:
-        """Update the live match score label."""
+        """Update the live match score label for the selected condition only."""
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+
         displayValue: object = score
         if isinstance(score, (tuple, list)):
             scoreSequence = cast(list[Any], score)
             if len(scoreSequence) >= 2:
+                # If we got a (conditionUuid, value) payload, only accept it for this event's condition.
+                maybeId = scoreSequence[0]
+                try:
+                    if str(maybeId) != str(eventItem.Condition.Uuid):
+                        return
+                except Exception:
+                    pass
                 displayValue = scoreSequence[1]
+
         self.thresholdMatchScoreLabel.setText(f"{displayValue}")
+
+    def _onOpenConditionStatus(self) -> None:
+        # Keep a reference so the window isn't GC'ed.
+        self._conditionStatusDialog = ConditionStatusWindow(self.ViewModel)
+        self._conditionStatusDialog.show()
 
     def _onEventItemSelectedSignal(self, eventItem: Optional[EventItem]) -> None:
         if not eventItem:
