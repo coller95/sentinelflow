@@ -44,8 +44,8 @@ class DashboardViewModelProtocol(Protocol):
 
 
 class ConditionStatusWindow(QDialog):
-    def __init__(self, viewModel: DashboardViewModelProtocol) -> None:
-        super().__init__()
+    def __init__(self, viewModel: DashboardViewModelProtocol, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
         self.ViewModel = viewModel
         self.setWindowTitle("Condition Status")
         self.setMinimumSize(520, 320)

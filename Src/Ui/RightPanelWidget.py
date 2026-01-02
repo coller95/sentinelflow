@@ -339,7 +339,7 @@ class RightPanelWidget(QWidget):
             self._conditionStatusDialog.activateWindow()
             return
 
-        dialog = ConditionStatusWindow(self.ViewModel)
+        dialog = ConditionStatusWindow(self.ViewModel, parent=self.window())
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.finished.connect(lambda _code=0: setattr(self, "_conditionStatusDialog", None))
         self._conditionStatusDialog = dialog
