@@ -86,7 +86,7 @@ class ActivationEngine:
                 triggeredEventUuids.add(event.Uuid)
 
             elif event.SelectedActivationType == ActivationType.ImageMatchRoi:
-                matchScore = conditionEngineResult.matchScores.get(event.Uuid, None)
+                matchScore = conditionEngineResult.matchScores.get(event.Condition.Uuid, None) # please be aware that this is condition.Uuid, not event.Uuid
                 if matchScore is None:
                     continue # Skip if no data
 
@@ -110,7 +110,7 @@ class ActivationEngine:
                 state.IsCurrentlyHeld = isConditionMet
 
             elif event.SelectedActivationType == ActivationType.ProgressBar:
-                percentFilled = conditionEngineResult.percentFilleds.get(event.Uuid, None)
+                percentFilled = conditionEngineResult.percentFilleds.get(event.Condition.Uuid, None) # please be aware that this is condition.Uuid, not event.Uuid
                 if percentFilled is None:
                     continue # Skip if no data
 

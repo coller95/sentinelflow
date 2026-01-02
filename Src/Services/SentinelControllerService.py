@@ -4,7 +4,7 @@ from typing import Callable, List, Optional, Any
 
 import numpy as np
 
-from Src.Models import EventItem
+from Src.Models import EventItem, ConditionItem
 from Src.Services.SentinelServices import TriggerMonitorService, LiveCaptureService
 
 
@@ -13,6 +13,7 @@ class SentinelControllerService:
         self,
         *,
         getEventItems: Callable[[], List[EventItem]],
+        getConditionItems: Callable[[], List[ConditionItem]],
         getWindowHandle: Callable[[], Optional[int]],
         pollIntervalMs: int = 50,
         captureIntervalMs: int = 200,
@@ -24,6 +25,7 @@ class SentinelControllerService:
         onMatchScoreUpdated: Optional[Callable[[object], None]] = None,
     ) -> None:
         self._getEventItems = getEventItems
+        self._getConditionItems = getConditionItems
         self._getWindowHandle = getWindowHandle
         self._pollIntervalMs = pollIntervalMs
         self._captureIntervalMs = captureIntervalMs
@@ -41,6 +43,7 @@ class SentinelControllerService:
             return
         self._triggerThread = TriggerMonitorService(
             getEventItems=self._getEventItems,
+            getConditionItems=self._getConditionItems,
             getWindowHandle=self._getWindowHandle,
             pollIntervalMs=self._pollIntervalMs,
             onEventDetected=self._onEventDetected,

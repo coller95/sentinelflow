@@ -47,6 +47,7 @@ class DashboardViewModel(QObject):
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
         self.SentinelController = SentinelControllerService(
             getEventItems=self.EventStoreService.GetSnapshot,
+            getConditionItems=self.ConditionStoreService.GetSnapshot,
             getWindowHandle=lambda: self.TargetWindowService.CurrentWindowHandle,
             pollIntervalMs=50,
             captureIntervalMs=200,

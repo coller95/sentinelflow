@@ -10,8 +10,8 @@ from Src.Helper import (
     EstimateProgressBarPercentage
 )
 from Src.Models import (
-    ActivationType, 
-    EventItem
+    ConditionItem,
+    ConditionType
 )
 
 @dataclass
@@ -21,7 +21,7 @@ class ConditionEngineState:
 
 @dataclass
 class ConditionEngineContext:
-    eventStates: Dict[UUID, ConditionEngineState] = field(
+    States: Dict[UUID, ConditionEngineState] = field(
         default_factory=lambda: cast(Dict[UUID, ConditionEngineState], {})
     )
 
@@ -40,7 +40,7 @@ class ConditionEngineResult:
 class ConditionEngine:
     def Loop(
         self,
-        events: List[EventItem],
+        conditions: List[ConditionItem],
         localImage: Optional[np.ndarray[Any, Any]],
         context: ConditionEngineContext
     ) -> tuple[ConditionEngineResult, ConditionEngineContext]:
@@ -48,50 +48,41 @@ class ConditionEngine:
         matchScores: Dict[UUID, float] = {}
         percentFilleds: Dict[UUID, float] = {}
         
-        for index, event in enumerate(events):
-            if not event.IsEnabled:
-                continue
-
+        for index, condition in enumerate(conditions):
             # Ensure state exists for this event
-            if event.Uuid not in context.eventStates:
-                context.eventStates[event.Uuid] = ConditionEngineState()
-            state = context.eventStates[event.Uuid]
+            if condition.Uuid not in context.States:
+                context.States[condition.Uuid] = ConditionEngineState()
+            state = context.States[condition.Uuid]
 
-            if event.SelectedActivationType == ActivationType.Hotkey:
-                pass
-
-            elif event.SelectedActivationType == ActivationType.Loop:
-                pass
-
-            elif event.SelectedActivationType == ActivationType.ImageMatchRoi:
-                if localImage is None or event.TemplateImage is None:
+            if condition.SelectedConditionType == ConditionType.ImageMatchRoi:
+                if localImage is None or condition.TemplateImage is None:
                     continue
 
                 localImageRoi = CropImage(localImage, (
-                    event.Roi.XNormalized, 
-                    event.Roi.YNormalized, 
-                    event.Roi.WidthNormalized, 
-                    event.Roi.HeightNormalized
+                    condition.Roi.XNormalized, 
+                    condition.Roi.YNormalized, 
+                    condition.Roi.WidthNormalized, 
+                    condition.Roi.HeightNormalized
                 ))
 
-                state.MatchScore = MatchTemplate(localImageRoi, event.TemplateImage)
+                state.MatchScore = MatchTemplate(localImageRoi, condition.TemplateImage)
                 matchUpdates.append(state.MatchScore)
-                matchScores[event.Uuid] = state.MatchScore
+                matchScores[condition.Uuid] = state.MatchScore
 
-            elif event.SelectedActivationType == ActivationType.ProgressBar:
+            elif condition.SelectedConditionType == ConditionType.ProgressBar:
                 if localImage is None:
                     continue
 
                 localImageRoi = CropImage(localImage, (
-                    event.Roi.XNormalized, 
-                    event.Roi.YNormalized, 
-                    event.Roi.WidthNormalized, 
-                    event.Roi.HeightNormalized
+                    condition.Roi.XNormalized, 
+                    condition.Roi.YNormalized, 
+                    condition.Roi.WidthNormalized, 
+                    condition.Roi.HeightNormalized
                 ))
 
                 state.PercentFilled = EstimateProgressBarPercentage(localImageRoi)
                 matchUpdates.append((index, state.PercentFilled))
-                percentFilleds[event.Uuid] = state.PercentFilled
+                percentFilleds[condition.Uuid] = state.PercentFilled
 
 
         return ConditionEngineResult(matchUpdates, matchScores, percentFilleds), context

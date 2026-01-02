@@ -5,7 +5,7 @@ from typing import Callable, List, Optional, Any
 import numpy as np
 
 from Src.Helper import CaptureWindowByHwnd, IsHotkeyActive
-from Src.Models import EventItem
+from Src.Models import EventItem, ConditionItem
 from Src.Engine.ConditionEngine import ConditionEngine, ConditionEngineContext
 from Src.Engine.ActivationEngine import ActivationEngine, ActivationEngineContext
 from Src.Engine.ActionExecutorEngine import ActionExecutorEngine, ActionExecutionContext
@@ -15,6 +15,7 @@ class TriggerMonitorService:
     def __init__(
         self,
         getEventItems: Callable[[], List[EventItem]],
+        getConditionItems: Callable[[], List[ConditionItem]],
         getWindowHandle: Optional[Callable[[], Optional[int]]] = None,
         pollIntervalMs: int = 50,
         onEventDetected: Optional[Callable[[EventItem], None]] = None,
@@ -24,6 +25,7 @@ class TriggerMonitorService:
         onMatchScoreUpdated: Optional[Callable[[object], None]] = None,
     ) -> None:
         self._getEventItems = getEventItems
+        self._getConditionItems = getConditionItems
         self._getWindowHandle = getWindowHandle
         self._pollIntervalMs = pollIntervalMs
 
@@ -108,10 +110,13 @@ class TriggerMonitorService:
                 continue
 
             localImage = self._CopyImageForProcessing()
+            conditionItemsSnapshot = list(self._getConditionItems())
             eventItemsSnapshot = list(self._getEventItems())
 
+            
+
             conditionEngineResult, self._conditionContext = self._conditionEngine.Loop(
-                eventItemsSnapshot,
+                conditionItemsSnapshot,
                 localImage,
                 self._conditionContext
             )
