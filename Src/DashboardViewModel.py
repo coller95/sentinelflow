@@ -41,16 +41,16 @@ class DashboardViewModel(QObject):
         self.ViewState = DashboardViewStateService()
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
         self.SentinelController = SentinelControllerService(
-            get_event_items=lambda: self.EventItems,
-            get_window_handle=lambda: self.TargetWindowService.CurrentWindowHandle,
-            poll_interval_ms=50,
-            capture_interval_ms=200,
-            on_image=self._onCaptureImage,
-            on_event_detected=self._onEventDetected,
-            on_event_disabled=self.EventItemChangedSignal.emit,
-            on_flow_state_changed=self.EventExecutionStateChangedSignal.emit,
-            on_flow_hotkey_changed=self.EventExecutionStateHotkeyChangedSignal.emit,
-            on_match_score_updated=self.MatchScoreUpdated.emit,
+            getEventItems=lambda: self.EventItems,
+            getWindowHandle=lambda: self.TargetWindowService.CurrentWindowHandle,
+            pollIntervalMs=50,
+            captureIntervalMs=200,
+            onImage=self._onCaptureImage,
+            onEventDetected=self._onEventDetected,
+            onEventDisabled=self.EventItemChangedSignal.emit,
+            onFlowStateChanged=self.EventExecutionStateChangedSignal.emit,
+            onFlowHotkeyChanged=self.EventExecutionStateHotkeyChangedSignal.emit,
+            onMatchScoreUpdated=self.MatchScoreUpdated.emit,
         )
         self.StartSentinel()
 
@@ -113,7 +113,7 @@ class DashboardViewModel(QObject):
     def SaveState(self, filePath: str) -> None:
         try:
             flowHotkey = self.SentinelController.GetFlowHotkey()
-            self.StatePersistenceService.SaveState(filePath, events=self.EventItems, flow_hotkey=flowHotkey)
+            self.StatePersistenceService.SaveState(filePath, events=self.EventItems, flowHotkey=flowHotkey)
                 
             print(f"State successfully saved to {filePath}")
         except Exception as e:

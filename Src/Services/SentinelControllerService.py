@@ -12,92 +12,92 @@ class SentinelControllerService:
     def __init__(
         self,
         *,
-        get_event_items: Callable[[], List[EventItem]],
-        get_window_handle: Callable[[], Optional[int]],
-        poll_interval_ms: int = 50,
-        capture_interval_ms: int = 200,
-        on_image: Optional[Callable[[Optional[np.ndarray[Any, Any]]], None]] = None,
-        on_event_detected: Optional[Callable[[EventItem], None]] = None,
-        on_event_disabled: Optional[Callable[[EventItem], None]] = None,
-        on_flow_state_changed: Optional[Callable[[bool], None]] = None,
-        on_flow_hotkey_changed: Optional[Callable[[List[int]], None]] = None,
-        on_match_score_updated: Optional[Callable[[object], None]] = None,
+        getEventItems: Callable[[], List[EventItem]],
+        getWindowHandle: Callable[[], Optional[int]],
+        pollIntervalMs: int = 50,
+        captureIntervalMs: int = 200,
+        onImage: Optional[Callable[[Optional[np.ndarray[Any, Any]]], None]] = None,
+        onEventDetected: Optional[Callable[[EventItem], None]] = None,
+        onEventDisabled: Optional[Callable[[EventItem], None]] = None,
+        onFlowStateChanged: Optional[Callable[[bool], None]] = None,
+        onFlowHotkeyChanged: Optional[Callable[[List[int]], None]] = None,
+        onMatchScoreUpdated: Optional[Callable[[object], None]] = None,
     ) -> None:
-        self._get_event_items = get_event_items
-        self._get_window_handle = get_window_handle
-        self._poll_interval_ms = poll_interval_ms
-        self._capture_interval_ms = capture_interval_ms
-        self._on_image = on_image
-        self._trigger_thread: Optional[TriggerMonitorService] = None
-        self._live_thread: Optional[LiveCaptureService] = None
-        self._on_event_detected = on_event_detected
-        self._on_event_disabled = on_event_disabled
-        self._on_flow_state_changed = on_flow_state_changed
-        self._on_flow_hotkey_changed = on_flow_hotkey_changed
-        self._on_match_score_updated = on_match_score_updated
+        self._getEventItems = getEventItems
+        self._getWindowHandle = getWindowHandle
+        self._pollIntervalMs = pollIntervalMs
+        self._captureIntervalMs = captureIntervalMs
+        self._onImage = onImage
+        self._triggerThread: Optional[TriggerMonitorService] = None
+        self._liveThread: Optional[LiveCaptureService] = None
+        self._onEventDetected = onEventDetected
+        self._onEventDisabled = onEventDisabled
+        self._onFlowStateChanged = onFlowStateChanged
+        self._onFlowHotkeyChanged = onFlowHotkeyChanged
+        self._onMatchScoreUpdated = onMatchScoreUpdated
 
     def StartSentinel(self) -> None:
-        if self._trigger_thread is not None:
+        if self._triggerThread is not None:
             return
-        self._trigger_thread = TriggerMonitorService(
-            get_event_items=self._get_event_items,
-            get_window_handle=self._get_window_handle,
-            poll_interval_ms=self._poll_interval_ms,
-            on_event_detected=self._on_event_detected,
-            on_event_disabled=self._on_event_disabled,
-            on_flow_state_changed=self._on_flow_state_changed,
-            on_flow_hotkey_changed=self._on_flow_hotkey_changed,
-            on_match_score_updated=self._on_match_score_updated,
+        self._triggerThread = TriggerMonitorService(
+            getEventItems=self._getEventItems,
+            getWindowHandle=self._getWindowHandle,
+            pollIntervalMs=self._pollIntervalMs,
+            onEventDetected=self._onEventDetected,
+            onEventDisabled=self._onEventDisabled,
+            onFlowStateChanged=self._onFlowStateChanged,
+            onFlowHotkeyChanged=self._onFlowHotkeyChanged,
+            onMatchScoreUpdated=self._onMatchScoreUpdated,
         )
-        self._trigger_thread.Start()
+        self._triggerThread.Start()
 
     def StopSentinel(self) -> None:
-        if self._trigger_thread is not None:
-            self._trigger_thread.Stop()
-            self._trigger_thread = None
+        if self._triggerThread is not None:
+            self._triggerThread.Stop()
+            self._triggerThread = None
 
     def ToggleFlowEnabled(self) -> None:
-        if self._trigger_thread is not None:
-            self._trigger_thread.ToggleFlowEnabled()
+        if self._triggerThread is not None:
+            self._triggerThread.ToggleFlowEnabled()
 
-    def SetFlowEnabled(self, is_enabled: bool) -> None:
-        if self._trigger_thread is not None:
-            self._trigger_thread.SetFlowEnabled(is_enabled)
+    def SetFlowEnabled(self, isEnabled: bool) -> None:
+        if self._triggerThread is not None:
+            self._triggerThread.SetFlowEnabled(isEnabled)
 
-    def SetFlowHotkey(self, virtual_key_codes: List[int]) -> None:
-        if self._trigger_thread is not None:
-            self._trigger_thread.SetFlowHotkey(virtual_key_codes)
+    def SetFlowHotkey(self, virtualKeyCodes: List[int]) -> None:
+        if self._triggerThread is not None:
+            self._triggerThread.SetFlowHotkey(virtualKeyCodes)
 
     def GetFlowHotkey(self) -> List[int]:
-        if self._trigger_thread is None:
+        if self._triggerThread is None:
             return []
-        return self._trigger_thread.GetFlowHotkey()
+        return self._triggerThread.GetFlowHotkey()
 
     def SetImage(self, image: Optional[np.ndarray[Any, Any]]) -> None:
-        if self._trigger_thread is not None:
-            self._trigger_thread.SetImage(image)
+        if self._triggerThread is not None:
+            self._triggerThread.SetImage(image)
 
     # -------------------- Capture --------------------
 
-    def ToggleCapture(self, active: bool, window_handle: Optional[int]) -> None:
-        if active and window_handle:
+    def ToggleCapture(self, active: bool, windowHandle: Optional[int]) -> None:
+        if active and windowHandle:
             self.StopCapture()
-            self._live_thread = LiveCaptureService(
-                window_handle=window_handle,
-                interval_ms=self._capture_interval_ms,
-                on_image=self._handle_image_captured,
+            self._liveThread = LiveCaptureService(
+                windowHandle=windowHandle,
+                intervalMs=self._captureIntervalMs,
+                onImage=self._HandleImageCaptured,
             )
-            self._live_thread.Start()
+            self._liveThread.Start()
         else:
             self.StopCapture()
 
     def StopCapture(self) -> None:
-        if self._live_thread is not None:
-            self._live_thread.Stop()
-            self._live_thread = None
+        if self._liveThread is not None:
+            self._liveThread.Stop()
+            self._liveThread = None
 
-    def _handle_image_captured(self, image: Optional[np.ndarray[Any, Any]]) -> None:
+    def _HandleImageCaptured(self, image: Optional[np.ndarray[Any, Any]]) -> None:
         # Preserve the old wiring: captured image flows to UI and to trigger engine.
-        if self._on_image is not None:
-            self._on_image(image)
+        if self._onImage is not None:
+            self._onImage(image)
         self.SetImage(image)

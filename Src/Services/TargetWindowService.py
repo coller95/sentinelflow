@@ -14,32 +14,32 @@ class TargetWindowService:
     """Owns target window selection and basic process/window operations."""
 
     def __init__(self) -> None:
-        self._current_window_handle: Optional[int] = None
+        self._currentWindowHandle: Optional[int] = None
 
     @property
     def CurrentWindowHandle(self) -> Optional[int]:
-        return self._current_window_handle
+        return self._currentWindowHandle
 
-    def SetWindowHandle(self, window_handle: Optional[int]) -> None:
-        self._current_window_handle = window_handle
+    def SetWindowHandle(self, windowHandle: Optional[int]) -> None:
+        self._currentWindowHandle = windowHandle
 
     def FindWindow(self, title: str) -> Optional[int]:
-        window_handle = FindHwndByTitle(title)
-        self._current_window_handle = window_handle
-        return window_handle
+        windowHandle = FindHwndByTitle(title)
+        self._currentWindowHandle = windowHandle
+        return windowHandle
 
-    def GetPidByHwnd(self, window_handle: int) -> Optional[int]:
-        if not window_handle:
+    def GetPidByHwnd(self, windowHandle: int) -> Optional[int]:
+        if not windowHandle:
             return None
-        return FindPidByHwnd(window_handle)
+        return FindPidByHwnd(windowHandle)
 
     def GetCurrentTargetPid(self) -> Optional[int]:
-        if not self._current_window_handle:
+        if not self._currentWindowHandle:
             return None
-        return FindPidByHwnd(self._current_window_handle)
+        return FindPidByHwnd(self._currentWindowHandle)
 
     def HasTargetWindow(self) -> bool:
-        return self._current_window_handle is not None
+        return self._currentWindowHandle is not None
 
     def LaunchApplication(self, path: str) -> Optional[int]:
         if path:
@@ -47,5 +47,5 @@ class TargetWindowService:
         return None
 
     def ResizeTargetWindow(self, width: int, height: int) -> None:
-        if self._current_window_handle:
-            ResizeWindow(self._current_window_handle, width, height)
+        if self._currentWindowHandle:
+            ResizeWindow(self._currentWindowHandle, width, height)

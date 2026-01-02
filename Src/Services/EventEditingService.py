@@ -7,75 +7,73 @@ from Src.Models import ActivationType, EventItem, InputType, MacroStep, Rectangl
 
 
 class EventEditingService:
-    def SetEventEnabled(self, event_item: EventItem, is_enabled: bool) -> None:
-        event_item.IsEnabled = is_enabled
-        event_item.ResetTransientState()
+    def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None:
+        eventItem.IsEnabled = isEnabled
+        eventItem.ResetTransientState()
 
-    def UpdateEventName(self, event_item: EventItem, name: str) -> None:
-        event_item.Name = name
+    def UpdateEventName(self, eventItem: EventItem, name: str) -> None:
+        eventItem.Name = name
 
-    def UpdateActivationType(self, event_item: EventItem, activation_type: ActivationType) -> None:
-        event_item.SelectedActivationType = activation_type
-        event_item.ResetTransientState()
+    def UpdateActivationType(self, eventItem: EventItem, activationType: ActivationType) -> None:
+        eventItem.SelectedActivationType = activationType
+        eventItem.ResetTransientState()
 
-    def UpdateLoopCount(self, event_item: EventItem, loop_count: int) -> None:
-        event_item.LoopCount = loop_count
+    def UpdateLoopCount(self, eventItem: EventItem, loopCount: int) -> None:
+        eventItem.LoopCount = loopCount
 
-    def UpdateLoopIntervalMs(self, event_item: EventItem, interval_ms: int) -> None:
-        event_item.IntervalMilliseconds = interval_ms
+    def UpdateLoopIntervalMs(self, eventItem: EventItem, intervalMs: int) -> None:
+        eventItem.IntervalMilliseconds = intervalMs
 
-    def UpdateThreshold(self, event_item: EventItem, threshold: float) -> None:
-        event_item.Threshold = threshold
+    def UpdateThreshold(self, eventItem: EventItem, threshold: float) -> None:
+        eventItem.Threshold = threshold
 
-    def UpdateTriggerOnThresholdExceed(self, event_item: EventItem, is_enabled: bool) -> None:
-        event_item.TriggerOnThresholdExceed = is_enabled
+    def UpdateTriggerOnThresholdExceed(self, eventItem: EventItem, isEnabled: bool) -> None:
+        eventItem.TriggerOnThresholdExceed = isEnabled
 
-    def UpdateRetriggerTimeMs(self, event_item: EventItem, retrigger_time_ms: float) -> None:
-        event_item.RetriggerTimeMilliseconds = retrigger_time_ms
+    def UpdateRetriggerTimeMs(self, eventItem: EventItem, retriggerTimeMs: float) -> None:
+        eventItem.RetriggerTimeMilliseconds = retriggerTimeMs
 
-    def UpdateActivationHotkey(self, event_item: EventItem, virtual_key_codes: list[int]) -> None:
-        event_item.ActivationVirtualKeyCodes = virtual_key_codes
+    def UpdateActivationHotkey(self, eventItem: EventItem, virtualKeyCodes: list[int]) -> None:
+        eventItem.ActivationVirtualKeyCodes = virtualKeyCodes
 
-    def SetTemplateAndRoi(self, event_item: EventItem, template_image: Any, roi: RectangleRegion) -> None:
-        event_item.TemplateImage = template_image
-        event_item.Roi = roi
+    def SetTemplateAndRoi(self, eventItem: EventItem, templateImage: Any, roi: RectangleRegion) -> None:
+        eventItem.TemplateImage = templateImage
+        eventItem.Roi = roi
 
-    def AddMouseStep(self, event_item: EventItem, normalized_x: float, normalized_y: float) -> None:
-        if not event_item.AssignedAction:
+    def AddMouseStep(self, eventItem: EventItem, normalizedX: float, normalizedY: float) -> None:
+        if not eventItem.AssignedAction:
             return
-        new_step = MacroStep(
+        newStep = MacroStep(
             InputType.Mouse,
-            (normalized_x, normalized_y),
-            f"Click at ({normalized_x:.7f}, {normalized_y:.7f})",
+            (normalizedX, normalizedY),
+            f"Click at ({normalizedX:.7f}, {normalizedY:.7f})",
         )
-        event_item.AssignedAction.AddStep(new_step)
+        eventItem.AssignedAction.AddStep(newStep)
 
-    def AddKeyboardStep(self, event_item: EventItem, virtual_key_codes: list[int]) -> None:
-        if not event_item.AssignedAction:
+    def AddKeyboardStep(self, eventItem: EventItem, virtualKeyCodes: list[int]) -> None:
+        if not eventItem.AssignedAction:
             return
-        
-        keys = [int(vk) for vk in virtual_key_codes]
+        keys = [int(vk) for vk in virtualKeyCodes]
         names = [KeyNameFromVk(vk) for vk in keys]
         description = f"Press \"{' + '.join(names)}\""
-        new_step = MacroStep(InputType.Keyboard, keys, description)
+        newStep = MacroStep(InputType.Keyboard, keys, description)
+        eventItem.AssignedAction.AddStep(newStep)
 
-        event_item.AssignedAction.AddStep(new_step)
+    def AddDelayStep(self, eventItem: EventItem, milliseconds: int) -> None:
+        if not eventItem.AssignedAction:
+            return
+        newStep = MacroStep(InputType.Delay, milliseconds, f"Wait {milliseconds}ms")
+        eventItem.AssignedAction.AddStep(newStep)
 
-    def AddDelayStep(self, event_item: EventItem, milliseconds: int) -> None:
-        if not event_item.AssignedAction:
+    def RemoveStep(self, eventItem: EventItem, index: int) -> None:
+        if not eventItem.AssignedAction:
             return
-        new_step = MacroStep(InputType.Delay, milliseconds, f"Wait {milliseconds}ms")
-        event_item.AssignedAction.AddStep(new_step)
+        eventItem.AssignedAction.RemoveStep(index)
 
-    def RemoveStep(self, event_item: EventItem, index: int) -> None:
-        if not event_item.AssignedAction:
+    def MoveStep(self, eventItem: EventItem, fromIndex: int, toIndex: int) -> None:
+        if not eventItem.AssignedAction:
             return
-        event_item.AssignedAction.RemoveStep(index)
-
-    def MoveStep(self, event_item: EventItem, from_index: int, to_index: int) -> None:
-        if not event_item.AssignedAction:
+        steps = eventItem.AssignedAction.MacroSteps
+        if fromIndex < 0 or fromIndex >= len(steps) or toIndex < 0 or toIndex >= len(steps):
             return
-        steps = event_item.AssignedAction.MacroSteps
-        if from_index < 0 or from_index >= len(steps) or to_index < 0 or to_index >= len(steps):
-            return
-        steps[from_index], steps[to_index] = steps[to_index], steps[from_index]
+        steps[fromIndex], steps[toIndex] = steps[toIndex], steps[fromIndex]

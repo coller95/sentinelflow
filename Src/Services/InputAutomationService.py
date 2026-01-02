@@ -11,20 +11,20 @@ from Src.Helper import (
 
 
 class InputAutomationService:
-    def KeyNameFromVk(self, virtual_key_code: int) -> str:
-        return KeyNameFromVk(virtual_key_code)
+    def KeyNameFromVk(self, virtualKeyCode: int) -> str:
+        return KeyNameFromVk(virtualKeyCode)
 
-    def TrySendMouseClick(self, hwnd: Optional[int], normalized_x: float, normalized_y: float) -> bool:
+    def TrySendMouseClick(self, hwnd: Optional[int], normalizedX: float, normalizedY: float) -> bool:
         if not hwnd:
             return False
-        SendMouseClickToWindow(hwnd, normalized_x, normalized_y)
+        SendMouseClickToWindow(hwnd, normalizedX, normalizedY)
         return True
 
-    def TrySendKeystrokeByName(self, hwnd: Optional[int], key_name: str) -> bool:
+    def TrySendKeystrokeByName(self, hwnd: Optional[int], keyName: str) -> bool:
         if not hwnd:
             return False
-        virtual_key_code = VkFromKeyName(key_name)
-        if not virtual_key_code:
+        virtualKeyCode = VkFromKeyName(keyName)
+        if not virtualKeyCode:
             return False
-        SendKeystrokeToWindow(hwnd, virtual_key_code)
+        SendKeystrokeToWindow(hwnd, virtualKeyCode)
         return True

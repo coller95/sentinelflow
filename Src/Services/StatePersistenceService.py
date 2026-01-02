@@ -17,32 +17,32 @@ class StatePersistenceService:
 
     VERSION = "1.0.0"
 
-    def SaveState(self, file_path: str, *, events: List[EventItem], flow_hotkey: List[int]) -> None:
-        data_to_save: Dict[str, Any] = {
+    def SaveState(self, filePath: str, *, events: List[EventItem], flowHotkey: List[int]) -> None:
+        dataToSave: Dict[str, Any] = {
             "events": events,
-            "settings": flow_hotkey,
+            "settings": flowHotkey,
             "version": self.VERSION,
         }
 
-        with open(file_path, "wb") as file:
-            pickle.dump(data_to_save, file)
+        with open(filePath, "wb") as file:
+            pickle.dump(dataToSave, file)
 
-    def LoadState(self, file_path: str) -> Optional[tuple[List[EventItem], List[int], str]]:
-        if not os.path.exists(file_path):
+    def LoadState(self, filePath: str) -> Optional[tuple[List[EventItem], List[int], str]]:
+        if not os.path.exists(filePath):
             return None
 
-        with open(file_path, "rb") as file:
+        with open(filePath, "rb") as file:
             data = pickle.load(file)
 
-        loaded_events: List[EventItem] = []
-        loaded_hotkey: List[int] = []
-        loaded_version: str = self.VERSION
+        loadedEvents: List[EventItem] = []
+        loadedHotkey: List[int] = []
+        loadedVersion: str = self.VERSION
 
         if isinstance(data, dict):
-            data_dict: Dict[str, Any] = cast(Dict[str, Any], data)
-            loaded_events = cast(List[EventItem], data_dict.get("events", []))
-            loaded_hotkey = cast(List[int], data_dict.get("settings", []))
-            loaded_version = cast(str, data_dict.get("version", self.VERSION))
-            return loaded_events, loaded_hotkey, loaded_version
+            dataDict: Dict[str, Any] = cast(Dict[str, Any], data)
+            loadedEvents = cast(List[EventItem], dataDict.get("events", []))
+            loadedHotkey = cast(List[int], dataDict.get("settings", []))
+            loadedVersion = cast(str, dataDict.get("version", self.VERSION))
+            return loadedEvents, loadedHotkey, loadedVersion
 
         return None
