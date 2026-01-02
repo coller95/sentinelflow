@@ -7,13 +7,6 @@ from Src.Models import ActivationType, EventItem, InputType, MacroStep, Rectangl
 
 
 class EventEditingService:
-    """Pure operations for mutating EventItem + its assigned action.
-
-    Refactor-only goal:
-    - Keep the same semantics as the previous DashboardViewModel methods.
-    - No Qt signals here; callers decide when to emit.
-    """
-
     def SetEventEnabled(self, event_item: EventItem, is_enabled: bool) -> None:
         event_item.IsEnabled = is_enabled
         event_item.ResetTransientState()
@@ -47,8 +40,6 @@ class EventEditingService:
         event_item.TemplateImage = template_image
         event_item.Roi = roi
 
-    # -------------------- Macro steps --------------------
-
     def AddMouseStep(self, event_item: EventItem, normalized_x: float, normalized_y: float) -> None:
         if not event_item.AssignedAction:
             return
@@ -58,6 +49,41 @@ class EventEditingService:
             f"Click at ({normalized_x:.7f}, {normalized_y:.7f})",
         )
         event_item.AssignedAction.AddStep(new_step)
+
+    def AddKeyboardStep(self, event_item: EventItem, virtual_key_code: Any) -> None:
+        if not event_item.AssignedAction:
+            return
+
+        if isinstance(virtual_key_code, (list, tuple)):
+            seq = cast(list[int] | tuple[int, ...], virtual_key_code)
+            keys = [int(vk) for vk in seq]
+            names = [KeyNameFromVk(vk) for vk in keys]
+            description = f"Press \"{' + '.join(names)}\""
+            new_step = MacroStep(InputType.Keyboard, keys, description)
+        else:
+            vk = int(virtual_key_code)
+            new_step = MacroStep(InputType.Keyboard, vk, f"Press \"{KeyNameFromVk(vk)}\"")
+
+        event_item.AssignedAction.AddStep(new_step)
+
+    def AddDelayStep(self, event_item: EventItem, milliseconds: int) -> None:
+        if not event_item.AssignedAction:
+            return
+        new_step = MacroStep(InputType.Delay, milliseconds, f"Wait {milliseconds}ms")
+        event_item.AssignedAction.AddStep(new_step)
+
+    def RemoveStep(self, event_item: EventItem, index: int) -> None:
+        if not event_item.AssignedAction:
+            return
+        event_item.AssignedAction.RemoveStep(index)
+
+    def MoveStep(self, event_item: EventItem, from_index: int, to_index: int) -> None:
+        if not event_item.AssignedAction:
+            return
+        steps = event_item.AssignedAction.MacroSteps
+        if from_index < 0 or from_index >= len(steps) or to_index < 0 or to_index >= len(steps):
+            return
+        steps[from_index], steps[to_index] = steps[to_index], steps[from_index]
 
     def AddKeyboardStep(self, event_item: EventItem, virtual_key_code: Any) -> None:
         if not event_item.AssignedAction:

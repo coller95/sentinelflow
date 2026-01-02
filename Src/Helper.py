@@ -1,8 +1,3 @@
-"""
-SentinelFlow Helper Module
-Description: Window management, image processing, and input simulation utilities.
-Naming Convention: Microsoft CamelCase Guidelines.
-"""
 import ctypes
 import shlex
 import subprocess
@@ -32,24 +27,16 @@ MatchLocation = Tuple[int, int]
 # ────────────────────────────────────────
 
 def FindHwndByTitle(windowTitle: str) -> Optional[HWND]:
-    """Find the window handle (HWND) using the exact window title."""
     hwnd: HWND = win32gui.FindWindow(None, windowTitle)
     return hwnd if hwnd != 0 else None
 
 
 def FindPidByHwnd(hwnd: HWND) -> PID:
-    """Find the process ID (PID) associated with the given window handle (HWND)."""
     _, pid = win32process.GetWindowThreadProcessId(hwnd)
     return pid
 
 
 def LaunchProcessByExecutable(executablePath: str) -> PID:
-    """Launch an application by its executable path (or command) and return its PID.
-
-    Notes:
-        - Prefers `shell=False` for existing .exe/.com paths so spaces work reliably.
-        - Falls back to `shell=True` for complex command strings or batch files.
-    """
     command = executablePath.strip()
     if not command:
         raise ValueError("Executable path cannot be empty.")
@@ -59,8 +46,6 @@ def LaunchProcessByExecutable(executablePath: str) -> PID:
     except ValueError:
         argv = [command]
 
-    # If the user types an unquoted path with spaces, `shlex.split` will split it.
-    # Recover by joining tokens until we find an existing executable path.
     recoveredArgv: Optional[List[str]] = None
     if argv:
         for i in range(1, len(argv) + 1):
@@ -92,7 +77,6 @@ def LaunchProcessByExecutable(executablePath: str) -> PID:
 
 
 def ResizeWindow(hwnd: HWND, width: int, height: int) -> None:
-    """Resize the window to the specified dimensions while preserving its position."""
     left, top, _, _ = win32gui.GetWindowRect(hwnd)
     win32gui.MoveWindow(hwnd, left, top, width, height, True)
 
@@ -102,7 +86,6 @@ def ResizeWindow(hwnd: HWND, width: int, height: int) -> None:
 # ────────────────────────────────────────
 
 def CaptureWindowByHwnd(hwnd: HWND) -> np.ndarray[Any, Any]:
-    """Capture the window by HWND and return as OpenCV BGR image using Windows GDI."""
     left, top, right, bottom = win32gui.GetWindowRect(hwnd)
     width = right - left
     height = bottom - top
@@ -138,7 +121,6 @@ def CaptureWindowByHwnd(hwnd: HWND) -> np.ndarray[Any, Any]:
 
 
 def CropImage(image: np.ndarray[Any, Any], roiNormalized: RoiTuple) -> np.ndarray[Any, Any]:
-    """Crop an image using normalized coordinates (0.0–1.0)."""
     imageHeight, imageWidth = image.shape[:2]
     normalizedX, normalizedY, normalizedWidth, normalizedHeight = roiNormalized
 
@@ -157,7 +139,6 @@ def CropImage(image: np.ndarray[Any, Any], roiNormalized: RoiTuple) -> np.ndarra
 
 
 def MatchTemplate(image: np.ndarray[Any, Any], template: np.ndarray[Any, Any]) -> float:
-    """Compute normalized template match similarity (0.0–1.0, higher = better)."""
     result = cv2.matchTemplate(image, template, cv2.TM_SQDIFF_NORMED)
     minVal, _, _, _ = cv2.minMaxLoc(result)
     return 1.0 - minVal
@@ -168,14 +149,12 @@ def TemplateMatch(
     template: np.ndarray[Any, Any],
     threshold: float = 0.8
 ) -> List[MatchLocation]:
-    """Find all locations where template matches image above threshold."""
     result = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
     matchLocations = np.where(result >= threshold)
     return list(zip(*matchLocations[::-1]))
 
 
 def EstimateProgressBarPercentage(barImage: np.ndarray[Any, Any]) -> float:
-    """Estimate filled percentage of a horizontal progress bar (0.0–1.0)."""
     if barImage.size == 0:
         return 0.0
 
@@ -219,7 +198,6 @@ def EstimateProgressBarPercentage(barImage: np.ndarray[Any, Any]) -> float:
 # ────────────────────────────────────────
 
 def VkFromKeyName(keyName: str) -> VirtualKey:
-    """Convert a character key name to its virtual key code."""
     vk = VirtualKey(win32api.VkKeyScan(keyName))  # type: ignore
     if vk == -1:
         raise ValueError(f"Invalid key name: {keyName}")
@@ -227,7 +205,6 @@ def VkFromKeyName(keyName: str) -> VirtualKey:
 
 
 def KeyNameFromVk(virtualKey: VirtualKey) -> str:
-    """Convert a virtual key code to its human-readable name."""
     scanCode = int(win32api.MapVirtualKey(virtualKey, 0))  # type: ignore
     lParam = scanCode << 16
     nameBuffer = ctypes.create_unicode_buffer(32)
@@ -238,7 +215,6 @@ def KeyNameFromVk(virtualKey: VirtualKey) -> str:
 
 
 def SendKeystrokeToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
-    """Send a keystroke (press + release) to the specified window."""
     if not hwnd:
         return
 
@@ -251,20 +227,10 @@ def SendKeystrokeToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
 
 
 def SendKeyStrokeToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
-    """Backward-compatible alias for SendKeystrokeToWindow."""
     SendKeystrokeToWindow(hwnd, virtualKey)
 
 
 def SendKeyChordToWindow(hwnd: HWND, virtualKeys: List[VirtualKey]) -> None:
-    """Send a key chord to the specified window.
-
-    Example:
-        SendKeyChordToWindow(hwnd, [win32con.VK_SHIFT, ord('A')])
-
-    Notes:
-        - Interprets the last element as the primary key.
-        - All preceding keys are treated as modifiers held down during the primary key press.
-    """
     if not hwnd:
         return
     if not virtualKeys:
@@ -296,7 +262,6 @@ def SendKeyChordToWindow(hwnd: HWND, virtualKeys: List[VirtualKey]) -> None:
 
 
 def SendMouseClickToWindow(hwnd: HWND, normalizedX: NormalizedCoord, normalizedY: NormalizedCoord) -> None:
-    """Send a mouse click to the window at normalized (0.0–1.0) coordinates."""
     if not hwnd:
         return
 
@@ -319,7 +284,6 @@ def SendMouseClickToWindow(hwnd: HWND, normalizedX: NormalizedCoord, normalizedY
 
 
 def IsHotkeyActive(virtualKeyList: List[VirtualKey]) -> bool:
-    """Check if all virtual keys in the list are currently pressed."""
     if not virtualKeyList:
         return False
     for vk in virtualKeyList:

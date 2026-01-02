@@ -18,17 +18,17 @@ from Src.Services.EventEditingService import EventEditingService
 from Src.Services.EventListService import EventListService
 from Src.Services.DashboardViewStateService import DashboardViewStateService
 
+
 class DashboardViewModel(QObject):
     EventItemAddedSignal = Signal(EventItem)
     EventItemRemovedSignal = Signal(int)
     EventItemSelectedSignal = Signal(EventItem)
-    EventExecutionStateChangedSignal = Signal(bool)  # Flow state
-    EventExecutionStateHotkeyChangedSignal = Signal(list)  # Flow hotkey list
+    EventExecutionStateChangedSignal = Signal(bool)
+    EventExecutionStateHotkeyChangedSignal = Signal(list)
     EventItemChangedSignal = Signal(EventItem)
-
-    WindowHandleUpdated = Signal(object)  # HWND
-    CaptureImageReady = Signal(object)  # Image data
-    MatchScoreUpdated = Signal(object)  # float OR (index:int, value:float)
+    WindowHandleUpdated = Signal(object)
+    CaptureImageReady = Signal(object)
+    MatchScoreUpdated = Signal(object)
 
     def __init__(self) -> None:
         super().__init__()
@@ -40,7 +40,6 @@ class DashboardViewModel(QObject):
         self.EventListService = EventListService()
         self.ViewState = DashboardViewStateService()
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
-
         self.SentinelController = SentinelControllerService(
             get_event_items=lambda: self.EventItems,
             get_window_handle=lambda: self.TargetWindowService.CurrentWindowHandle,
@@ -53,8 +52,7 @@ class DashboardViewModel(QObject):
             on_flow_hotkey_changed=self.EventExecutionStateHotkeyChangedSignal.emit,
             on_match_score_updated=self.MatchScoreUpdated.emit,
         )
-
-        self.StartSentinel()  # Initialize the sentinel monitoring
+        self.StartSentinel()
 
     def AddEvent(self) -> None:
         newEvent = self.EventListService.CreateDefaultEvent()
@@ -110,7 +108,6 @@ class DashboardViewModel(QObject):
         self.SentinelController.StopSentinel()
 
     def _onEventDetected(self, event: EventItem) -> None:
-        # Note: execution is performed by TriggerMonitorService (if a window handle is available).
         print(f"Event Detected: {event.Name}")
 
     def SaveState(self, filePath: str) -> None:

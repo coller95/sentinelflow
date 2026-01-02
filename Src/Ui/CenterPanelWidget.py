@@ -31,8 +31,6 @@ class DashboardViewModelProtocol(Protocol):
 
 
 class CenterPanelWidget(QWidget):
-    """Center panel widget containing target management, live capture, and interaction controls."""
-
     def __init__(self, viewModel: DashboardViewModelProtocol) -> None:
         super().__init__()
         self.ViewModel = viewModel
@@ -40,7 +38,6 @@ class CenterPanelWidget(QWidget):
         self._wireUpBindings()
 
     def _setupCenterPanel(self) -> None:
-        """Set up the center panel with application management and live view."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
@@ -124,7 +121,6 @@ class CenterPanelWidget(QWidget):
         layout.addLayout(interactLayout)
 
     def _wireUpBindings(self) -> None:
-        """Connect UI signals to ViewModel methods and ViewModel signals to UI updates."""
         self.findWindowButton.clicked.connect(lambda: self.ViewModel.FindWindow(self.titleEdit.text().strip()))
         self.browseButton.clicked.connect(self._onBrowseExecutable)
         self.launchButton.clicked.connect(self._onLaunchExecutable)
@@ -145,19 +141,16 @@ class CenterPanelWidget(QWidget):
         self.ViewModel.CaptureImageReady.connect(self._updateUiImage)
 
     def _onBrowseExecutable(self) -> None:
-        """Handle browse executable button click."""
         path, _ = QFileDialog.getOpenFileName(self, "Select EXE", "", "Executables (*.exe)")
         if path:
             self.exePathEdit.setText(path)
 
     def _onLaunchExecutable(self) -> None:
-        """Handle launch executable button click."""
         pid = self.ViewModel.LaunchApplication(self.exePathEdit.text().strip())
         if pid:
             QMessageBox.information(self, "Success", f"Launched PID: {pid}")
 
     def _onResizeRequested(self) -> None:
-        """Handle resize window button click."""
         try:
             width, height = int(self.resizeWidthEdit.text()), int(self.resizeHeightEdit.text())
             self.ViewModel.ResizeTargetWindow(width, height)
@@ -165,7 +158,6 @@ class CenterPanelWidget(QWidget):
             QMessageBox.warning(self, "Error", "Invalid dimensions.")
 
     def _onToggleCapture(self, checked: bool) -> None:
-        """Handle live capture toggle."""
         if checked and not self.ViewModel.HasTargetWindow():
             self.liveCaptureButton.setChecked(False)
             QMessageBox.warning(self, "Error", "Please find a window first.")
@@ -174,14 +166,12 @@ class CenterPanelWidget(QWidget):
         self.ViewModel.ToggleCapture(checked)
 
     def _onImageClicked(self, position: QPoint) -> None:
-        """Handle image click events."""
         normalizedX = float(position.x()) / self.liveImageLabel.width()
         normalizedY = float(position.y()) / self.liveImageLabel.height()
         self.mouseXEdit.setText(f"{normalizedX:.7f}")
         self.mouseYEdit.setText(f"{normalizedY:.7f}")
 
     def _onManualCoordsChanged(self) -> None:
-        """Handle manual coordinate changes."""
         try:
             normalizedX = float(self.mouseXEdit.text()) if self.mouseXEdit.text() else 0.0
             normalizedY = float(self.mouseYEdit.text()) if self.mouseYEdit.text() else 0.0
@@ -191,7 +181,6 @@ class CenterPanelWidget(QWidget):
             pass
 
     def _onSendMouseClick(self) -> None:
-        """Handle send mouse click button click."""
         try:
             normalizedX, normalizedY = float(self.mouseXEdit.text()), float(self.mouseYEdit.text())
         except ValueError:
@@ -202,7 +191,6 @@ class CenterPanelWidget(QWidget):
             QMessageBox.warning(self, "Error", "No target window selected.")
 
     def _onSendKeystroke(self) -> None:
-        """Handle send keystroke button click."""
         keyName = self.keystrokeEdit.text().strip()
         if not keyName:
             return
@@ -211,7 +199,6 @@ class CenterPanelWidget(QWidget):
             QMessageBox.warning(self, "Error", f"Failed to send key: {keyName}")
 
     def _updateUiWindowHandleInfo(self, windowHandle: Optional[int]) -> None:
-        """Update UI with window handle information."""
         if not windowHandle:
             self.pidLabel.setText("PID: -")
             QMessageBox.warning(self, "Error", "Window not found.")
@@ -221,7 +208,6 @@ class CenterPanelWidget(QWidget):
         self.pidLabel.setText(f"PID: {pid if pid is not None else '-'}")
 
     def _updateUiImage(self, image: Optional[np.ndarray[Any, Any]]) -> None:
-        """Update UI with a new image."""
         if image is not None:
             height, width, channels = image.shape
             qImage = QImage(image.data, width, height, channels * width, QImage.Format.Format_BGR888)

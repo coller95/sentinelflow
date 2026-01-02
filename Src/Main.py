@@ -36,13 +36,11 @@ os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 # MAIN ENTRY POINT
 # =============================================================================
 def main() -> int:
-    application = QApplication(sys.argv)
 
-    # MVVM Initialization
+    application = QApplication(sys.argv)
     viewModel = DashboardViewModel()
     view = DashboardView(viewModel)
     view.show()
-
     return application.exec()
 
 if __name__ == "__main__":

@@ -6,12 +6,6 @@ from Src.Models import ActionItem, EventItem
 
 
 class EventListService:
-    """Operations for creating/removing events from an event list.
-
-    Refactor-only goal:
-    - Keep the same semantics as the previous DashboardViewModel AddEvent/RemoveEvent.
-    """
-
     def CreateDefaultEvent(self) -> EventItem:
         new_action = ActionItem()
         return EventItem(name="New Event", action=new_action)

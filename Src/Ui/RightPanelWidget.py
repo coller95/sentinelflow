@@ -47,9 +47,6 @@ class DashboardViewModelProtocol(Protocol):
     def KeyNameFromVk(self, virtualKeyCode: int) -> str: ...
 
 class RightPanelWidget(QWidget):
-    """
-    Right panel widget containing event configuration controls.
-    """
     def __init__(self, viewModel : DashboardViewModelProtocol) -> None:
         super().__init__()
         self.ViewModel = viewModel

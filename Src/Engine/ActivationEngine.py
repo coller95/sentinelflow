@@ -14,18 +14,15 @@ from Src.Models import (
     EventItem
 )
 
+
 @dataclass
 class EngineResult:
-    """Outputs from a single engine evaluation pass."""
-
     triggered: List[EventItem]
     disabled: List[EventItem]
     match_updates: List[object]
 
 
 class ActivationEngine:
-    """Pure logic for evaluating events against inputs."""
-
     def loop(self, events: List[EventItem], localImage: Optional[np.ndarray[Any, Any]]) -> EngineResult:
         triggered: List[EventItem] = []
         disabled: List[EventItem] = []
@@ -124,4 +121,6 @@ class ActivationEngine:
                 event.IsCurrentlyHeld = isConditionMet
 
         return EngineResult(triggered=triggered, disabled=disabled, match_updates=match_updates)
+                event.IsCurrentlyHeld = isConditionMet
+
 

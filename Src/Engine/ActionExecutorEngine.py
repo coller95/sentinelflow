@@ -5,8 +5,6 @@ from Src.Helper import SendKeyChordToWindow, SendKeystrokeToWindow, SendMouseCli
 from Src.Models import ActionItem, EventItem, InputType, MacroStep
 
 class ActionExecutorEngine:
-    """Executes actions described by the model (side effects live here, not in Models)."""
-
     def execute_event(self, windowHandle: int, event: EventItem) -> None:
         if not event.IsEnabled:
             return

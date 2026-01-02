@@ -11,12 +11,6 @@ from Src.Helper import (
 
 
 class InputAutomationService:
-    """Wraps input simulation helpers.
-
-    Refactor-only goal:
-    - Keep behavior identical to prior DashboardViewModel methods.
-    """
-
     def KeyNameFromVk(self, virtual_key_code: int) -> str:
         return KeyNameFromVk(virtual_key_code)
 

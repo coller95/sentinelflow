@@ -36,9 +36,8 @@ QPushButton:hover {
 """
 
 
-class HotkeyCaptureDialog(QDialog):
-    """Dialog that captures a key combination when keys are pressed and released."""
 
+class HotkeyCaptureDialog(QDialog):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Capture Hotkey Combination")
@@ -46,7 +45,6 @@ class HotkeyCaptureDialog(QDialog):
         self.CapturedVirtualKeyCodes: List[int] = []
         self._currentVirtualKeyCodes: List[int] = []
         self._currentVirtualKeyCodeSet: set[int] = set()
-
         layout = QVBoxLayout(self)
         self.StatusLabel = QLabel("Holding: 0 keys", alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.StatusLabel)
@@ -65,46 +63,25 @@ class HotkeyCaptureDialog(QDialog):
             self.CapturedVirtualKeyCodes = list(self._currentVirtualKeyCodes)
             self.accept()
 
+
 class CropperWidget(QWidget):
-    """
-    A PySide ROI selector that mimics the behavior of the Tkinter version.
-    
-    Properties:
-        on_crop: Callback function when crop is complete
-    """
     def __init__(
         self,
         imageData: np.ndarray[Any, Any],
         onCrop: Callable[[np.ndarray[Any, Any], float, float, float, float], None]
     ) -> None:
-        """
-        Initialize the cropper widget.
-        
-        Args:
-            imageData: Image data to display
-            onCrop: Callback function when crop is complete
-        """
         super().__init__()
         self.onCrop = onCrop
-        self.setMinimumSize(640, 480)  # Give it a starting minimum size
-        
-        # 1. Setup Layout
+        self.setMinimumSize(640, 480)
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 2. Setup Label
         self.imageLabel = QLabel()
         self.imageLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # This is critical: allows the label to shrink smaller than the image
         self.imageLabel.setMinimumSize(1, 1)
-        
-        # 3. Store the Original Pixmap
         self.originalPixmap = self._ndarrayToQPixmap(imageData)
         layout.addWidget(self.imageLabel)
-        
         self.setLayout(layout)
         self.showMaximized()
-        
         self.rubberBand = QRubberBand(QRubberBand.Shape.Rectangle, self.imageLabel)
         self.origin = QPoint()
 
@@ -255,26 +232,11 @@ class CropperWidget(QWidget):
 
 
 
+
 class ClickableImageLabel(QLabel):
-    """
-    An image label that emits a signal when clicked with normalized coordinates.
-    
-    Signals:
-        Clicked: Emitted when the label is clicked
-        
-    Properties:
-        NormalizedX: Normalized X coordinate of the marker
-        NormalizedY: Normalized Y coordinate of the marker
-    """
     Clicked = Signal(QPoint)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        """
-        Initialize the clickable image label.
-        
-        Args:
-            parent: Parent widget
-        """
         super().__init__(parent)
         self.NormalizedX: Optional[float] = None
         self.NormalizedY: Optional[float] = None

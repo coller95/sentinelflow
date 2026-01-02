@@ -40,9 +40,6 @@ class DashboardViewModelProtocol(Protocol):
     def KeyNameFromVk(self, virtualKeyCode: int) -> str: ...
 
 class LeftPanelWidget(QWidget):    
-    """
-    Left panel widget containing event management controls.
-    """
     def __init__(self, viewModel: DashboardViewModelProtocol) -> None:
         super().__init__()
         self.ViewModel = viewModel
@@ -50,7 +47,6 @@ class LeftPanelWidget(QWidget):
         self._wireUpBindings()
 
     def _setupLeftPanel(self) -> None:
-        """Set up the left panel with event management controls."""
 
         layout = QVBoxLayout(self)
         buttonLayout = QHBoxLayout()
@@ -91,7 +87,6 @@ class LeftPanelWidget(QWidget):
         layout.addWidget(self.EventExecutionStateHotkeyButton)
 
     def _wireUpBindings(self) -> None:
-        """Wire up the UI components to the view model."""
         # to view model
         self.addEventButton.clicked.connect(self._onEventAddedClicked)
         self.removeEventButton.clicked.connect(self._onRemoveEventClicked)
