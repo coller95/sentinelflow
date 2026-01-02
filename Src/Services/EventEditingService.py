@@ -45,8 +45,8 @@ class EventEditingService:
         eventItem.ActivationVirtualKeyCodes = virtualKeyCodes
 
     def SetTemplateAndRoi(self, eventItem: EventItem, templateImage: Any, roi: RectangleRegion) -> None:
-        eventItem.TemplateImage = templateImage
-        eventItem.Roi = roi
+        eventItem.Condition.TemplateImage = templateImage
+        eventItem.Condition.Roi = roi
 
     def SetCondition(self, eventItem: EventItem, condition: ConditionItem) -> None:
         eventItem.Condition = condition

@@ -255,26 +255,6 @@ class EventItem:
         self._condition = value
 
 
-    # Convenience proxies so existing UI/engines can use event.Roi / event.TemplateImage.
-    # These map directly onto the underlying ConditionItem, enabling reuse by sharing
-    # a single ConditionItem instance across multiple EventItems.
-    @property
-    def Roi(self) -> RectangleRegion:
-        return self._condition.Roi
-
-    @Roi.setter
-    def Roi(self, value: RectangleRegion) -> None:
-        self._condition.Roi = value
-
-    @property
-    def TemplateImage(self) -> Optional[np.ndarray[Any, Any]]:
-        return self._condition.TemplateImage
-
-    @TemplateImage.setter
-    def TemplateImage(self, value: Optional[np.ndarray[Any, Any]]) -> None:
-        self._condition.TemplateImage = value
-
-
     @property
     def Threshold(self) -> float:
         return self._threshold

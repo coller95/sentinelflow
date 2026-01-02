@@ -427,13 +427,13 @@ class RightPanelWidget(QWidget):
         self.roiHEdit.setText(f"{normalizedHeight:.4f}")
 
     def _refreshConditionDependentFields(self, eventItem: EventItem) -> None:
-        self.roiXEdit.setText(f"{eventItem.Roi.XNormalized:.4f}")
-        self.roiYEdit.setText(f"{eventItem.Roi.YNormalized:.4f}")
-        self.roiWEdit.setText(f"{eventItem.Roi.WidthNormalized:.4f}")
-        self.roiHEdit.setText(f"{eventItem.Roi.HeightNormalized:.4f}")
+        self.roiXEdit.setText(f"{eventItem.Condition.Roi.XNormalized:.4f}")
+        self.roiYEdit.setText(f"{eventItem.Condition.Roi.YNormalized:.4f}")
+        self.roiWEdit.setText(f"{eventItem.Condition.Roi.WidthNormalized:.4f}")
+        self.roiHEdit.setText(f"{eventItem.Condition.Roi.HeightNormalized:.4f}")
 
-        if eventItem.TemplateImage is not None:
-            self._setButtonWithImage(self.roiButton, eventItem.TemplateImage)
+        if eventItem.Condition.TemplateImage is not None:
+            self._setButtonWithImage(self.roiButton, eventItem.Condition.TemplateImage)
         else:
             self.roiButton.setIcon(QIcon())
             self.roiButton.setText("Select from Image")
@@ -529,13 +529,13 @@ class RightPanelWidget(QWidget):
 
         self._refreshConditionDropdown(eventItem)
 
-        self.roiXEdit.setText(f"{eventItem.Roi.XNormalized:.4f}")
-        self.roiYEdit.setText(f"{eventItem.Roi.YNormalized:.4f}")
-        self.roiWEdit.setText(f"{eventItem.Roi.WidthNormalized:.4f}")
-        self.roiHEdit.setText(f"{eventItem.Roi.HeightNormalized:.4f}")
+        self.roiXEdit.setText(f"{eventItem.Condition.Roi.XNormalized:.4f}")
+        self.roiYEdit.setText(f"{eventItem.Condition.Roi.YNormalized:.4f}")
+        self.roiWEdit.setText(f"{eventItem.Condition.Roi.WidthNormalized:.4f}")
+        self.roiHEdit.setText(f"{eventItem.Condition.Roi.HeightNormalized:.4f}")
 
-        if eventItem.TemplateImage is not None:
-            self._setButtonWithImage(self.roiButton, eventItem.TemplateImage)
+        if eventItem.Condition.TemplateImage is not None:
+            self._setButtonWithImage(self.roiButton, eventItem.Condition.TemplateImage)
         else:
             self.roiButton.setIcon(QIcon())
             self.roiButton.setText("Select from Image")
