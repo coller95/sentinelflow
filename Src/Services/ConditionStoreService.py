@@ -19,11 +19,23 @@ class ConditionStoreService:
         self._lock = threading.Lock()
         self._conditionsById: Dict[UUID, ConditionItem] = {}
         self._orderedIds: List[UUID] = []
+        self.EnsureDummyCondition()
+
+    def EnsureDummyCondition(self) -> None:
+        """Ensure the library always has at least one condition."""
+        with self._lock:
+            if len(self._orderedIds) > 0:
+                return
+            dummy = ConditionItem()
+            dummy.Name = "Dummy Condition"
+            self._conditionsById[dummy.Uuid] = dummy
+            self._orderedIds.append(dummy.Uuid)
 
     def Clear(self) -> None:
         with self._lock:
             self._conditionsById.clear()
             self._orderedIds.clear()
+        self.EnsureDummyCondition()
 
     def Add(self, condition: ConditionItem) -> None:
         with self._lock:

@@ -63,10 +63,12 @@ class DashboardViewModel(QObject):
         self.StartSentinel()
 
     def AddEvent(self) -> None:
-        newEvent = self.EventListService.CreateDefaultEvent()
+        library = self.ConditionStoreService.GetSnapshot()
+        if len(library) == 0:
+            raise ValueError("Create a condition first")
+
+        newEvent = self.EventListService.CreateDefaultEvent(condition=library[0])
         self.EventStoreService.Add(newEvent)
-        # Condition library is global/independent. Ensure the new event's condition is present.
-        self.ConditionStoreService.Add(newEvent.Condition)
         self.ConditionsChangedSignal.emit()
         self.EventItemAddedSignal.emit(newEvent)
 
@@ -152,6 +154,8 @@ class DashboardViewModel(QObject):
             self.ConditionStoreService.Clear()
             for condition in loadedConditions:
                 self.ConditionStoreService.Add(condition)
+
+            self.ConditionStoreService.EnsureDummyCondition()
 
             self.ConditionsChangedSignal.emit()
 

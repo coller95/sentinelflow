@@ -125,7 +125,10 @@ class LeftPanelWidget(QWidget):
         self.ViewModel.EventExecutionStateHotkeyChangedSignal.connect(self._onEventExecutionStateHotkeyChangedSignal)
 
     def _onEventAddedClicked(self) -> None:
-        self.ViewModel.AddEvent()
+        try:
+            self.ViewModel.AddEvent()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
 
     def _onRemoveEventClicked(self) -> None:
         self.ViewModel.RemoveEvent()
@@ -173,7 +176,10 @@ class LeftPanelWidget(QWidget):
         dialog.raise_()
         dialog.activateWindow()
 
-    def _onEventListCurrentItemChanged(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
+    def _onEventListCurrentItemChanged(self, current: Optional[QListWidgetItem], previous: Optional[QListWidgetItem]) -> None:
+        if current is None:
+            self.ViewModel.SelectedEventItem = None
+            return
         eventItem: EventItem = current.data(Qt.ItemDataRole.UserRole)
         self.ViewModel.SelectedEventItem = eventItem
 
@@ -203,7 +209,10 @@ class LeftPanelWidget(QWidget):
         self.eventListWidget.takeItem(index)
 
     def _onEventItemSelectedSignal(self, eventItem: EventItem) -> None:
-        self.eventListWidget.currentItem().setText(eventItem.Name)
+        item = self.eventListWidget.currentItem()
+        if item is None:
+            return
+        item.setText(eventItem.Name)
 
     def _onEventItemChangedSignal(self, eventItem: EventItem) -> None:
         for index in range(self.eventListWidget.count()):
