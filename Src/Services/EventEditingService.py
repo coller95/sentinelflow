@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from Src.Helper import KeyNameFromVk
-from Src.Models import ActivationType, EventItem, InputType, MacroStep, RectangleRegion
+from Src.Models import ActivationType, ConditionItem, EventItem, InputType, MacroStep, RectangleRegion
 
 
 class EventEditingService:
@@ -39,6 +39,10 @@ class EventEditingService:
     def SetTemplateAndRoi(self, eventItem: EventItem, templateImage: Any, roi: RectangleRegion) -> None:
         eventItem.TemplateImage = templateImage
         eventItem.Roi = roi
+
+    def SetCondition(self, eventItem: EventItem, condition: ConditionItem) -> None:
+        eventItem.Condition = condition
+        eventItem.ResetTransientState()
 
     def AddMouseStep(self, eventItem: EventItem, normalizedX: float, normalizedY: float) -> None:
         if not eventItem.AssignedAction:

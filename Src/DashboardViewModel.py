@@ -1,12 +1,14 @@
 from typing import (
     List, Optional, Any
 )
+from uuid import UUID
 # Third-party imports
 import numpy as np
 from PySide6.QtCore import Signal, QObject
 
 from Src.Models import (
     ActivationType,
+    ConditionItem,
     EventItem, RectangleRegion
 )
 
@@ -18,6 +20,7 @@ from Src.Services.EventEditingService import EventEditingService
 from Src.Services.EventListService import EventListService
 from Src.Services.DashboardViewStateService import DashboardViewStateService
 from Src.Services.EventStoreService import EventStoreService
+from Src.Services.ConditionStoreService import ConditionStoreService
 
 
 class DashboardViewModel(QObject):
@@ -34,6 +37,7 @@ class DashboardViewModel(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.EventStoreService = EventStoreService()
+        self.ConditionStoreService = ConditionStoreService()
         self.TargetWindowService = TargetWindowService()
         self.InputAutomationService = InputAutomationService()
         self.StatePersistenceService = StatePersistenceService()
@@ -58,11 +62,13 @@ class DashboardViewModel(QObject):
     def AddEvent(self) -> None:
         newEvent = self.EventListService.CreateDefaultEvent()
         self.EventStoreService.Add(newEvent)
+        self.ConditionStoreService.RebuildFromEvents(self.EventStoreService.GetAll())
         self.EventItemAddedSignal.emit(newEvent)
 
     def RemoveEvent(self) -> None:
         index = self.EventStoreService.RemoveSelected(self.ViewState.SelectedEventItem)
         if index is not None:
+            self.ConditionStoreService.RebuildFromEvents(self.EventStoreService.GetAll())
             self.EventItemRemovedSignal.emit(index)
 
     def FindWindow(self, title: str) -> Optional[int]:
@@ -144,6 +150,8 @@ class DashboardViewModel(QObject):
                 self.EventStoreService.Add(event)
                 self.EventItemAddedSignal.emit(event)
 
+            self.ConditionStoreService.RebuildFromEvents(self.EventStoreService.GetAll())
+
             # Apply settings (also allow clearing hotkey by saving empty list)
             self.SentinelController.SetFlowHotkey(loadedHotkey)
         except Exception as e:
@@ -221,6 +229,41 @@ class DashboardViewModel(QObject):
         if not eventItem:
             return
         self.EventEditingService.SetTemplateAndRoi(eventItem, templateImage, roi)
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def GetConditionLibrary(self) -> list[ConditionItem]:
+        return self.ConditionStoreService.GetSnapshot()
+
+    def CreateCondition(self, name: str) -> ConditionItem:
+        condition = ConditionItem()
+        condition.Name = name
+        self.ConditionStoreService.Add(condition)
+        return condition
+
+    def RenameCondition(self, conditionUuid: str, name: str) -> None:
+        try:
+            cid = UUID(conditionUuid)
+        except Exception:
+            return
+
+        condition = self.ConditionStoreService.GetByUuid(cid)
+        if condition is None:
+            return
+        condition.Name = name
+
+    def SetSelectedEventCondition(self, conditionUuid: str) -> None:
+        eventItem = self.ViewState.SelectedEventItem
+        if not eventItem:
+            return
+        try:
+            cid = UUID(conditionUuid)
+        except Exception:
+            return
+
+        condition = self.ConditionStoreService.GetByUuid(cid)
+        if condition is None:
+            return
+        self.EventEditingService.SetCondition(eventItem, condition)
         self.EventItemChangedSignal.emit(eventItem)
 
     def AddSelectedMouseStepFromCapturedPosition(self) -> None:

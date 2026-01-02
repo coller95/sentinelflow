@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QComboBox, QListWidget, QListWidgetItem, QCheckBox, QInputDialog, QMessageBox, 
     QDialog
 )
-from Src.Models import RectangleRegion, ActivationType, InputType, ActionItem, EventItem
+from Src.Models import RectangleRegion, ActivationType, InputType, ActionItem, ConditionItem, EventItem
 from Src.Ui.UiShared import (
     HotkeyCaptureDialog,
     CropperWidget,
@@ -39,6 +39,11 @@ class DashboardViewModelProtocol(Protocol):
         templateImage: np.ndarray[Any, Any],
         roi: RectangleRegion,
     ) -> None: ...
+
+    def GetConditionLibrary(self) -> list[ConditionItem]: ...
+    def CreateCondition(self, name: str) -> ConditionItem: ...
+    def RenameCondition(self, conditionUuid: str, name: str) -> None: ...
+    def SetSelectedEventCondition(self, conditionUuid: str) -> None: ...
     def AddSelectedMouseStepFromCapturedPosition(self) -> None: ...
     def AddSelectedKeyboardStep(self, virtualKeyCodes: list[int]) -> None: ...
     def AddSelectedDelayStep(self, milliseconds: int) -> None: ...
@@ -50,6 +55,7 @@ class RightPanelWidget(QWidget):
     def __init__(self, viewModel : DashboardViewModelProtocol) -> None:
         super().__init__()
         self.ViewModel = viewModel
+        self._isUpdatingConditionDropdown = False
         self._setupRightPanel()
         self._wireUpBindings()
 
@@ -102,6 +108,17 @@ class RightPanelWidget(QWidget):
         self.loopCountEdit.setEnabled(False)
         self.loopIntervalEdit.setEnabled(False)
         self.loopWidget.hide()
+
+        # Condition dropdown (shared ConditionItem library)
+        self.conditionWidget = QWidget()
+        self.conditionWidgetLayout = QHBoxLayout()
+        self.conditionWidgetLayout.setContentsMargins(0, 0, 0, 0)
+        self.conditionWidgetLayout.addWidget(QLabel("Condition:"))
+        self.conditionDropdown = QComboBox()
+        self.conditionDropdown.setEnabled(False)
+        self.conditionWidgetLayout.addWidget(self.conditionDropdown)
+        self.conditionWidget.setLayout(self.conditionWidgetLayout)
+        self.conditionWidget.hide()
         
         # Roi widget
         self.roiWidget = QWidget()
@@ -239,6 +256,7 @@ class RightPanelWidget(QWidget):
         layout.addWidget(self.activationDropdown)
         layout.addWidget(self.activationHotkeyWidget)
         layout.addWidget(self.loopWidget)
+        layout.addWidget(self.conditionWidget)
         layout.addWidget(self.roiWidget)
         layout.addWidget(self.thresholdWidget)
         layout.addWidget(self.triggerOnThresholdExceedWidget)
@@ -259,6 +277,7 @@ class RightPanelWidget(QWidget):
         
         self.activationHotkeyButton.clicked.connect(self._onCaptureHotkey)
         self.roiButton.clicked.connect(self._onSelectRoi)
+        self.conditionDropdown.currentIndexChanged.connect(self._onCommitConditionSelection)
         # Interaction
         self.thresholdMatchScoreCopyButton.clicked.connect(self._onCopyMatchScoreToThreshold)
         
@@ -402,6 +421,18 @@ class RightPanelWidget(QWidget):
         self.roiWEdit.setText(f"{normalizedWidth:.4f}")
         self.roiHEdit.setText(f"{normalizedHeight:.4f}")
 
+    def _refreshConditionDependentFields(self, eventItem: EventItem) -> None:
+        self.roiXEdit.setText(f"{eventItem.Roi.XNormalized:.4f}")
+        self.roiYEdit.setText(f"{eventItem.Roi.YNormalized:.4f}")
+        self.roiWEdit.setText(f"{eventItem.Roi.WidthNormalized:.4f}")
+        self.roiHEdit.setText(f"{eventItem.Roi.HeightNormalized:.4f}")
+
+        if eventItem.TemplateImage is not None:
+            self._setButtonWithImage(self.roiButton, eventItem.TemplateImage)
+        else:
+            self.roiButton.setIcon(QIcon())
+            self.roiButton.setText("Select from Image")
+
     def _setButtonWithImage(self, button: QPushButton, cvImage: np.ndarray[Any, Any]) -> None:
         height, width, _channel = cvImage.shape
         bytesPerLine = 3 * width
@@ -445,9 +476,11 @@ class RightPanelWidget(QWidget):
             self.triggerOnThresholdExceedCheckbox.setEnabled(False)
             self.retriggerTimeEdit.setEnabled(False)
             self.roiButton.setEnabled(False)
+            self.conditionDropdown.setEnabled(False)
 
             self.activationHotkeyWidget.hide()
             self.loopWidget.hide()
+            self.conditionWidget.hide()
             self.roiWidget.hide()
             self.thresholdWidget.hide()
             self.triggerOnThresholdExceedWidget.hide()
@@ -471,6 +504,8 @@ class RightPanelWidget(QWidget):
         self.loopIntervalEdit.setText(str(eventItem.IntervalMilliseconds))
         self.loopCountEdit.setEnabled(True)
         self.loopIntervalEdit.setEnabled(True)
+
+        self._refreshConditionDropdown(eventItem)
 
         self.roiXEdit.setText(f"{eventItem.Roi.XNormalized:.4f}")
         self.roiYEdit.setText(f"{eventItem.Roi.YNormalized:.4f}")
@@ -515,15 +550,81 @@ class RightPanelWidget(QWidget):
             self.loopWidget.hide()
 
         if activationType in (ActivationType.ImageMatchRoi, ActivationType.ProgressBar):
+            self.conditionWidget.show()
             self.roiWidget.show()
             self.thresholdWidget.show()
             self.triggerOnThresholdExceedWidget.show()
             self.retriggerTimeWidget.show()
         else:
+            self.conditionWidget.hide()
             self.roiWidget.hide()
             self.thresholdWidget.hide()
             self.triggerOnThresholdExceedWidget.hide()
             self.retriggerTimeWidget.hide()
+
+    def _refreshConditionDropdown(self, eventItem: EventItem) -> None:
+        self._isUpdatingConditionDropdown = True
+        try:
+            self.conditionDropdown.clear()
+
+            # First option: create new condition
+            self.conditionDropdown.addItem("New…", "__new__")
+            self.conditionDropdown.addItem("Rename…", "__rename__")
+
+            library = self.ViewModel.GetConditionLibrary()
+            selectedId = str(eventItem.Condition.Uuid)
+            selectedIndex = 0
+
+            for condition in library:
+                name = condition.Name.strip()
+                if not name:
+                    name = f"(unnamed) {str(condition.Uuid)[:8]}"
+                idx = self.conditionDropdown.count()
+                self.conditionDropdown.addItem(name, str(condition.Uuid))
+                if str(condition.Uuid) == selectedId:
+                    selectedIndex = idx
+
+            self.conditionDropdown.setCurrentIndex(selectedIndex)
+            self.conditionDropdown.setEnabled(True)
+        finally:
+            self._isUpdatingConditionDropdown = False
+
+    def _onCommitConditionSelection(self, index: int) -> None:
+        if self._isUpdatingConditionDropdown:
+            return
+
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+
+        data = self.conditionDropdown.currentData()
+        if data == "__new__":
+            name, ok = QInputDialog.getText(self, "New Condition", "Condition name:")
+            if not ok:
+                self._refreshConditionDropdown(eventItem)
+                return
+            condition = self.ViewModel.CreateCondition(name.strip())
+            self.ViewModel.SetSelectedEventCondition(str(condition.Uuid))
+            # Update ROI/template UI to match the newly bound condition
+            self._refreshConditionDependentFields(eventItem)
+            self._refreshConditionDropdown(eventItem)
+            return
+
+        if data == "__rename__":
+            current = eventItem.Condition
+            defaultName = current.Name
+            name, ok = QInputDialog.getText(self, "Rename Condition", "Condition name:", text=defaultName)
+            if not ok:
+                self._refreshConditionDropdown(eventItem)
+                return
+            self.ViewModel.RenameCondition(str(current.Uuid), name.strip())
+            self._refreshConditionDropdown(eventItem)
+            return
+
+        if isinstance(data, str):
+            self.ViewModel.SetSelectedEventCondition(data)
+            # Update ROI/template UI to match the newly bound condition
+            self._refreshConditionDependentFields(eventItem)
 
     def _onCommitActivationType(self, index: int) -> None:
         typeName = self.activationDropdown.currentText()

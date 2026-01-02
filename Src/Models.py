@@ -16,6 +16,13 @@ class InputType(Enum):
     Keyboard = auto()
     Delay = auto()
 
+
+class ConditionType(Enum):
+    NotSet = auto()
+    ImageMatchRoi = auto()
+    ProgressBar = auto()
+
+
 class RectangleRegion:
     def __init__(self, xNormalized: float = 0.0, yNormalized: float = 0.0, 
                  widthNormalized: float = 1.0, heightNormalized: float = 1.0) -> None:
@@ -61,7 +68,6 @@ class RectangleRegion:
         self._heightNormalized = value
 
 
-
 class MacroStep:
     def __init__(self, inputType: InputType, value: Any = None, description: str = "") -> None:
         self._inputType: InputType = inputType
@@ -87,7 +93,6 @@ class MacroStep:
         return self._value
 
 
-
 class ActionItem:
     def __init__(self) -> None:
         self._macroSteps: List[MacroStep] = []
@@ -105,6 +110,55 @@ class ActionItem:
             self._macroSteps.pop(index)
 
 
+class ConditionItem:
+    def __init__(self) -> None:
+        self._uuid: UUID = uuid4()
+        self._name: str = ""
+        self._selectedConditionType: ConditionType = ConditionType.NotSet
+        self._roi: RectangleRegion = RectangleRegion(0.0, 0.0, 1.0, 1.0)
+        self._templateImage: Optional[np.ndarray[Any, Any]] = None
+
+
+    @property
+    def Uuid(self) -> UUID:
+        return self._uuid
+    
+    
+    @property
+    def Name(self) -> str:
+        return self._name
+    
+    @Name.setter
+    def Name(self, value: str) -> None:
+        self._name = value
+
+
+    @property
+    def SelectedConditionType(self) -> ConditionType:
+        return self._selectedConditionType
+    
+    @SelectedConditionType.setter
+    def SelectedConditionType(self, value: ConditionType) -> None:
+        self._selectedConditionType = value
+
+
+    @property
+    def Roi(self) -> RectangleRegion:
+        return self._roi
+    
+    @Roi.setter
+    def Roi(self, value: RectangleRegion) -> None:
+        self._roi = value
+
+
+    @property
+    def TemplateImage(self) -> Optional[np.ndarray[Any, Any]]:
+        return self._templateImage
+    
+    @TemplateImage.setter
+    def TemplateImage(self, value: Optional[np.ndarray[Any, Any]]) -> None:
+        self._templateImage = value
+
 
 class EventItem:
     def __init__(
@@ -115,7 +169,7 @@ class EventItem:
         activationType: ActivationType = ActivationType.NotSet,
         loopCount: int = 0,
         intervalMilliseconds: int = 1000,
-        roi: Optional[RectangleRegion] = None,
+        condition: Optional[ConditionItem] = None,
         threshold: float = 0.99,
         triggerOnThresholdExceed: bool = True,
         retriggerTimeMilliseconds: float = 2000
@@ -127,11 +181,10 @@ class EventItem:
         self._activationVirtualKeyCodes: List[int] = []
         self._loopCount: int = loopCount
         self._intervalMilliseconds: int = intervalMilliseconds
-        self._roi: RectangleRegion = roi if roi is not None else RectangleRegion(0.0, 0.0, 1.0, 1.0)
+        self._condition: ConditionItem = condition if condition is not None else ConditionItem()
         self._threshold: float = threshold
         self._triggerOnThresholdExceed: bool = triggerOnThresholdExceed
         self._retriggerTimeMilliseconds: float = retriggerTimeMilliseconds
-        self._templateImage: Optional[np.ndarray[Any, Any]] = None
         self._assignedAction: ActionItem = action
         
     @property
@@ -194,21 +247,32 @@ class EventItem:
 
 
     @property
-    def Roi(self) -> RectangleRegion:
-        return self._roi
+    def Condition(self) -> ConditionItem:
+        return self._condition  
     
+    @Condition.setter
+    def Condition(self, value: ConditionItem) -> None:
+        self._condition = value
+
+
+    # Convenience proxies so existing UI/engines can use event.Roi / event.TemplateImage.
+    # These map directly onto the underlying ConditionItem, enabling reuse by sharing
+    # a single ConditionItem instance across multiple EventItems.
+    @property
+    def Roi(self) -> RectangleRegion:
+        return self._condition.Roi
+
     @Roi.setter
     def Roi(self, value: RectangleRegion) -> None:
-        self._roi = value
-
+        self._condition.Roi = value
 
     @property
     def TemplateImage(self) -> Optional[np.ndarray[Any, Any]]:
-        return self._templateImage
-    
+        return self._condition.TemplateImage
+
     @TemplateImage.setter
     def TemplateImage(self, value: Optional[np.ndarray[Any, Any]]) -> None:
-        self._templateImage = value
+        self._condition.TemplateImage = value
 
 
     @property
