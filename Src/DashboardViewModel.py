@@ -17,6 +17,7 @@ from Src.Services.StatePersistenceService import StatePersistenceService
 from Src.Services.EventEditingService import EventEditingService
 from Src.Services.EventListService import EventListService
 from Src.Services.DashboardViewStateService import DashboardViewStateService
+from Src.Services.EventStoreService import EventStoreService
 
 
 class DashboardViewModel(QObject):
@@ -32,7 +33,7 @@ class DashboardViewModel(QObject):
 
     def __init__(self) -> None:
         super().__init__()
-        self.EventItems: List[EventItem] = []
+        self.EventStoreService = EventStoreService()
         self.TargetWindowService = TargetWindowService()
         self.InputAutomationService = InputAutomationService()
         self.StatePersistenceService = StatePersistenceService()
@@ -41,7 +42,7 @@ class DashboardViewModel(QObject):
         self.ViewState = DashboardViewStateService()
         self.LastLiveImage: Optional[np.ndarray[Any, Any]] = None
         self.SentinelController = SentinelControllerService(
-            getEventItems=lambda: self.EventItems,
+            getEventItems=self.EventStoreService.GetSnapshot,
             getWindowHandle=lambda: self.TargetWindowService.CurrentWindowHandle,
             pollIntervalMs=50,
             captureIntervalMs=200,
@@ -56,11 +57,11 @@ class DashboardViewModel(QObject):
 
     def AddEvent(self) -> None:
         newEvent = self.EventListService.CreateDefaultEvent()
-        self.EventItems.append(newEvent)
+        self.EventStoreService.Add(newEvent)
         self.EventItemAddedSignal.emit(newEvent)
 
     def RemoveEvent(self) -> None:
-        index = self.EventListService.RemoveSelectedEvent(self.EventItems, self.ViewState.SelectedEventItem)
+        index = self.EventStoreService.RemoveSelected(self.ViewState.SelectedEventItem)
         if index is not None:
             self.EventItemRemovedSignal.emit(index)
 
@@ -113,7 +114,7 @@ class DashboardViewModel(QObject):
     def SaveState(self, filePath: str) -> None:
         try:
             flowHotkey = self.SentinelController.GetFlowHotkey()
-            self.StatePersistenceService.SaveState(filePath, events=self.EventItems, flowHotkey=flowHotkey)
+            self.StatePersistenceService.SaveState(filePath, events=self.EventStoreService.GetAll(), flowHotkey=flowHotkey)
                 
             print(f"State successfully saved to {filePath}")
         except Exception as e:
@@ -132,15 +133,15 @@ class DashboardViewModel(QObject):
             # ---------------------------
             # Populate the UI/Model
             self.SentinelController.SetFlowEnabled(False)  # Ensure flow is off during loading
-                
-            self.EventItems.clear()
+
+            self.EventStoreService.Clear()
             for event in loadedEvents:
                 # Best-effort: ensure fresh transient state after load
                 try:
                     event.ResetTransientState()
                 except Exception:
                     pass
-                self.EventItems.append(event)
+                self.EventStoreService.Add(event)
                 self.EventItemAddedSignal.emit(event)
 
             # Apply settings (also allow clearing hotkey by saving empty list)
