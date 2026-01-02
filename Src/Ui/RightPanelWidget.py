@@ -10,7 +10,6 @@ from Src.Models import ActivationType, InputType, ActionItem, ConditionItem, Eve
 from Src.Ui.UiShared import (
     HotkeyCaptureDialog,
 )
-from Src.Ui.ConditionStatusWindow import ConditionStatusWindow
 
 class DashboardViewModelProtocol(Protocol):
     EventItemSelectedSignal: Any
@@ -48,7 +47,6 @@ class RightPanelWidget(QWidget):
         super().__init__()
         self.ViewModel = viewModel
         self._isUpdatingConditionDropdown = False
-        self._conditionStatusDialog: Optional[ConditionStatusWindow] = None
         self._setupRightPanel()
         self._wireUpBindings()
 
@@ -110,9 +108,6 @@ class RightPanelWidget(QWidget):
         self.conditionDropdown = QComboBox()
         self.conditionDropdown.setEnabled(False)
         self.conditionWidgetLayout.addWidget(self.conditionDropdown)
-        self.conditionStatusButton = QPushButton("Status")
-        self.conditionStatusButton.setEnabled(True)
-        self.conditionWidgetLayout.addWidget(self.conditionStatusButton)
         self.conditionWidget.setLayout(self.conditionWidgetLayout)
         self.conditionWidget.hide()
         
@@ -213,7 +208,6 @@ class RightPanelWidget(QWidget):
         
         self.activationHotkeyButton.clicked.connect(self._onCaptureHotkey)
         self.conditionDropdown.currentIndexChanged.connect(self._onCommitConditionSelection)
-        self.conditionStatusButton.clicked.connect(self._onOpenConditionStatus)
         
         # Property Editing
         self.eventNameEdit.editingFinished.connect(self._onCommitEventName)
@@ -331,21 +325,6 @@ class RightPanelWidget(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.ViewModel.UpdateSelectedActivationHotkey(dialog.CapturedVirtualKeyCodes)
             self.activationHotkeyEdit.setText(", ".join(map(self.ViewModel.KeyNameFromVk, dialog.CapturedVirtualKeyCodes)))
-
-    def _onOpenConditionStatus(self) -> None:
-        # Only allow one Status window at a time.
-        if self._conditionStatusDialog is not None and self._conditionStatusDialog.isVisible():
-            self._conditionStatusDialog.raise_()
-            self._conditionStatusDialog.activateWindow()
-            return
-
-        dialog = ConditionStatusWindow(self.ViewModel, parent=self.window())
-        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        dialog.finished.connect(lambda _code=0: setattr(self, "_conditionStatusDialog", None))
-        self._conditionStatusDialog = dialog
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
 
     def _onEventItemSelectedSignal(self, eventItem: Optional[EventItem]) -> None:
         if not eventItem:

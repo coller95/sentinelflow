@@ -30,14 +30,10 @@ from Src.Ui.UiShared import CropperWidget
 class DashboardViewModelProtocol(Protocol):
     MatchScoreUpdated: Any
 
-    @property
-    def SelectedEventItem(self) -> Optional[Any]: ...
-
     def GetConditionLibrary(self) -> list[ConditionItem]: ...
     def GetLastLiveImage(self) -> Optional[Any]: ...
     def CreateCondition(self, name: str) -> ConditionItem: ...
     def DeleteCondition(self, conditionUuid: str) -> None: ...
-    def SetSelectedEventCondition(self, conditionUuid: str) -> None: ...
     def RenameCondition(self, conditionUuid: str, name: str) -> None: ...
     def SetConditionType(self, conditionUuid: str, conditionTypeName: str) -> None: ...
     def SetConditionTemplateAndRoi(self, conditionUuid: str, templateImage: Any, roi: RectangleRegion) -> None: ...
@@ -212,15 +208,10 @@ class ConditionStatusWindow(QDialog):
             self._selectRowByUuid(cid)
 
     def _onNewCondition(self) -> None:
-        if self.ViewModel.SelectedEventItem is None:
-            QMessageBox.warning(self, "Error", "Please select an event first.")
-            return
-
         name, ok = QInputDialog.getText(self, "New Condition", "Condition name:")
         if not ok:
             return
         condition = self.ViewModel.CreateCondition(name.strip())
-        self.ViewModel.SetSelectedEventCondition(str(condition.Uuid))
         self._refreshTable()
         self._selectRowByUuid(condition.Uuid)
 

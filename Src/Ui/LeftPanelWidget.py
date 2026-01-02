@@ -14,6 +14,7 @@ from Src.Ui.UiShared import (
     BUTTON_STYLE_STOPPED,
     HotkeyCaptureDialog,
 )
+from Src.Ui.ConditionStatusWindow import ConditionStatusWindow
 
 
 class DashboardViewModelProtocol(Protocol):
@@ -38,11 +39,22 @@ class DashboardViewModelProtocol(Protocol):
     def SetSentinelFlowHotkey(self, virtualKeyCodes: List[int]) -> None: ...
     def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None: ...
     def KeyNameFromVk(self, virtualKeyCode: int) -> str: ...
+    # Used by ConditionStatusWindow
+    MatchScoreUpdated: Any
+    ConditionsChangedSignal: Any
+    def GetConditionLibrary(self) -> list[Any]: ...
+    def GetLastLiveImage(self) -> Optional[Any]: ...
+    def CreateCondition(self, name: str) -> Any: ...
+    def DeleteCondition(self, conditionUuid: str) -> None: ...
+    def RenameCondition(self, conditionUuid: str, name: str) -> None: ...
+    def SetConditionType(self, conditionUuid: str, conditionTypeName: str) -> None: ...
+    def SetConditionTemplateAndRoi(self, conditionUuid: str, templateImage: Any, roi: Any) -> None: ...
 
 class LeftPanelWidget(QWidget):    
     def __init__(self, viewModel: DashboardViewModelProtocol) -> None:
         super().__init__()
         self.ViewModel = viewModel
+        self._conditionStatusDialog: Optional[ConditionStatusWindow] = None
         self._setupLeftPanel()
         self._wireUpBindings()
 
@@ -60,6 +72,9 @@ class LeftPanelWidget(QWidget):
         self.loadEventButton = QPushButton("Load")
         self.saveEventButton.setFixedWidth(40)
         self.loadEventButton.setFixedWidth(40)
+
+        self.openConditionsButton = QPushButton("Conditions")
+        self.openConditionsButton.setFixedWidth(200)
         
         buttonLayout.addWidget(self.addEventButton)
         buttonLayout.addWidget(self.removeEventButton)
@@ -72,6 +87,7 @@ class LeftPanelWidget(QWidget):
         self.eventListWidget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         
         layout.addLayout(buttonLayout)
+        layout.addWidget(self.openConditionsButton)
         layout.addWidget(self.eventListWidget)
         
         # Sentinel Control
@@ -92,6 +108,7 @@ class LeftPanelWidget(QWidget):
         self.removeEventButton.clicked.connect(self._onRemoveEventClicked)
         self.saveEventButton.clicked.connect(self._onSaveEventClicked)
         self.loadEventButton.clicked.connect(self._onLoadEventClicked)
+        self.openConditionsButton.clicked.connect(self._onOpenConditionsClicked)
         self.eventListWidget.currentItemChanged.connect(self._onEventListCurrentItemChanged)
         self.EventExecutionStateButton.clicked.connect(self._onEventExecutionStateClicked)
         self.EventExecutionStateHotkeyButton.clicked.connect(self._onEventExecutionStateHotkeyClicked)
@@ -141,6 +158,20 @@ class LeftPanelWidget(QWidget):
                 QMessageBox.information(self, "Success", "Configuration loaded successfully!")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to load file: {e}")
+
+    def _onOpenConditionsClicked(self) -> None:
+        if self._conditionStatusDialog is not None and self._conditionStatusDialog.isVisible():
+            self._conditionStatusDialog.raise_()
+            self._conditionStatusDialog.activateWindow()
+            return
+
+        dialog = ConditionStatusWindow(self.ViewModel, parent=self.window())
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dialog.finished.connect(lambda _code=0: setattr(self, "_conditionStatusDialog", None))
+        self._conditionStatusDialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def _onEventListCurrentItemChanged(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
         eventItem: EventItem = current.data(Qt.ItemDataRole.UserRole)

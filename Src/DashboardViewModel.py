@@ -65,15 +65,14 @@ class DashboardViewModel(QObject):
     def AddEvent(self) -> None:
         newEvent = self.EventListService.CreateDefaultEvent()
         self.EventStoreService.Add(newEvent)
-        self.ConditionStoreService.RebuildFromEvents(self.EventStoreService.GetAll())
+        # Condition library is global/independent. Ensure the new event's condition is present.
+        self.ConditionStoreService.Add(newEvent.Condition)
         self.ConditionsChangedSignal.emit()
         self.EventItemAddedSignal.emit(newEvent)
 
     def RemoveEvent(self) -> None:
         index = self.EventStoreService.RemoveSelected(self.ViewState.SelectedEventItem)
         if index is not None:
-            self.ConditionStoreService.RebuildFromEvents(self.EventStoreService.GetAll())
-            self.ConditionsChangedSignal.emit()
             self.EventItemRemovedSignal.emit(index)
 
     def FindWindow(self, title: str) -> Optional[int]:
@@ -276,8 +275,7 @@ class DashboardViewModel(QObject):
         events = self.EventStoreService.GetAll()
         affectedEvents = [e for e in events if e.Condition.Uuid == cid]
 
-        # Choose a fallback condition (must be a shared instance from the store),
-        # or create a new one if we're deleting the last condition.
+        # Choose a fallback condition from the library, or create one if we're deleting the last.
         fallback = next((c for c in self.ConditionStoreService.GetSnapshot() if c.Uuid != cid), None)
         if fallback is None:
             fallback = ConditionItem()
@@ -289,8 +287,7 @@ class DashboardViewModel(QObject):
             self.SentinelController.RequestResetEvent(event.Uuid)
             self.EventItemChangedSignal.emit(event)
 
-        # Rebuild library so it exactly matches the conditions referenced by events.
-        self.ConditionStoreService.RebuildFromEvents(self.EventStoreService.GetAll())
+        self.ConditionStoreService.RemoveByUuid(cid)
         self.SentinelController.RequestResetCondition(cid)
         self.SentinelController.RequestResetCondition(fallback.Uuid)
         self.ConditionsChangedSignal.emit()
