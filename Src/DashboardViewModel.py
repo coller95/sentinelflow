@@ -258,6 +258,13 @@ class DashboardViewModel(QObject):
         self.ConditionStoreService.Add(condition)
         return condition
 
+    def DeleteCondition(self, conditionUuid: str) -> None:
+        try:
+            cid = UUID(conditionUuid)
+        except Exception:
+            return
+        self.ConditionStoreService.RemoveByUuid(cid)
+
     def RenameCondition(self, conditionUuid: str, name: str) -> None:
         try:
             cid = UUID(conditionUuid)
@@ -268,6 +275,20 @@ class DashboardViewModel(QObject):
         if condition is None:
             return
         condition.Name = name
+
+    def SetConditionTemplateAndRoi(self, conditionUuid: str, templateImage: np.ndarray[Any, Any], roi: RectangleRegion) -> None:
+        try:
+            cid = UUID(conditionUuid)
+        except Exception:
+            return
+
+        condition = self.ConditionStoreService.GetByUuid(cid)
+        if condition is None:
+            return
+
+        condition.TemplateImage = templateImage
+        condition.Roi = roi
+        self.SentinelController.RequestResetCondition(condition.Uuid)
 
     def SetSelectedEventCondition(self, conditionUuid: str) -> None:
         eventItem = self.ViewState.SelectedEventItem

@@ -1,17 +1,14 @@
 from typing import Any, Dict, Optional, Protocol, cast
-import numpy as np
-import cv2
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QImage, QPixmap
+ 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QComboBox, QListWidget, QListWidgetItem, QCheckBox, QInputDialog, QMessageBox, 
     QDialog
 )
-from Src.Models import RectangleRegion, ActivationType, InputType, ActionItem, ConditionItem, EventItem
+from Src.Models import ActivationType, InputType, ActionItem, ConditionItem, EventItem, RectangleRegion
 from Src.Ui.UiShared import (
     HotkeyCaptureDialog,
-    CropperWidget,
 )
 from Src.Ui.ConditionStatusWindow import ConditionStatusWindow
 
@@ -35,15 +32,10 @@ class DashboardViewModelProtocol(Protocol):
     def UpdateSelectedThreshold(self, threshold: float) -> None: ...
     def UpdateSelectedTriggerOnThresholdExceed(self, isEnabled: bool) -> None: ...
     def UpdateSelectedRetriggerTimeMs(self, retriggerTimeMs: float) -> None: ...
-    def SetSelectedTemplateAndRoi(
-        self,
-        templateImage: np.ndarray[Any, Any],
-        roi: RectangleRegion,
-    ) -> None: ...
-
     def GetConditionLibrary(self) -> list[ConditionItem]: ...
     def CreateCondition(self, name: str) -> ConditionItem: ...
     def RenameCondition(self, conditionUuid: str, name: str) -> None: ...
+    def SetConditionTemplateAndRoi(self, conditionUuid: str, templateImage: Any, roi: RectangleRegion) -> None: ...
     def SetSelectedEventCondition(self, conditionUuid: str) -> None: ...
     def AddSelectedMouseStepFromCapturedPosition(self) -> None: ...
     def AddSelectedKeyboardStep(self, virtualKeyCodes: list[int]) -> None: ...
@@ -124,74 +116,15 @@ class RightPanelWidget(QWidget):
         self.conditionWidget.setLayout(self.conditionWidgetLayout)
         self.conditionWidget.hide()
         
-        # Roi widget
-        self.roiWidget = QWidget()
-        self.roiWidgetLayout = QHBoxLayout()
-        self.roiWidgetLayoutInner = QVBoxLayout()
-        
-        self.roiXEditLayout = QHBoxLayout()
-        self.roiYEditLayout = QHBoxLayout()
-        self.roiWEditLayout = QHBoxLayout()
-        self.roiHEditLayout = QHBoxLayout()
-        
-        self.roiXEdit = QLineEdit("0.0")
-        self.roiYEdit = QLineEdit("0.0")
-        self.roiWEdit = QLineEdit("1.0")
-        self.roiHEdit = QLineEdit("1.0")
-        
-        self.roiXEditLayout.addWidget(QLabel("X:"))
-        self.roiXEditLayout.addWidget(self.roiXEdit)
-        self.roiYEditLayout.addWidget(QLabel("Y:"))
-        self.roiYEditLayout.addWidget(self.roiYEdit)
-        self.roiWEditLayout.addWidget(QLabel("W:"))
-        self.roiWEditLayout.addWidget(self.roiWEdit)
-        self.roiHEditLayout.addWidget(QLabel("H:"))
-        self.roiHEditLayout.addWidget(self.roiHEdit)
-        
-        self.roiWidgetLayoutInner.addWidget(QLabel("Roi:"))
-        self.roiWidgetLayoutInner.addLayout(self.roiXEditLayout)
-        self.roiWidgetLayoutInner.addLayout(self.roiYEditLayout)
-        self.roiWidgetLayoutInner.addLayout(self.roiWEditLayout)
-        self.roiWidgetLayoutInner.addLayout(self.roiHEditLayout)
-        
-        self.roiButtonLayout = QVBoxLayout()
-        self.roiButtonLayout.setContentsMargins(0, 0, 0, 0)
-        self.roiButton = QPushButton("Select from Image")
-        self.roiButton.setFixedSize(150, 150)
-        self.roiButtonLayout.addWidget(self.roiButton)
-        
-        self.roiWidgetLayout.addLayout(self.roiWidgetLayoutInner)
-        self.roiWidgetLayout.addLayout(self.roiButtonLayout)
-        self.roiButton.setEnabled(False)
-        self.roiWidget.setLayout(self.roiWidgetLayout)
-        
-        self.roiXEdit.setReadOnly(True)
-        self.roiYEdit.setReadOnly(True)
-        self.roiWEdit.setReadOnly(True)
-        self.roiHEdit.setReadOnly(True)
-        self.roiWidget.hide()
-        
         # Threshold widget
         self.thresholdWidget = QWidget()
         self.thresholdWidgetLayout = QVBoxLayout()
-        
-        self.thresholdWidgetMatchScoreLayout = QHBoxLayout()
-        self.thresholdMatchScoreLabel = QLabel("0.0")
-        self.thresholdWidgetMatchScoreLayout.addWidget(QLabel("Match Score:"))
-        self.thresholdWidgetMatchScoreLayout.addWidget(self.thresholdMatchScoreLabel)
-        
-        self.thresholdWidgetMatchScoreBtnLayout = QHBoxLayout()
-        self.thresholdMatchScoreCopyButton = QPushButton("↓")
-        self.thresholdMatchScoreCopyButton.setFixedWidth(30)
-        self.thresholdWidgetMatchScoreBtnLayout.addWidget(self.thresholdMatchScoreCopyButton)
         
         self.thresholdWidgetThresholdLayout = QHBoxLayout()
         self.thresholdWidgetThresholdLayout.addWidget(QLabel("Threshold:"))
         self.thresholdEdit = QLineEdit("0.99")
         self.thresholdWidgetThresholdLayout.addWidget(self.thresholdEdit)
-        
-        self.thresholdWidgetLayout.addLayout(self.thresholdWidgetMatchScoreLayout)
-        self.thresholdWidgetLayout.addLayout(self.thresholdWidgetMatchScoreBtnLayout)
+
         self.thresholdWidgetLayout.addLayout(self.thresholdWidgetThresholdLayout)
         self.thresholdWidget.setLayout(self.thresholdWidgetLayout)
         self.thresholdEdit.setEnabled(False)
@@ -261,7 +194,6 @@ class RightPanelWidget(QWidget):
         layout.addWidget(self.activationHotkeyWidget)
         layout.addWidget(self.loopWidget)
         layout.addWidget(self.conditionWidget)
-        layout.addWidget(self.roiWidget)
         layout.addWidget(self.thresholdWidget)
         layout.addWidget(self.triggerOnThresholdExceedWidget)
         layout.addWidget(self.retriggerTimeWidget)
@@ -280,11 +212,8 @@ class RightPanelWidget(QWidget):
         self.deleteStepButton.clicked.connect(self._onRemoveStepClicked)
         
         self.activationHotkeyButton.clicked.connect(self._onCaptureHotkey)
-        self.roiButton.clicked.connect(self._onSelectRoi)
         self.conditionDropdown.currentIndexChanged.connect(self._onCommitConditionSelection)
         self.conditionStatusButton.clicked.connect(self._onOpenConditionStatus)
-        # Interaction
-        self.thresholdMatchScoreCopyButton.clicked.connect(self._onCopyMatchScoreToThreshold)
         
         # Property Editing
         self.eventNameEdit.editingFinished.connect(self._onCommitEventName)
@@ -299,7 +228,6 @@ class RightPanelWidget(QWidget):
 
         # --- ViewModel to View ---
         self.ViewModel.EventItemSelectedSignal.connect(self._onEventItemSelectedSignal)
-        self.ViewModel.MatchScoreUpdated.connect(self._updateUiEventMatchScore)
 
     def _moveStep(self, direction: int) -> None:
         currentRow = self.macroStepListWidget.currentRow()
@@ -397,83 +325,6 @@ class RightPanelWidget(QWidget):
             self.ViewModel.UpdateSelectedActivationHotkey(dialog.CapturedVirtualKeyCodes)
             self.activationHotkeyEdit.setText(", ".join(map(self.ViewModel.KeyNameFromVk, dialog.CapturedVirtualKeyCodes)))
 
-    def _onSelectRoi(self) -> None:
-        """Handle select ROI button click."""
-        lastLiveImage = self.ViewModel.GetLastLiveImage()
-        if lastLiveImage is None:
-            QMessageBox.warning(self, "Error", "Please start the capture before selecting an ROI.")
-            return
-
-        self.cropper = CropperWidget(lastLiveImage, self._handleNewCrop)
-        self.cropper.show()
-
-    def _handleNewCrop(
-        self,
-        cvImage: np.ndarray[Any, Any],
-        normalizedX: float,
-        normalizedY: float,
-        normalizedWidth: float,
-        normalizedHeight: float,
-    ) -> None:
-        self.ViewModel.SetSelectedTemplateAndRoi(
-            cvImage,
-            RectangleRegion(normalizedX, normalizedY, normalizedWidth, normalizedHeight),
-        )
-
-        self._setButtonWithImage(self.roiButton, cvImage)
-        self.roiXEdit.setText(f"{normalizedX:.4f}")
-        self.roiYEdit.setText(f"{normalizedY:.4f}")
-        self.roiWEdit.setText(f"{normalizedWidth:.4f}")
-        self.roiHEdit.setText(f"{normalizedHeight:.4f}")
-
-    def _refreshConditionDependentFields(self, eventItem: EventItem) -> None:
-        self.roiXEdit.setText(f"{eventItem.Condition.Roi.XNormalized:.4f}")
-        self.roiYEdit.setText(f"{eventItem.Condition.Roi.YNormalized:.4f}")
-        self.roiWEdit.setText(f"{eventItem.Condition.Roi.WidthNormalized:.4f}")
-        self.roiHEdit.setText(f"{eventItem.Condition.Roi.HeightNormalized:.4f}")
-
-        if eventItem.Condition.TemplateImage is not None:
-            self._setButtonWithImage(self.roiButton, eventItem.Condition.TemplateImage)
-        else:
-            self.roiButton.setIcon(QIcon())
-            self.roiButton.setText("Select from Image")
-
-    def _setButtonWithImage(self, button: QPushButton, cvImage: np.ndarray[Any, Any]) -> None:
-        height, width, _channel = cvImage.shape
-        bytesPerLine = 3 * width
-        cvRgb = cv2.cvtColor(cvImage, cv2.COLOR_BGR2RGB)
-        qImage = QImage(cvRgb.data, width, height, bytesPerLine, QImage.Format.Format_RGB888)
-        pixmap = QPixmap.fromImage(qImage)
-        icon = QIcon(pixmap)
-        button.setIcon(icon)
-        button.setIconSize(button.size())
-        button.setText("")
-
-    def _onCopyMatchScoreToThreshold(self) -> None:
-        """Handle copy match score to threshold button click."""
-        self.thresholdEdit.setText(self.thresholdMatchScoreLabel.text())
-
-    def _updateUiEventMatchScore(self, score: object) -> None:
-        """Update the live match score label for the selected condition only."""
-        eventItem = self.ViewModel.SelectedEventItem
-        if not eventItem:
-            return
-
-        displayValue: object = score
-        if isinstance(score, (tuple, list)):
-            scoreSequence = cast(list[Any], score)
-            if len(scoreSequence) >= 2:
-                # If we got a (conditionUuid, value) payload, only accept it for this event's condition.
-                maybeId = scoreSequence[0]
-                try:
-                    if str(maybeId) != str(eventItem.Condition.Uuid):
-                        return
-                except Exception:
-                    pass
-                displayValue = scoreSequence[1]
-
-        self.thresholdMatchScoreLabel.setText(f"{displayValue}")
-
     def _onOpenConditionStatus(self) -> None:
         # Keep a reference so the window isn't GC'ed.
         self._conditionStatusDialog = ConditionStatusWindow(self.ViewModel)
@@ -497,13 +348,11 @@ class RightPanelWidget(QWidget):
             self.thresholdEdit.setEnabled(False)
             self.triggerOnThresholdExceedCheckbox.setEnabled(False)
             self.retriggerTimeEdit.setEnabled(False)
-            self.roiButton.setEnabled(False)
             self.conditionDropdown.setEnabled(False)
 
             self.activationHotkeyWidget.hide()
             self.loopWidget.hide()
             self.conditionWidget.hide()
-            self.roiWidget.hide()
             self.thresholdWidget.hide()
             self.triggerOnThresholdExceedWidget.hide()
             self.retriggerTimeWidget.hide()
@@ -528,19 +377,6 @@ class RightPanelWidget(QWidget):
         self.loopIntervalEdit.setEnabled(True)
 
         self._refreshConditionDropdown(eventItem)
-
-        self.roiXEdit.setText(f"{eventItem.Condition.Roi.XNormalized:.4f}")
-        self.roiYEdit.setText(f"{eventItem.Condition.Roi.YNormalized:.4f}")
-        self.roiWEdit.setText(f"{eventItem.Condition.Roi.WidthNormalized:.4f}")
-        self.roiHEdit.setText(f"{eventItem.Condition.Roi.HeightNormalized:.4f}")
-
-        if eventItem.Condition.TemplateImage is not None:
-            self._setButtonWithImage(self.roiButton, eventItem.Condition.TemplateImage)
-        else:
-            self.roiButton.setIcon(QIcon())
-            self.roiButton.setText("Select from Image")
-
-        self.roiButton.setEnabled(True)
 
         self.thresholdEdit.setText(f"{eventItem.Threshold}")
         self.thresholdEdit.setEnabled(True)
@@ -573,13 +409,11 @@ class RightPanelWidget(QWidget):
 
         if activationType in (ActivationType.ImageMatchRoi, ActivationType.ProgressBar):
             self.conditionWidget.show()
-            self.roiWidget.show()
             self.thresholdWidget.show()
             self.triggerOnThresholdExceedWidget.show()
             self.retriggerTimeWidget.show()
         else:
             self.conditionWidget.hide()
-            self.roiWidget.hide()
             self.thresholdWidget.hide()
             self.triggerOnThresholdExceedWidget.hide()
             self.retriggerTimeWidget.hide()
@@ -627,8 +461,6 @@ class RightPanelWidget(QWidget):
                 return
             condition = self.ViewModel.CreateCondition(name.strip())
             self.ViewModel.SetSelectedEventCondition(str(condition.Uuid))
-            # Update ROI/template UI to match the newly bound condition
-            self._refreshConditionDependentFields(eventItem)
             self._refreshConditionDropdown(eventItem)
             return
 
@@ -645,8 +477,6 @@ class RightPanelWidget(QWidget):
 
         if isinstance(data, str):
             self.ViewModel.SetSelectedEventCondition(data)
-            # Update ROI/template UI to match the newly bound condition
-            self._refreshConditionDependentFields(eventItem)
 
     def _onCommitActivationType(self, index: int) -> None:
         typeName = self.activationDropdown.currentText()

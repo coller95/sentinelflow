@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Protocol, cast
+from typing import Any, Dict, Optional, Protocol, cast
 from uuid import UUID
 
 import numpy as np
@@ -8,15 +8,30 @@ import cv2
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QDialog, QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
-from Src.Models import ConditionItem
+from Src.Models import ConditionItem, RectangleRegion
+from Src.Ui.UiShared import CropperWidget
 
 
 class DashboardViewModelProtocol(Protocol):
     MatchScoreUpdated: Any
 
     def GetConditionLibrary(self) -> list[ConditionItem]: ...
+    def GetLastLiveImage(self) -> Optional[Any]: ...
+    def RenameCondition(self, conditionUuid: str, name: str) -> None: ...
+    def SetConditionTemplateAndRoi(self, conditionUuid: str, templateImage: Any, roi: RectangleRegion) -> None: ...
 
 
 class ConditionStatusWindow(QDialog):
@@ -25,6 +40,8 @@ class ConditionStatusWindow(QDialog):
         self.ViewModel = viewModel
         self.setWindowTitle("Condition Status")
         self.setMinimumSize(520, 320)
+
+        self._activeCropper: Optional[CropperWidget] = None
 
         self._lastValues: Dict[UUID, object] = {}
         self._lastCrops: Dict[UUID, np.ndarray[Any, Any]] = {}
@@ -39,8 +56,24 @@ class ConditionStatusWindow(QDialog):
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table)
 
+        editorRow = QWidget()
+        editorLayout = QHBoxLayout(editorRow)
+        editorLayout.setContentsMargins(0, 0, 0, 0)
+        editorLayout.addWidget(QLabel("Name:"))
+        self.nameEdit = QLineEdit("")
+        editorLayout.addWidget(self.nameEdit)
+        self.applyNameButton = QPushButton("Apply")
+        editorLayout.addWidget(self.applyNameButton)
+        self.setRoiButton = QPushButton("Set ROI/Template from Live")
+        editorLayout.addWidget(self.setRoiButton)
+        layout.addWidget(editorRow)
+
         # initial
         self._refreshTable()
+
+        self.table.itemSelectionChanged.connect(self._onSelectionChanged)
+        self.applyNameButton.clicked.connect(self._onApplyName)
+        self.setRoiButton.clicked.connect(self._onSetRoiFromLive)
 
         # live updates
         self.ViewModel.MatchScoreUpdated.connect(self._onMatchUpdate)
@@ -69,7 +102,87 @@ class ConditionStatusWindow(QDialog):
                 self._lastCrops[cid] = crop
         self._refreshTable()
 
+    def _getSelectedConditionUuid(self) -> Optional[UUID]:
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        if item is None:
+            return None
+        raw = item.data(Qt.ItemDataRole.UserRole)
+        if raw is None:
+            return None
+        try:
+            return UUID(str(raw))
+        except Exception:
+            return None
+
+    def _selectRowByUuid(self, conditionUuid: UUID) -> None:
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item is None:
+                continue
+            raw = item.data(Qt.ItemDataRole.UserRole)
+            if raw is None:
+                continue
+            if str(raw) == str(conditionUuid):
+                self.table.setCurrentCell(row, 0)
+                return
+
+    def _onSelectionChanged(self) -> None:
+        cid = self._getSelectedConditionUuid()
+        if cid is None:
+            self.nameEdit.setText("")
+            return
+        condition = next((c for c in self.ViewModel.GetConditionLibrary() if c.Uuid == cid), None)
+        if condition is None:
+            self.nameEdit.setText("")
+            return
+        self.nameEdit.setText(condition.Name)
+
+    def _onApplyName(self) -> None:
+        cid = self._getSelectedConditionUuid()
+        if cid is None:
+            return
+        self.ViewModel.RenameCondition(str(cid), self.nameEdit.text().strip())
+        self._refreshTable()
+        self._selectRowByUuid(cid)
+
+    def _onSetRoiFromLive(self) -> None:
+        cid = self._getSelectedConditionUuid()
+        if cid is None:
+            return
+
+        lastLiveImage = self.ViewModel.GetLastLiveImage()
+        if lastLiveImage is None:
+            QMessageBox.warning(self, "Error", "Please start the capture before selecting an ROI.")
+            return
+
+        def onCrop(
+            cvImage: np.ndarray[Any, Any],
+            normalizedX: float,
+            normalizedY: float,
+            normalizedWidth: float,
+            normalizedHeight: float,
+        ) -> None:
+            self.ViewModel.SetConditionTemplateAndRoi(
+                str(cid),
+                cvImage,
+                RectangleRegion(normalizedX, normalizedY, normalizedWidth, normalizedHeight),
+            )
+            self._refreshTable()
+            self._selectRowByUuid(cid)
+
+        if self._activeCropper is not None:
+            self._activeCropper.close()
+
+        cropper = CropperWidget(cast(np.ndarray[Any, Any], lastLiveImage), onCrop)
+        self._activeCropper = cropper
+        cropper.destroyed.connect(lambda _obj=None: setattr(self, "_activeCropper", None))
+        cropper.show()
+
     def _refreshTable(self) -> None:
+        selected = self._getSelectedConditionUuid()
         conditions = self.ViewModel.GetConditionLibrary()
         self.table.setRowCount(len(conditions))
 
@@ -78,7 +191,7 @@ class ConditionStatusWindow(QDialog):
             typeName = condition.SelectedConditionType.name if hasattr(condition.SelectedConditionType, "name") else str(condition.SelectedConditionType)
             lastValue = self._lastValues.get(condition.Uuid, "-")
 
-            self._setItem(row, 0, name)
+            self._setItem(row, 0, name, str(condition.Uuid))
             self._setItem(row, 1, typeName)
             self._setImageCell(row, 2, condition.TemplateImage)
             self._setImageCell(row, 3, self._lastCrops.get(condition.Uuid))
@@ -88,9 +201,14 @@ class ConditionStatusWindow(QDialog):
         for row in range(self.table.rowCount()):
             self.table.setRowHeight(row, 72)
 
-    def _setItem(self, row: int, col: int, text: str) -> None:
+        if selected is not None:
+            self._selectRowByUuid(selected)
+
+    def _setItem(self, row: int, col: int, text: str, userData: Optional[str] = None) -> None:
         item = QTableWidgetItem(text)
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        if userData is not None:
+            item.setData(Qt.ItemDataRole.UserRole, userData)
         self.table.setItem(row, col, item)
 
     def _setImageCell(self, row: int, col: int, cvImage: object) -> None:

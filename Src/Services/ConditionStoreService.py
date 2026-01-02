@@ -34,6 +34,12 @@ class ConditionStoreService:
             self._conditionsById[condition.Uuid] = condition
             self._orderedIds.append(condition.Uuid)
 
+    def RemoveByUuid(self, conditionId: UUID) -> None:
+        with self._lock:
+            if conditionId in self._conditionsById:
+                self._conditionsById.pop(conditionId, None)
+            self._orderedIds = [cid for cid in self._orderedIds if cid != conditionId]
+
     def GetByUuid(self, conditionId: UUID) -> Optional[ConditionItem]:
         with self._lock:
             return self._conditionsById.get(conditionId)
