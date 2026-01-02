@@ -96,7 +96,7 @@ class ActionExecutorEngine:
             return
         SendKeystrokeToWindow(hwnd, int(value))
 
-    def loop(
+    def Loop(
         self,
         windowHandle: int,
         events: List[EventItem],

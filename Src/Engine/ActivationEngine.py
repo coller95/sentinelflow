@@ -1,28 +1,26 @@
 import time
 from uuid import UUID
-import numpy as np
 from dataclasses import dataclass, field
 from typing import (
-    cast, List, Optional, Any, Set, Dict
+    cast, List, Set, Dict
 )
-from Src.Helper import (
-    CropImage, MatchTemplate, IsHotkeyActive,
-    EstimateProgressBarPercentage
-)
+from Src.Helper import IsHotkeyActive
 
 from Src.Models import (
     ActivationType, 
     EventItem
 )
 
+from Src.Engine.ConditionEngine import ConditionEngineResult
 
+# =============================================================================
+# Context and State Classes
+# =============================================================================
 @dataclass
 class EventActivationState:
     IsCurrentlyHeld: bool = False
     LoopCounter: int = 0
     LastTriggerTimeMs: int = 0
-    MatchScore: float = 0.0
-    PercentFilled: float = 0.0
 
 @dataclass
 class ActivationEngineContext:
@@ -34,18 +32,23 @@ class ActivationEngineContext:
 class ActivationEngineResult:
     triggered: List[EventItem]
     disabled: List[EventItem]
-    matchUpdates: List[object]
     triggeredEventUuids: Set[UUID]
 
-
+# =============================================================================
+# Activation Engine
+# =============================================================================
 class ActivationEngine:
-    def loop(self, events: List[EventItem], localImage: Optional[np.ndarray[Any, Any]], context: ActivationEngineContext) -> tuple[ActivationEngineResult, ActivationEngineContext]:
+    def Loop(
+        self,
+        events: List[EventItem],
+        conditionEngineResult: ConditionEngineResult,
+        context: ActivationEngineContext
+    ) -> tuple[ActivationEngineResult, ActivationEngineContext]:
         triggered: List[EventItem] = []
         disabled: List[EventItem] = []
-        matchUpdates: List[object] = []
         triggeredEventUuids: Set[UUID] = set()
 
-        for index, event in enumerate(events):
+        for event in events:
             if not event.IsEnabled:
                 continue
 
@@ -83,23 +86,15 @@ class ActivationEngine:
                 triggeredEventUuids.add(event.Uuid)
 
             elif event.SelectedActivationType == ActivationType.ImageMatchRoi:
-                if localImage is None or event.TemplateImage is None:
-                    continue
+                matchScore = conditionEngineResult.matchScores.get(event.Uuid, None)
+                if matchScore is None:
+                    continue # Skip if no data
 
-                localImageRoi = CropImage(localImage, (
-                    event.Roi.XNormalized, 
-                    event.Roi.YNormalized, 
-                    event.Roi.WidthNormalized, 
-                    event.Roi.HeightNormalized
-                ))
-
-                state.MatchScore = MatchTemplate(localImageRoi, event.TemplateImage)
-                matchUpdates.append(state.MatchScore)
 
                 if event.TriggerOnThresholdExceed:
-                    isConditionMet = state.MatchScore >= event.Threshold
+                    isConditionMet = matchScore >= event.Threshold
                 else:
-                    isConditionMet = state.MatchScore < event.Threshold
+                    isConditionMet = matchScore < event.Threshold
 
                 currentTimeMs = int(time.time() * 1000)
                 timeSinceLastTrigger = currentTimeMs - state.LastTriggerTimeMs
@@ -114,24 +109,15 @@ class ActivationEngine:
 
                 state.IsCurrentlyHeld = isConditionMet
 
-            elif event.SelectedActivationType in (ActivationType.ProgressBar, ActivationType.ProgressBar):
-                if localImage is None:
-                    continue
-
-                localImageRoi = CropImage(localImage, (
-                    event.Roi.XNormalized, 
-                    event.Roi.YNormalized, 
-                    event.Roi.WidthNormalized, 
-                    event.Roi.HeightNormalized
-                ))
-
-                state.PercentFilled = EstimateProgressBarPercentage(localImageRoi)
-                matchUpdates.append((index, state.PercentFilled))
+            elif event.SelectedActivationType == ActivationType.ProgressBar:
+                percentFilled = conditionEngineResult.percentFilleds.get(event.Uuid, None)
+                if percentFilled is None:
+                    continue # Skip if no data
 
                 if event.TriggerOnThresholdExceed:
-                    isConditionMet = state.PercentFilled >= event.Threshold
+                    isConditionMet = percentFilled >= event.Threshold
                 else:
-                    isConditionMet = state.PercentFilled < event.Threshold
+                    isConditionMet = percentFilled < event.Threshold
 
                 currentTimeMs = int(time.time() * 1000)
                 timeSinceLastTrigger = currentTimeMs - state.LastTriggerTimeMs
@@ -149,6 +135,5 @@ class ActivationEngine:
         return ActivationEngineResult(
             triggered=triggered,
             disabled=disabled,
-            matchUpdates=matchUpdates,
             triggeredEventUuids=triggeredEventUuids
         ), context
