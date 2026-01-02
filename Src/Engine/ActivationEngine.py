@@ -121,6 +121,3 @@ class ActivationEngine:
                 event.IsCurrentlyHeld = isConditionMet
 
         return EngineResult(triggered=triggered, disabled=disabled, match_updates=match_updates)
-                event.IsCurrentlyHeld = isConditionMet
-
-
