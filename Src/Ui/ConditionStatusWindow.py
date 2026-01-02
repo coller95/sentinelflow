@@ -29,6 +29,7 @@ from Src.Ui.UiShared import CropperWidget
 
 class DashboardViewModelProtocol(Protocol):
     MatchScoreUpdated: Any
+    ConditionsChangedSignal: Any
 
     def GetConditionLibrary(self) -> list[ConditionItem]: ...
     def GetLastLiveImage(self) -> Optional[Any]: ...
@@ -37,6 +38,7 @@ class DashboardViewModelProtocol(Protocol):
     def RenameCondition(self, conditionUuid: str, name: str) -> None: ...
     def SetConditionType(self, conditionUuid: str, conditionTypeName: str) -> None: ...
     def SetConditionTemplateAndRoi(self, conditionUuid: str, templateImage: Any, roi: RectangleRegion) -> None: ...
+    def MoveCondition(self, fromIndex: int, toIndex: int) -> None: ...
 
 
 class ConditionStatusWindow(QDialog):
@@ -66,6 +68,17 @@ class ConditionStatusWindow(QDialog):
         self.deleteButton.setFixedWidth(30)
         self.deleteButton.setToolTip("Delete selected condition")
         toolbarLayout.addWidget(self.deleteButton)
+
+        self.moveUpButton = QPushButton("↑")
+        self.moveUpButton.setFixedWidth(30)
+        self.moveUpButton.setToolTip("Move selected condition up")
+        toolbarLayout.addWidget(self.moveUpButton)
+
+        self.moveDownButton = QPushButton("↓")
+        self.moveDownButton.setFixedWidth(30)
+        self.moveDownButton.setToolTip("Move selected condition down")
+        toolbarLayout.addWidget(self.moveDownButton)
+
         toolbarLayout.addStretch()
         layout.addWidget(toolbarRow)
 
@@ -102,9 +115,25 @@ class ConditionStatusWindow(QDialog):
         self.newButton.clicked.connect(self._onNewCondition)
         self.deleteButton.clicked.connect(self._onDeleteCondition)
         self.setRoiButton.clicked.connect(self._onSetRoiFromLive)
+        self.moveUpButton.clicked.connect(lambda: self._onMoveSelected(-1))
+        self.moveDownButton.clicked.connect(lambda: self._onMoveSelected(1))
 
         # live updates
         self.ViewModel.MatchScoreUpdated.connect(self._onMatchUpdate)
+        self.ViewModel.ConditionsChangedSignal.connect(self._onConditionsChanged)
+
+        self._updateMoveButtonsEnabled()
+
+    def _onConditionsChanged(self) -> None:
+        self._refreshTable()
+        self._updateMoveButtonsEnabled()
+
+    def _updateMoveButtonsEnabled(self) -> None:
+        row = self.table.currentRow()
+        count = self.table.rowCount()
+        hasSelection = row >= 0 and count > 0
+        self.moveUpButton.setEnabled(hasSelection and row > 0)
+        self.moveDownButton.setEnabled(hasSelection and row < (count - 1))
 
     def _onMatchUpdate(self, payload: object) -> None:
         # Expected payload: (uuid.UUID, value, cropImage?)
@@ -158,6 +187,7 @@ class ConditionStatusWindow(QDialog):
                 return
 
     def _onSelectionChanged(self) -> None:
+        self._updateMoveButtonsEnabled()
         cid = self._getSelectedConditionUuid()
         self._isUpdatingEditorFields = True
         try:
@@ -184,6 +214,20 @@ class ConditionStatusWindow(QDialog):
                 self.typeDropdown.setCurrentIndex(idx)
         finally:
             self._isUpdatingEditorFields = False
+
+    def _onMoveSelected(self, direction: int) -> None:
+        row = self.table.currentRow()
+        if row < 0:
+            return
+        target = row + direction
+        if target < 0 or target >= self.table.rowCount():
+            return
+        selected = self._getSelectedConditionUuid()
+        self.ViewModel.MoveCondition(row, target)
+        self._refreshTable()
+        if selected is not None:
+            self._selectRowByUuid(selected)
+        self._updateMoveButtonsEnabled()
 
     def _onNameEdited(self) -> None:
         if self._isUpdatingEditorFields:
@@ -290,6 +334,8 @@ class ConditionStatusWindow(QDialog):
 
         if selected is not None:
             self._selectRowByUuid(selected)
+
+        self._updateMoveButtonsEnabled()
 
     def _setItem(self, row: int, col: int, text: str, userData: Optional[str] = None) -> None:
         item = QTableWidgetItem(text)

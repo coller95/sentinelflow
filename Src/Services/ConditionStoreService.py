@@ -37,6 +37,31 @@ class ConditionStoreService:
             self._orderedIds.clear()
         self.EnsureDummyCondition()
 
+    def ReplaceAll(self, conditions: List[ConditionItem]) -> None:
+        """Replace the entire library with the provided ordered list.
+
+        Used for loading from disk: preserves file order, dedupes by UUID, and
+        only injects a Dummy Condition if the loaded list is empty.
+        """
+        with self._lock:
+            self._conditionsById.clear()
+            self._orderedIds.clear()
+
+            for condition in conditions:
+                if not isinstance(condition, ConditionItem):
+                    continue
+                cid = condition.Uuid
+                if cid in self._conditionsById:
+                    continue
+                self._conditionsById[cid] = condition
+                self._orderedIds.append(cid)
+
+            if len(self._orderedIds) == 0:
+                dummy = ConditionItem()
+                dummy.Name = "Dummy Condition"
+                self._conditionsById[dummy.Uuid] = dummy
+                self._orderedIds.append(dummy.Uuid)
+
     def Add(self, condition: ConditionItem) -> None:
         with self._lock:
             if condition.Uuid in self._conditionsById:
@@ -59,6 +84,17 @@ class ConditionStoreService:
     def GetSnapshot(self) -> List[ConditionItem]:
         with self._lock:
             return [self._conditionsById[cid] for cid in self._orderedIds if cid in self._conditionsById]
+
+    def MoveByIndex(self, fromIndex: int, toIndex: int) -> None:
+        with self._lock:
+            if fromIndex < 0 or fromIndex >= len(self._orderedIds):
+                return
+            if toIndex < 0 or toIndex >= len(self._orderedIds):
+                return
+            if fromIndex == toIndex:
+                return
+            cid = self._orderedIds.pop(fromIndex)
+            self._orderedIds.insert(toIndex, cid)
 
     def RebuildFromEvents(self, events: List[EventItem]) -> None:
         """Rebuild the library to exactly the set of conditions referenced by events."""

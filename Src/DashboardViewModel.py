@@ -153,11 +153,7 @@ class DashboardViewModel(QObject):
             self.EventStoreService.Clear()
 
             # Restore condition library first (if present)
-            self.ConditionStoreService.Clear()
-            for condition in loadedConditions:
-                self.ConditionStoreService.Add(condition)
-
-            self.ConditionStoreService.EnsureDummyCondition()
+            self.ConditionStoreService.ReplaceAll(loadedConditions)
 
             self.ConditionsChangedSignal.emit()
 
@@ -312,6 +308,10 @@ class DashboardViewModel(QObject):
         if condition is None:
             return
         condition.Name = name
+        self.ConditionsChangedSignal.emit()
+
+    def MoveCondition(self, fromIndex: int, toIndex: int) -> None:
+        self.ConditionStoreService.MoveByIndex(fromIndex, toIndex)
         self.ConditionsChangedSignal.emit()
 
     def SetConditionTemplateAndRoi(self, conditionUuid: str, templateImage: np.ndarray[Any, Any], roi: RectangleRegion) -> None:
