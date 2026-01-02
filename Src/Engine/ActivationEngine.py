@@ -102,8 +102,10 @@ class ActivationEngine:
                 currentTimeMs = int(time.time() * 1000)
                 timeSinceLastTrigger = currentTimeMs - state.LastTriggerTimeMs
 
-                isRisingEdge = isConditionMet and not state.IsCurrentlyHeld
-                isRetrigger = isConditionMet and (timeSinceLastTrigger > event.RetriggerTimeMilliseconds)
+                canTrigger = timeSinceLastTrigger > event.RetriggerTimeMilliseconds
+
+                isRisingEdge = isConditionMet and not state.IsCurrentlyHeld and canTrigger
+                isRetrigger = isConditionMet and canTrigger
 
                 if isRisingEdge or isRetrigger:
                     triggered.append(event)
@@ -125,8 +127,10 @@ class ActivationEngine:
                 currentTimeMs = int(time.time() * 1000)
                 timeSinceLastTrigger = currentTimeMs - state.LastTriggerTimeMs
 
-                isRisingEdge = isConditionMet and not state.IsCurrentlyHeld
-                isRetrigger = isConditionMet and (timeSinceLastTrigger > event.RetriggerTimeMilliseconds)
+                canTrigger = timeSinceLastTrigger > event.RetriggerTimeMilliseconds
+
+                isRisingEdge = isConditionMet and not state.IsCurrentlyHeld and canTrigger
+                isRetrigger = isConditionMet and canTrigger
 
                 if isRisingEdge or isRetrigger:
                     triggered.append(event)
@@ -170,8 +174,10 @@ class ActivationEngine:
                 currentTimeMs = int(time.time() * 1000)
                 timeSinceLastTrigger = currentTimeMs - state.LastTriggerTimeMs
 
-                isRisingEdge = isConditionMet and not state.IsCurrentlyHeld
-                isRetrigger = isConditionMet and (timeSinceLastTrigger > event.RetriggerTimeMilliseconds)
+                canTrigger = timeSinceLastTrigger > event.RetriggerTimeMilliseconds
+
+                isRisingEdge = isConditionMet and not state.IsCurrentlyHeld and canTrigger
+                isRetrigger = isConditionMet and canTrigger
 
                 if isRisingEdge or isRetrigger:
                     triggered.append(event)
