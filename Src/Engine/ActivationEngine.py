@@ -1,9 +1,9 @@
 import time
 from uuid import UUID
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import (
-    List, Optional, Any, Set
+    cast, List, Optional, Any, Set, Dict
 )
 from Src.Helper import (
     CropImage, MatchTemplate, IsHotkeyActive,
@@ -17,7 +17,21 @@ from Src.Models import (
 
 
 @dataclass
-class EngineResult:
+class EventActivationState:
+    IsCurrentlyHeld: bool = False
+    LoopCounter: int = 0
+    LastTriggerTimeMs: int = 0
+    MatchScore: float = 0.0
+    PercentFilled: float = 0.0
+
+@dataclass
+class ActivationEngineContext:
+    eventStates: Dict[UUID, EventActivationState] = field(
+        default_factory=lambda: cast(Dict[UUID, EventActivationState], {})
+    )
+
+@dataclass
+class ActivationEngineResult:
     triggered: List[EventItem]
     disabled: List[EventItem]
     matchUpdates: List[object]
@@ -25,7 +39,7 @@ class EngineResult:
 
 
 class ActivationEngine:
-    def loop(self, events: List[EventItem], localImage: Optional[np.ndarray[Any, Any]]) -> EngineResult:
+    def loop(self, events: List[EventItem], localImage: Optional[np.ndarray[Any, Any]], context: ActivationEngineContext) -> tuple[ActivationEngineResult, ActivationEngineContext]:
         triggered: List[EventItem] = []
         disabled: List[EventItem] = []
         matchUpdates: List[object] = []
@@ -35,31 +49,36 @@ class ActivationEngine:
             if not event.IsEnabled:
                 continue
 
+            # Ensure state exists for this event
+            if event.Uuid not in context.eventStates:
+                context.eventStates[event.Uuid] = EventActivationState()
+            state = context.eventStates[event.Uuid]
+
             if event.SelectedActivationType == ActivationType.Hotkey:
                 if len(event.ActivationVirtualKeyCodes) == 0:
                     continue
 
                 isDownNow = IsHotkeyActive(event.ActivationVirtualKeyCodes)
-                if event.IsCurrentlyHeld and not isDownNow:
+                if state.IsCurrentlyHeld and not isDownNow:
                     triggered.append(event)
                     triggeredEventUuids.add(event.Uuid)
-                event.IsCurrentlyHeld = isDownNow
+                state.IsCurrentlyHeld = isDownNow
 
             elif event.SelectedActivationType == ActivationType.Loop:
                 if event.LoopCount < 0:
                     continue
-                if event.LoopCount > 0 and event.LoopCounter >= event.LoopCount:
+                if event.LoopCount > 0 and state.LoopCounter >= event.LoopCount:
                     event.IsEnabled = False
                     event.ResetTransientState()
                     disabled.append(event)
                     continue
 
                 currentTimeMs = int(time.time() * 1000)
-                if currentTimeMs - event.TimeOfLastTriggerMilliseconds < event.IntervalMilliseconds:
+                if currentTimeMs - state.LastTriggerTimeMs < event.IntervalMilliseconds:
                     continue
 
-                event.LoopCounter += 1
-                event.TimeOfLastTriggerMilliseconds = currentTimeMs
+                state.LoopCounter += 1
+                state.LastTriggerTimeMs = currentTimeMs
                 triggered.append(event)
                 triggeredEventUuids.add(event.Uuid)
 
@@ -74,26 +93,26 @@ class ActivationEngine:
                     event.Roi.HeightNormalized
                 ))
 
-                event.MatchScore = MatchTemplate(localImageRoi, event.TemplateImage)
-                matchUpdates.append(event.MatchScore)
+                state.MatchScore = MatchTemplate(localImageRoi, event.TemplateImage)
+                matchUpdates.append(state.MatchScore)
 
                 if event.TriggerOnThresholdExceed:
-                    isConditionMet = event.MatchScore >= event.Threshold
+                    isConditionMet = state.MatchScore >= event.Threshold
                 else:
-                    isConditionMet = event.MatchScore < event.Threshold
+                    isConditionMet = state.MatchScore < event.Threshold
 
                 currentTimeMs = int(time.time() * 1000)
-                timeSinceLastTrigger = currentTimeMs - event.TimeOfLastTriggerMilliseconds
+                timeSinceLastTrigger = currentTimeMs - state.LastTriggerTimeMs
 
-                isRisingEdge = isConditionMet and not event.IsCurrentlyHeld
+                isRisingEdge = isConditionMet and not state.IsCurrentlyHeld
                 isRetrigger = isConditionMet and (timeSinceLastTrigger > event.RetriggerTimeMilliseconds)
 
                 if isRisingEdge or isRetrigger:
                     triggered.append(event)
                     triggeredEventUuids.add(event.Uuid)
-                    event.TimeOfLastTriggerMilliseconds = currentTimeMs
+                    state.LastTriggerTimeMs = currentTimeMs
 
-                event.IsCurrentlyHeld = isConditionMet
+                state.IsCurrentlyHeld = isConditionMet
 
             elif event.SelectedActivationType in (ActivationType.ProgressBar, ActivationType.ProgressBar):
                 if localImage is None:
@@ -106,25 +125,30 @@ class ActivationEngine:
                     event.Roi.HeightNormalized
                 ))
 
-                event.PercentFilled = EstimateProgressBarPercentage(localImageRoi)
-                matchUpdates.append((index, event.PercentFilled))
+                state.PercentFilled = EstimateProgressBarPercentage(localImageRoi)
+                matchUpdates.append((index, state.PercentFilled))
 
                 if event.TriggerOnThresholdExceed:
-                    isConditionMet = event.PercentFilled >= event.Threshold
+                    isConditionMet = state.PercentFilled >= event.Threshold
                 else:
-                    isConditionMet = event.PercentFilled < event.Threshold
+                    isConditionMet = state.PercentFilled < event.Threshold
 
                 currentTimeMs = int(time.time() * 1000)
-                timeSinceLastTrigger = currentTimeMs - event.TimeOfLastTriggerMilliseconds
+                timeSinceLastTrigger = currentTimeMs - state.LastTriggerTimeMs
 
-                isRisingEdge = isConditionMet and not event.IsCurrentlyHeld
+                isRisingEdge = isConditionMet and not state.IsCurrentlyHeld
                 isRetrigger = isConditionMet and (timeSinceLastTrigger > event.RetriggerTimeMilliseconds)
 
                 if isRisingEdge or isRetrigger:
                     triggered.append(event)
                     triggeredEventUuids.add(event.Uuid)
-                    event.TimeOfLastTriggerMilliseconds = currentTimeMs
+                    state.LastTriggerTimeMs = currentTimeMs
 
-                event.IsCurrentlyHeld = isConditionMet
+                state.IsCurrentlyHeld = isConditionMet
 
-        return EngineResult(triggered=triggered, disabled=disabled, matchUpdates=matchUpdates, triggeredEventUuids=triggeredEventUuids)
+        return ActivationEngineResult(
+            triggered=triggered,
+            disabled=disabled,
+            matchUpdates=matchUpdates,
+            triggeredEventUuids=triggeredEventUuids
+        ), context

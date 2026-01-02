@@ -117,6 +117,7 @@ class EventItem:
         intervalMilliseconds: int = 1000,
         roi: Optional[RectangleRegion] = None,
         threshold: float = 0.99,
+        triggerOnThresholdExceed: bool = True,
         retriggerTimeMilliseconds: float = 2000
     ) -> None:
         self._uuid: UUID = uuid4()
@@ -124,18 +125,13 @@ class EventItem:
         self._enabled: bool = enabled
         self._selectedActivationType: ActivationType = activationType
         self._activationVirtualKeyCodes: List[int] = []
-        self._isCurrentlyHeld: bool = False
         self._loopCount: int = loopCount
-        self._loopCounter: int = 0
         self._intervalMilliseconds: int = intervalMilliseconds
-        self._timeOfLastTriggerMilliseconds: float = 0.0
         self._roi: RectangleRegion = roi if roi is not None else RectangleRegion(0.0, 0.0, 1.0, 1.0)
         self._threshold: float = threshold
-        self._triggerOnThresholdExceed: bool = True
+        self._triggerOnThresholdExceed: bool = triggerOnThresholdExceed
         self._retriggerTimeMilliseconds: float = retriggerTimeMilliseconds
-        self._matchScore: float = 0.0
         self._templateImage: Optional[np.ndarray[Any, Any]] = None
-        self._percentFilled: float = 0.0
         self._assignedAction: ActionItem = action
         
     @property
@@ -180,15 +176,6 @@ class EventItem:
 
 
     @property
-    def IsCurrentlyHeld(self) -> bool:
-        return self._isCurrentlyHeld
-    
-    @IsCurrentlyHeld.setter
-    def IsCurrentlyHeld(self, value: bool) -> None:
-        self._isCurrentlyHeld = value
-
-
-    @property
     def LoopCount(self) -> int:
         return self._loopCount
     
@@ -198,30 +185,12 @@ class EventItem:
 
 
     @property
-    def LoopCounter(self) -> int:
-        return self._loopCounter
-    
-    @LoopCounter.setter
-    def LoopCounter(self, value: int) -> None:
-        self._loopCounter = value
-
-
-    @property
     def IntervalMilliseconds(self) -> int:
         return self._intervalMilliseconds
     
     @IntervalMilliseconds.setter
     def IntervalMilliseconds(self, value: int) -> None:
         self._intervalMilliseconds = value
-
-
-    @property
-    def TimeOfLastTriggerMilliseconds(self) -> float:
-        return self._timeOfLastTriggerMilliseconds
-    
-    @TimeOfLastTriggerMilliseconds.setter
-    def TimeOfLastTriggerMilliseconds(self, value: float) -> None:
-        self._timeOfLastTriggerMilliseconds = value
 
 
     @property
@@ -267,24 +236,6 @@ class EventItem:
     @RetriggerTimeMilliseconds.setter
     def RetriggerTimeMilliseconds(self, value: float) -> None:
         self._retriggerTimeMilliseconds = value
-
-
-    @property
-    def MatchScore(self) -> float:
-        return self._matchScore
-    
-    @MatchScore.setter
-    def MatchScore(self, value: float) -> None:
-        self._matchScore = value
-
-
-    @property
-    def PercentFilled(self) -> float:
-        return self._percentFilled
-    
-    @PercentFilled.setter
-    def PercentFilled(self, value: float) -> None:
-        self._percentFilled = value
 
 
     @property

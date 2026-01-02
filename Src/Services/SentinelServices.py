@@ -6,7 +6,7 @@ import numpy as np
 
 from Src.Helper import CaptureWindowByHwnd, IsHotkeyActive
 from Src.Models import EventItem
-from Src.Engine.ActivationEngine import ActivationEngine
+from Src.Engine.ActivationEngine import ActivationEngine, ActivationEngineContext
 from Src.Engine.ActionExecutorEngine import ActionExecutorEngine, ActionExecutionContext
 
 
@@ -45,6 +45,7 @@ class TriggerMonitorService:
         self._activationEngine = ActivationEngine()
         self._actionExecutor = ActionExecutorEngine()
 
+        self._activationContext = ActivationEngineContext()
         self._actionExecutionContext = ActionExecutionContext()
 
     def Start(self) -> None:
@@ -106,7 +107,11 @@ class TriggerMonitorService:
             localImage = self._CopyImageForProcessing()
             eventItemsSnapshot = list(self._getEventItems())
 
-            activation = self._activationEngine.loop(eventItemsSnapshot, localImage)
+            activationResult, self._activationContext = self._activationEngine.loop(
+                eventItemsSnapshot,
+                localImage,
+                self._activationContext
+            )
 
             if self._getWindowHandle is not None:
                 hwnd = self._getWindowHandle()
@@ -114,21 +119,21 @@ class TriggerMonitorService:
                     self._actionExecutionContext = self._actionExecutor.loop(
                         hwnd,
                         eventItemsSnapshot,
-                        activation.triggeredEventUuids,
+                        activationResult.triggeredEventUuids,
                         self._actionExecutionContext,
                     )
 
 
             if self._onEventDetected is not None:
-                for event in activation.triggered:
+                for event in activationResult.triggered:
                     self._onEventDetected(event)
 
             if self._onEventDisabled is not None:
-                for event in activation.disabled:
+                for event in activationResult.disabled:
                     self._onEventDisabled(event)
 
             if self._onMatchScoreUpdated is not None:
-                for update in activation.matchUpdates:
+                for update in activationResult.matchUpdates:
                     self._onMatchScoreUpdated(update)
 
             time.sleep(self._pollIntervalMs / 1000.0)
