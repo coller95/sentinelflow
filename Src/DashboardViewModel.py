@@ -121,7 +121,12 @@ class DashboardViewModel(QObject):
     def SaveState(self, filePath: str) -> None:
         try:
             flowHotkey = self.SentinelController.GetFlowHotkey()
-            self.StatePersistenceService.SaveState(filePath, events=self.EventStoreService.GetAll(), flowHotkey=flowHotkey)
+            self.StatePersistenceService.SaveState(
+                filePath,
+                events=self.EventStoreService.GetAll(),
+                conditions=self.ConditionStoreService.GetSnapshot(),
+                flowHotkey=flowHotkey,
+            )
                 
             print(f"State successfully saved to {filePath}")
         except Exception as e:
@@ -130,11 +135,7 @@ class DashboardViewModel(QObject):
 
     def LoadState(self, filePath: str) -> None:
         try:
-            loaded = self.StatePersistenceService.LoadState(filePath)
-            if loaded is None:
-                return
-
-            loadedEvents, loadedHotkey, loadedVersion = loaded
+            loadedEvents, loadedHotkey, loadedVersion, loadedConditions = self.StatePersistenceService.LoadState(filePath)
             print(f"Loading new format (v{loadedVersion})")
                 
             # ---------------------------
@@ -142,16 +143,29 @@ class DashboardViewModel(QObject):
             self.SentinelController.SetFlowEnabled(False)  # Ensure flow is off during loading
 
             self.EventStoreService.Clear()
+
+            # Restore condition library first (if present)
+            self.ConditionStoreService.Clear()
+            for condition in loadedConditions:
+                self.ConditionStoreService.Add(condition)
+
+            # Build a UUID->ConditionItem map for relinking (works even if loadedConditions is empty)
+            conditionMap = {c.Uuid: c for c in self.ConditionStoreService.GetSnapshot()}
             for event in loadedEvents:
-                # Best-effort: ensure fresh transient state after load
-                try:
-                    event.ResetTransientState()
-                except Exception:
-                    pass
+                event.ResetTransientState()
+
+                # Ensure events reference the shared ConditionItem instance by UUID
+                cid = event.Condition.Uuid
+                shared = conditionMap.get(cid)
+                if shared is None:
+                    # Keep file self-consistent even if an event references an unlisted condition.
+                    shared = event.Condition
+                    conditionMap[cid] = shared
+                    self.ConditionStoreService.Add(shared)
+                event.Condition = shared
+
                 self.EventStoreService.Add(event)
                 self.EventItemAddedSignal.emit(event)
-
-            self.ConditionStoreService.RebuildFromEvents(self.EventStoreService.GetAll())
 
             # Apply settings (also allow clearing hotkey by saving empty list)
             self.SentinelController.SetFlowHotkey(loadedHotkey)

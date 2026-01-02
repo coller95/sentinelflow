@@ -4,22 +4,25 @@ import os
 import pickle
 from typing import Any, Dict, List, Optional, cast
 
-from Src.Models import EventItem
+from Src.Models import ConditionItem, EventItem
 
 
 class StatePersistenceService:
-    """Persists and restores SentinelFlow state.
+    """Persists and restores SentinelFlow state (strict format)."""
 
-    Refactor-only goal:
-    - Preserve the exact save format currently used by DashboardViewModel.
-    - Keep load logic tolerant to the current "dict" format.
-    """
+    VERSION = "2.0.0"
 
-    VERSION = "1.0.0"
-
-    def SaveState(self, filePath: str, *, events: List[EventItem], flowHotkey: List[int]) -> None:
+    def SaveState(
+        self,
+        filePath: str,
+        *,
+        events: List[EventItem],
+        conditions: List[ConditionItem],
+        flowHotkey: List[int],
+    ) -> None:
         dataToSave: Dict[str, Any] = {
             "events": events,
+            "conditions": conditions,
             "settings": flowHotkey,
             "version": self.VERSION,
         }
@@ -27,22 +30,22 @@ class StatePersistenceService:
         with open(filePath, "wb") as file:
             pickle.dump(dataToSave, file)
 
-    def LoadState(self, filePath: str) -> Optional[tuple[List[EventItem], List[int], str]]:
+    def LoadState(self, filePath: str) -> tuple[List[EventItem], List[int], str, List[ConditionItem]]:
         if not os.path.exists(filePath):
-            return None
+            raise FileNotFoundError(filePath)
 
         with open(filePath, "rb") as file:
             data = pickle.load(file)
 
-        loadedEvents: List[EventItem] = []
-        loadedHotkey: List[int] = []
-        loadedVersion: str = self.VERSION
+        if not isinstance(data, dict):
+            raise ValueError("Invalid state file format (expected dict)")
 
-        if isinstance(data, dict):
-            dataDict: Dict[str, Any] = cast(Dict[str, Any], data)
-            loadedEvents = cast(List[EventItem], dataDict.get("events", []))
-            loadedHotkey = cast(List[int], dataDict.get("settings", []))
-            loadedVersion = cast(str, dataDict.get("version", self.VERSION))
-            return loadedEvents, loadedHotkey, loadedVersion
+        dataDict: Dict[str, Any] = cast(Dict[str, Any], data)
+        if "events" not in dataDict or "conditions" not in dataDict or "settings" not in dataDict:
+            raise ValueError("Invalid state file format (missing keys)")
 
-        return None
+        loadedEvents = cast(List[EventItem], dataDict["events"])
+        loadedConditions = cast(List[ConditionItem], dataDict["conditions"])
+        loadedHotkey = cast(List[int], dataDict["settings"])
+        loadedVersion = cast(str, dataDict.get("version", self.VERSION))
+        return loadedEvents, loadedHotkey, loadedVersion, loadedConditions
