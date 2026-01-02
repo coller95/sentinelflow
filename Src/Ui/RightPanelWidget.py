@@ -138,6 +138,11 @@ class RightPanelWidget(QWidget):
         
         self.thresholdWidgetThresholdLayout = QHBoxLayout()
         self.thresholdWidgetThresholdLayout.addWidget(QLabel("Threshold:"))
+
+        self.triggerOnThresholdExceedCheckbox = QCheckBox(">")
+        self.triggerOnThresholdExceedCheckbox.setEnabled(False)
+        self.thresholdWidgetThresholdLayout.addWidget(self.triggerOnThresholdExceedCheckbox)
+
         self.thresholdEdit = QLineEdit("0.99")
         self.thresholdWidgetThresholdLayout.addWidget(self.thresholdEdit)
 
@@ -145,15 +150,6 @@ class RightPanelWidget(QWidget):
         self.thresholdWidget.setLayout(self.thresholdWidgetLayout)
         self.thresholdEdit.setEnabled(False)
         self.thresholdWidget.hide()
-        
-        # Trigger Type Specific Widgets
-        self.triggerOnThresholdExceedLayout = QHBoxLayout()
-        self.triggerOnThresholdExceedWidget = QWidget()
-        self.triggerOnThresholdExceedCheckbox = QCheckBox(">")
-        self.triggerOnThresholdExceedCheckbox.setEnabled(False)
-        self.triggerOnThresholdExceedLayout.addWidget(self.triggerOnThresholdExceedCheckbox)
-        self.triggerOnThresholdExceedWidget.setLayout(self.triggerOnThresholdExceedLayout)
-        self.triggerOnThresholdExceedWidget.hide()
 
         # Retrigger Time Widget
         self.retriggerTimeWidget = QWidget()
@@ -238,7 +234,6 @@ class RightPanelWidget(QWidget):
         layout.addWidget(self.loopWidget)
         layout.addWidget(self.conditionWidget)
         layout.addWidget(self.thresholdWidget)
-        layout.addWidget(self.triggerOnThresholdExceedWidget)
         layout.addWidget(self.criteriaMetWidget)
         layout.addWidget(self.retriggerTimeWidget)
         layout.addWidget(self.actionNameLabel)
@@ -408,7 +403,6 @@ class RightPanelWidget(QWidget):
             self.loopWidget.hide()
             self.conditionWidget.hide()
             self.thresholdWidget.hide()
-            self.triggerOnThresholdExceedWidget.hide()
             self.criteriaMetWidget.hide()
             self.retriggerTimeWidget.hide()
             return
@@ -469,19 +463,16 @@ class RightPanelWidget(QWidget):
         if activationType in (ActivationType.ImageMatchRoi, ActivationType.ProgressBar):
             self.conditionWidget.show()
             self.thresholdWidget.show()
-            self.triggerOnThresholdExceedWidget.show()
             self.criteriaMetWidget.hide()
             self.retriggerTimeWidget.show()
         elif activationType == ActivationType.CriteriaMet:
             self.conditionWidget.hide()
             self.thresholdWidget.hide()
-            self.triggerOnThresholdExceedWidget.hide()
             self.criteriaMetWidget.show()
             self.retriggerTimeWidget.show()
         else:
             self.conditionWidget.hide()
             self.thresholdWidget.hide()
-            self.triggerOnThresholdExceedWidget.hide()
             self.criteriaMetWidget.hide()
             self.retriggerTimeWidget.hide()
 
@@ -554,8 +545,8 @@ class RightPanelWidget(QWidget):
                 rowLayout.addWidget(QLabel("C:"))
                 rowLayout.addWidget(conditionDropdown)
                 rowLayout.addWidget(QLabel("T:"))
-                rowLayout.addWidget(thresholdEdit)
                 rowLayout.addWidget(exceedCheckbox)
+                rowLayout.addWidget(thresholdEdit)
                 rowLayout.addWidget(removeButton)
                 rowWidget.setLayout(rowLayout)
                 self.criteriaRowsLayout.addWidget(rowWidget)
