@@ -50,19 +50,14 @@ class EventEditingService:
         )
         event_item.AssignedAction.AddStep(new_step)
 
-    def AddKeyboardStep(self, event_item: EventItem, virtual_key_code: Any) -> None:
+    def AddKeyboardStep(self, event_item: EventItem, virtual_key_codes: list[int]) -> None:
         if not event_item.AssignedAction:
             return
-
-        if isinstance(virtual_key_code, (list, tuple)):
-            seq = cast(list[int] | tuple[int, ...], virtual_key_code)
-            keys = [int(vk) for vk in seq]
-            names = [KeyNameFromVk(vk) for vk in keys]
-            description = f"Press \"{' + '.join(names)}\""
-            new_step = MacroStep(InputType.Keyboard, keys, description)
-        else:
-            vk = int(virtualKeyCodes)
-            new_step = MacroStep(InputType.Keyboard, vk, f"Press \"{KeyNameFromVk(vk)}\"")
+        
+        keys = [int(vk) for vk in virtual_key_codes]
+        names = [KeyNameFromVk(vk) for vk in keys]
+        description = f"Press \"{' + '.join(names)}\""
+        new_step = MacroStep(InputType.Keyboard, keys, description)
 
         event_item.AssignedAction.AddStep(new_step)
 

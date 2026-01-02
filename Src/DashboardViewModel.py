@@ -232,12 +232,12 @@ class DashboardViewModel(QObject):
         self.EventEditingService.AddMouseStep(eventItem, normalizedX, normalizedY)
         self.EventItemChangedSignal.emit(eventItem)
 
-    def AddSelectedKeyboardStep(self, virtualKeyCode: Any) -> None:
+    def AddSelectedKeyboardStep(self, virtualKeyCodes: list[int]) -> None:
         eventItem = self.ViewState.SelectedEventItem
         if not eventItem or not eventItem.AssignedAction:
             return
 
-        self.EventEditingService.AddKeyboardStep(eventItem, virtualKeyCode)
+        self.EventEditingService.AddKeyboardStep(eventItem, virtualKeyCodes)
         self.EventItemChangedSignal.emit(eventItem)
 
     def AddSelectedDelayStep(self, milliseconds: int) -> None:
