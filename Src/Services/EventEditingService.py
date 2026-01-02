@@ -3,19 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from Src.Helper import KeyNameFromVk
-from Src.Models import ActivationType, ConditionItem, ConditionType, EventItem, InputType, MacroStep, RectangleRegion
+from Src.Models import ActivationType, ConditionItem, EventItem, InputType, MacroStep, RectangleRegion
 
 
 class EventEditingService:
-    def _syncConditionTypeFromActivation(self, eventItem: EventItem) -> None:
-        activationType = eventItem.SelectedActivationType
-        if activationType == ActivationType.ImageMatchRoi:
-            eventItem.Condition.SelectedConditionType = ConditionType.ImageMatchRoi
-        elif activationType == ActivationType.ProgressBar:
-            eventItem.Condition.SelectedConditionType = ConditionType.ProgressBar
-        else:
-            eventItem.Condition.SelectedConditionType = ConditionType.NotSet
-
     def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None:
         eventItem.IsEnabled = isEnabled
 
@@ -24,7 +15,6 @@ class EventEditingService:
 
     def UpdateActivationType(self, eventItem: EventItem, activationType: ActivationType) -> None:
         eventItem.SelectedActivationType = activationType
-        self._syncConditionTypeFromActivation(eventItem)
 
     def UpdateLoopCount(self, eventItem: EventItem, loopCount: int) -> None:
         eventItem.LoopCount = loopCount
@@ -50,7 +40,6 @@ class EventEditingService:
 
     def SetCondition(self, eventItem: EventItem, condition: ConditionItem) -> None:
         eventItem.Condition = condition
-        self._syncConditionTypeFromActivation(eventItem)
 
     def AddMouseStep(self, eventItem: EventItem, normalizedX: float, normalizedY: float) -> None:
         if not eventItem.AssignedAction:

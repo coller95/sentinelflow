@@ -9,6 +9,7 @@ from PySide6.QtCore import Signal, QObject
 from Src.Models import (
     ActivationType,
     ConditionItem,
+    ConditionType,
     EventItem, RectangleRegion
 )
 
@@ -318,6 +319,25 @@ class DashboardViewModel(QObject):
 
         condition.TemplateImage = templateImage
         condition.Roi = roi
+        self.SentinelController.RequestResetCondition(condition.Uuid)
+        self.ConditionsChangedSignal.emit()
+
+    def SetConditionType(self, conditionUuid: str, conditionTypeName: str) -> None:
+        try:
+            cid = UUID(conditionUuid)
+        except Exception:
+            return
+
+        condition = self.ConditionStoreService.GetByUuid(cid)
+        if condition is None:
+            return
+
+        try:
+            conditionType = ConditionType[conditionTypeName]
+        except Exception:
+            conditionType = ConditionType.NotSet
+
+        condition.SelectedConditionType = conditionType
         self.SentinelController.RequestResetCondition(condition.Uuid)
         self.ConditionsChangedSignal.emit()
 

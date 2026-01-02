@@ -16,13 +16,14 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QMessageBox,
     QPushButton,
+    QComboBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from Src.Models import ConditionItem, RectangleRegion
+from Src.Models import ConditionItem, ConditionType, RectangleRegion
 from Src.Ui.UiShared import CropperWidget
 
 
@@ -38,6 +39,7 @@ class DashboardViewModelProtocol(Protocol):
     def DeleteCondition(self, conditionUuid: str) -> None: ...
     def SetSelectedEventCondition(self, conditionUuid: str) -> None: ...
     def RenameCondition(self, conditionUuid: str, name: str) -> None: ...
+    def SetConditionType(self, conditionUuid: str, conditionTypeName: str) -> None: ...
     def SetConditionTemplateAndRoi(self, conditionUuid: str, templateImage: Any, roi: RectangleRegion) -> None: ...
 
 
@@ -49,11 +51,28 @@ class ConditionStatusWindow(QDialog):
         self.setMinimumSize(520, 320)
 
         self._activeCropper: Optional[CropperWidget] = None
+        self._isUpdatingEditorFields: bool = False
 
         self._lastValues: Dict[UUID, object] = {}
         self._lastCrops: Dict[UUID, np.ndarray[Any, Any]] = {}
 
         layout = QVBoxLayout(self)
+
+        # Top toolbar: add/remove conditions
+        toolbarRow = QWidget()
+        toolbarLayout = QHBoxLayout(toolbarRow)
+        toolbarLayout.setContentsMargins(0, 0, 0, 0)
+        self.newButton = QPushButton("+")
+        self.newButton.setFixedWidth(30)
+        self.newButton.setToolTip("New condition")
+        toolbarLayout.addWidget(self.newButton)
+        self.deleteButton = QPushButton("-")
+        self.deleteButton.setFixedWidth(30)
+        self.deleteButton.setToolTip("Delete selected condition")
+        toolbarLayout.addWidget(self.deleteButton)
+        toolbarLayout.addStretch()
+        layout.addWidget(toolbarRow)
+
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Condition", "Type", "Template", "Crop", "Last"])
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -69,15 +88,11 @@ class ConditionStatusWindow(QDialog):
         editorLayout.addWidget(QLabel("Name:"))
         self.nameEdit = QLineEdit("")
         editorLayout.addWidget(self.nameEdit)
-        self.applyNameButton = QPushButton("Apply")
-        editorLayout.addWidget(self.applyNameButton)
 
-        self.newButton = QPushButton("New")
-        editorLayout.addWidget(self.newButton)
-
-        self.deleteButton = QPushButton("Delete")
-        editorLayout.addWidget(self.deleteButton)
-
+        editorLayout.addWidget(QLabel("Type:"))
+        self.typeDropdown = QComboBox()
+        self.typeDropdown.addItems([t.name for t in ConditionType])
+        editorLayout.addWidget(self.typeDropdown)
         self.setRoiButton = QPushButton("Set ROI/Template from Live")
         editorLayout.addWidget(self.setRoiButton)
         layout.addWidget(editorRow)
@@ -86,7 +101,8 @@ class ConditionStatusWindow(QDialog):
         self._refreshTable()
 
         self.table.itemSelectionChanged.connect(self._onSelectionChanged)
-        self.applyNameButton.clicked.connect(self._onApplyName)
+        self.nameEdit.editingFinished.connect(self._onNameEdited)
+        self.typeDropdown.currentIndexChanged.connect(self._onTypeEdited)
         self.newButton.clicked.connect(self._onNewCondition)
         self.deleteButton.clicked.connect(self._onDeleteCondition)
         self.setRoiButton.clicked.connect(self._onSetRoiFromLive)
@@ -147,22 +163,53 @@ class ConditionStatusWindow(QDialog):
 
     def _onSelectionChanged(self) -> None:
         cid = self._getSelectedConditionUuid()
-        if cid is None:
-            self.nameEdit.setText("")
-            return
-        condition = next((c for c in self.ViewModel.GetConditionLibrary() if c.Uuid == cid), None)
-        if condition is None:
-            self.nameEdit.setText("")
-            return
-        self.nameEdit.setText(condition.Name)
+        self._isUpdatingEditorFields = True
+        try:
+            if cid is None:
+                self.nameEdit.setText("")
+                idx = self.typeDropdown.findText(ConditionType.NotSet.name)
+                if idx >= 0:
+                    self.typeDropdown.setCurrentIndex(idx)
+                return
 
-    def _onApplyName(self) -> None:
+            condition = next((c for c in self.ViewModel.GetConditionLibrary() if c.Uuid == cid), None)
+            if condition is None:
+                self.nameEdit.setText("")
+                idx = self.typeDropdown.findText(ConditionType.NotSet.name)
+                if idx >= 0:
+                    self.typeDropdown.setCurrentIndex(idx)
+                return
+
+            self.nameEdit.setText(condition.Name)
+
+            typeName = condition.SelectedConditionType.name if hasattr(condition.SelectedConditionType, "name") else str(condition.SelectedConditionType)
+            idx = self.typeDropdown.findText(typeName)
+            if idx >= 0:
+                self.typeDropdown.setCurrentIndex(idx)
+        finally:
+            self._isUpdatingEditorFields = False
+
+    def _onNameEdited(self) -> None:
+        if self._isUpdatingEditorFields:
+            return
         cid = self._getSelectedConditionUuid()
         if cid is None:
             return
         self.ViewModel.RenameCondition(str(cid), self.nameEdit.text().strip())
         self._refreshTable()
         self._selectRowByUuid(cid)
+
+    def _onTypeEdited(self) -> None:
+        if self._isUpdatingEditorFields:
+            return
+        cid = self._getSelectedConditionUuid()
+        if cid is None:
+            return
+        typeName = self.typeDropdown.currentText()
+        if typeName in ConditionType.__members__:
+            self.ViewModel.SetConditionType(str(cid), typeName)
+            self._refreshTable()
+            self._selectRowByUuid(cid)
 
     def _onNewCondition(self) -> None:
         if self.ViewModel.SelectedEventItem is None:
@@ -224,8 +271,11 @@ class ConditionStatusWindow(QDialog):
 
         cropper = CropperWidget(cast(np.ndarray[Any, Any], lastLiveImage), onCrop)
         self._activeCropper = cropper
-        cropper.destroyed.connect(lambda _obj=None: setattr(self, "_activeCropper", None))
+        cropper.destroyed.connect(self._onCropperDestroyed)
         cropper.show()
+
+    def _onCropperDestroyed(self, _obj: object = None) -> None:
+        self._activeCropper = None
 
     def _refreshTable(self) -> None:
         selected = self._getSelectedConditionUuid()
