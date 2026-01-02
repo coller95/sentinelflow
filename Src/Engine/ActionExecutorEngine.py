@@ -73,14 +73,16 @@ class ActionExecutorEngine:
         if not action:
             return
         steps = action.MacroSteps
-        # Only execute the current step
-        if 0 <= state.currentStepIndex < len(steps):
+        # Execute steps back-to-back until we hit an incomplete step (e.g., Delay not finished).
+        while 0 <= state.currentStepIndex < len(steps):
             step = steps[state.currentStepIndex]
             stepCompleted = self.executeStep(windowHandle, step, state)
-            if stepCompleted:
-                state.currentStepIndex += 1
-                state.delayStartTime = None
-            # If not completed (e.g., delay not finished), keep index and delay time
+            if not stepCompleted:
+                # Pause on this step until it completes in a future tick.
+                break
+
+            state.currentStepIndex += 1
+            state.delayStartTime = None
 
     def executeStep(self, windowHandle: int, step: MacroStep, state: EventExecutionState) -> bool:
         strategy = self.stepStrategies.get(step.InputType)
