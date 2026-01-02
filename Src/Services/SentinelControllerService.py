@@ -77,54 +77,6 @@ class SentinelControllerService:
         if self._trigger_thread is not None:
             self._trigger_thread.SetImage(image)
 
-    def ToggleCapture(self, active: bool, window_handle: Optional[int]) -> None:
-        if active and window_handle:
-            self.StopCapture()
-            self._live_thread = LiveCaptureService(
-                window_handle=window_handle,
-                interval_ms=self._capture_interval_ms,
-                on_image=self._handle_image_captured,
-            )
-            self._live_thread.Start()
-        else:
-            self.StopCapture()
-
-    def StopCapture(self) -> None:
-        if self._live_thread is not None:
-            self._live_thread.Stop()
-            self._live_thread = None
-
-    def _handle_image_captured(self, image: Optional[np.ndarray[Any, Any]]) -> None:
-        if self._on_image is not None:
-            self._on_image(image)
-        self.SetImage(image)
-
-    def StopSentinel(self) -> None:
-        if self._trigger_thread is not None:
-            self._trigger_thread.Stop()
-            self._trigger_thread = None
-
-    def ToggleFlowEnabled(self) -> None:
-        if self._trigger_thread is not None:
-            self._trigger_thread.ToggleFlowEnabled()
-
-    def SetFlowEnabled(self, is_enabled: bool) -> None:
-        if self._trigger_thread is not None:
-            self._trigger_thread.SetFlowEnabled(is_enabled)
-
-    def SetFlowHotkey(self, virtual_key_codes: List[int]) -> None:
-        if self._trigger_thread is not None:
-            self._trigger_thread.SetFlowHotkey(virtual_key_codes)
-
-    def GetFlowHotkey(self) -> List[int]:
-        if self._trigger_thread is None:
-            return []
-        return self._trigger_thread.GetFlowHotkey()
-
-    def SetImage(self, image: Optional[np.ndarray[Any, Any]]) -> None:
-        if self._trigger_thread is not None:
-            self._trigger_thread.SetImage(image)
-
     # -------------------- Capture --------------------
 
     def ToggleCapture(self, active: bool, window_handle: Optional[int]) -> None:

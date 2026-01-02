@@ -61,42 +61,7 @@ class EventEditingService:
             description = f"Press \"{' + '.join(names)}\""
             new_step = MacroStep(InputType.Keyboard, keys, description)
         else:
-            vk = int(virtual_key_code)
-            new_step = MacroStep(InputType.Keyboard, vk, f"Press \"{KeyNameFromVk(vk)}\"")
-
-        event_item.AssignedAction.AddStep(new_step)
-
-    def AddDelayStep(self, event_item: EventItem, milliseconds: int) -> None:
-        if not event_item.AssignedAction:
-            return
-        new_step = MacroStep(InputType.Delay, milliseconds, f"Wait {milliseconds}ms")
-        event_item.AssignedAction.AddStep(new_step)
-
-    def RemoveStep(self, event_item: EventItem, index: int) -> None:
-        if not event_item.AssignedAction:
-            return
-        event_item.AssignedAction.RemoveStep(index)
-
-    def MoveStep(self, event_item: EventItem, from_index: int, to_index: int) -> None:
-        if not event_item.AssignedAction:
-            return
-        steps = event_item.AssignedAction.MacroSteps
-        if from_index < 0 or from_index >= len(steps) or to_index < 0 or to_index >= len(steps):
-            return
-        steps[from_index], steps[to_index] = steps[to_index], steps[from_index]
-
-    def AddKeyboardStep(self, event_item: EventItem, virtual_key_code: Any) -> None:
-        if not event_item.AssignedAction:
-            return
-
-        if isinstance(virtual_key_code, (list, tuple)):
-            seq = cast(list[int] | tuple[int, ...], virtual_key_code)
-            keys = [int(vk) for vk in seq]
-            names = [KeyNameFromVk(vk) for vk in keys]
-            description = f"Press \"{' + '.join(names)}\""
-            new_step = MacroStep(InputType.Keyboard, keys, description)
-        else:
-            vk = int(virtual_key_code)
+            vk = int(virtualKeyCodes)
             new_step = MacroStep(InputType.Keyboard, vk, f"Press \"{KeyNameFromVk(vk)}\"")
 
         event_item.AssignedAction.AddStep(new_step)
