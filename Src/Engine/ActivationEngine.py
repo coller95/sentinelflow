@@ -159,6 +159,9 @@ class ActivationEngine:
                     else:
                         results.append(value < threshold)
 
+                if len(results) == 0:
+                    continue
+
                 if logic == CriteriaLogic.Any:
                     isConditionMet = any(results)
                 else:
