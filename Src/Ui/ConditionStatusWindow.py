@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QInputDialog,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -28,8 +29,14 @@ from Src.Ui.UiShared import CropperWidget
 class DashboardViewModelProtocol(Protocol):
     MatchScoreUpdated: Any
 
+    @property
+    def SelectedEventItem(self) -> Optional[Any]: ...
+
     def GetConditionLibrary(self) -> list[ConditionItem]: ...
     def GetLastLiveImage(self) -> Optional[Any]: ...
+    def CreateCondition(self, name: str) -> ConditionItem: ...
+    def DeleteCondition(self, conditionUuid: str) -> None: ...
+    def SetSelectedEventCondition(self, conditionUuid: str) -> None: ...
     def RenameCondition(self, conditionUuid: str, name: str) -> None: ...
     def SetConditionTemplateAndRoi(self, conditionUuid: str, templateImage: Any, roi: RectangleRegion) -> None: ...
 
@@ -64,6 +71,13 @@ class ConditionStatusWindow(QDialog):
         editorLayout.addWidget(self.nameEdit)
         self.applyNameButton = QPushButton("Apply")
         editorLayout.addWidget(self.applyNameButton)
+
+        self.newButton = QPushButton("New")
+        editorLayout.addWidget(self.newButton)
+
+        self.deleteButton = QPushButton("Delete")
+        editorLayout.addWidget(self.deleteButton)
+
         self.setRoiButton = QPushButton("Set ROI/Template from Live")
         editorLayout.addWidget(self.setRoiButton)
         layout.addWidget(editorRow)
@@ -73,6 +87,8 @@ class ConditionStatusWindow(QDialog):
 
         self.table.itemSelectionChanged.connect(self._onSelectionChanged)
         self.applyNameButton.clicked.connect(self._onApplyName)
+        self.newButton.clicked.connect(self._onNewCondition)
+        self.deleteButton.clicked.connect(self._onDeleteCondition)
         self.setRoiButton.clicked.connect(self._onSetRoiFromLive)
 
         # live updates
@@ -147,6 +163,36 @@ class ConditionStatusWindow(QDialog):
         self.ViewModel.RenameCondition(str(cid), self.nameEdit.text().strip())
         self._refreshTable()
         self._selectRowByUuid(cid)
+
+    def _onNewCondition(self) -> None:
+        if self.ViewModel.SelectedEventItem is None:
+            QMessageBox.warning(self, "Error", "Please select an event first.")
+            return
+
+        name, ok = QInputDialog.getText(self, "New Condition", "Condition name:")
+        if not ok:
+            return
+        condition = self.ViewModel.CreateCondition(name.strip())
+        self.ViewModel.SetSelectedEventCondition(str(condition.Uuid))
+        self._refreshTable()
+        self._selectRowByUuid(condition.Uuid)
+
+    def _onDeleteCondition(self) -> None:
+        cid = self._getSelectedConditionUuid()
+        if cid is None:
+            return
+
+        result = QMessageBox.question(
+            self,
+            "Delete Condition",
+            "Delete selected condition? Events using it will be reassigned.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if result != QMessageBox.StandardButton.Yes:
+            return
+
+        self.ViewModel.DeleteCondition(str(cid))
+        self._refreshTable()
 
     def _onSetRoiFromLive(self) -> None:
         cid = self._getSelectedConditionUuid()

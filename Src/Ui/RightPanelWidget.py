@@ -15,6 +15,7 @@ from Src.Ui.ConditionStatusWindow import ConditionStatusWindow
 class DashboardViewModelProtocol(Protocol):
     EventItemSelectedSignal: Any
     MatchScoreUpdated: Any
+    ConditionsChangedSignal: Any
 
     @property
     def SelectedEventItem(self) -> Optional[EventItem]: ...
@@ -33,8 +34,6 @@ class DashboardViewModelProtocol(Protocol):
     def UpdateSelectedTriggerOnThresholdExceed(self, isEnabled: bool) -> None: ...
     def UpdateSelectedRetriggerTimeMs(self, retriggerTimeMs: float) -> None: ...
     def GetConditionLibrary(self) -> list[ConditionItem]: ...
-    def CreateCondition(self, name: str) -> ConditionItem: ...
-    def RenameCondition(self, conditionUuid: str, name: str) -> None: ...
     def SetConditionTemplateAndRoi(self, conditionUuid: str, templateImage: Any, roi: RectangleRegion) -> None: ...
     def SetSelectedEventCondition(self, conditionUuid: str) -> None: ...
     def AddSelectedMouseStepFromCapturedPosition(self) -> None: ...
@@ -49,6 +48,7 @@ class RightPanelWidget(QWidget):
         super().__init__()
         self.ViewModel = viewModel
         self._isUpdatingConditionDropdown = False
+        self._conditionStatusDialog: Optional[ConditionStatusWindow] = None
         self._setupRightPanel()
         self._wireUpBindings()
 
@@ -228,6 +228,13 @@ class RightPanelWidget(QWidget):
 
         # --- ViewModel to View ---
         self.ViewModel.EventItemSelectedSignal.connect(self._onEventItemSelectedSignal)
+        self.ViewModel.ConditionsChangedSignal.connect(self._onConditionsChanged)
+
+    def _onConditionsChanged(self) -> None:
+        eventItem = self.ViewModel.SelectedEventItem
+        if not eventItem:
+            return
+        self._refreshConditionDropdown(eventItem)
 
     def _moveStep(self, direction: int) -> None:
         currentRow = self.macroStepListWidget.currentRow()
@@ -326,9 +333,19 @@ class RightPanelWidget(QWidget):
             self.activationHotkeyEdit.setText(", ".join(map(self.ViewModel.KeyNameFromVk, dialog.CapturedVirtualKeyCodes)))
 
     def _onOpenConditionStatus(self) -> None:
-        # Keep a reference so the window isn't GC'ed.
-        self._conditionStatusDialog = ConditionStatusWindow(self.ViewModel)
-        self._conditionStatusDialog.show()
+        # Only allow one Status window at a time.
+        if self._conditionStatusDialog is not None and self._conditionStatusDialog.isVisible():
+            self._conditionStatusDialog.raise_()
+            self._conditionStatusDialog.activateWindow()
+            return
+
+        dialog = ConditionStatusWindow(self.ViewModel)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dialog.finished.connect(lambda _code=0: setattr(self, "_conditionStatusDialog", None))
+        self._conditionStatusDialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def _onEventItemSelectedSignal(self, eventItem: Optional[EventItem]) -> None:
         if not eventItem:
@@ -423,13 +440,13 @@ class RightPanelWidget(QWidget):
         try:
             self.conditionDropdown.clear()
 
-            # First option: create new condition
-            self.conditionDropdown.addItem("New…", "__new__")
-            self.conditionDropdown.addItem("Rename…", "__rename__")
-
             library = self.ViewModel.GetConditionLibrary()
             selectedId = str(eventItem.Condition.Uuid)
             selectedIndex = 0
+
+            # Ensure the event's current condition is always present in the list.
+            if not any(str(c.Uuid) == selectedId for c in library):
+                library = [eventItem.Condition] + library
 
             for condition in library:
                 name = condition.Name.strip()
@@ -454,27 +471,6 @@ class RightPanelWidget(QWidget):
             return
 
         data = self.conditionDropdown.currentData()
-        if data == "__new__":
-            name, ok = QInputDialog.getText(self, "New Condition", "Condition name:")
-            if not ok:
-                self._refreshConditionDropdown(eventItem)
-                return
-            condition = self.ViewModel.CreateCondition(name.strip())
-            self.ViewModel.SetSelectedEventCondition(str(condition.Uuid))
-            self._refreshConditionDropdown(eventItem)
-            return
-
-        if data == "__rename__":
-            current = eventItem.Condition
-            defaultName = current.Name
-            name, ok = QInputDialog.getText(self, "Rename Condition", "Condition name:", text=defaultName)
-            if not ok:
-                self._refreshConditionDropdown(eventItem)
-                return
-            self.ViewModel.RenameCondition(str(current.Uuid), name.strip())
-            self._refreshConditionDropdown(eventItem)
-            return
-
         if isinstance(data, str):
             self.ViewModel.SetSelectedEventCondition(data)
 

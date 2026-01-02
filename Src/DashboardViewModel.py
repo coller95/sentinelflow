@@ -33,6 +33,7 @@ class DashboardViewModel(QObject):
     WindowHandleUpdated = Signal(object)
     CaptureImageReady = Signal(object)
     MatchScoreUpdated = Signal(object)
+    ConditionsChangedSignal = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -64,12 +65,14 @@ class DashboardViewModel(QObject):
         newEvent = self.EventListService.CreateDefaultEvent()
         self.EventStoreService.Add(newEvent)
         self.ConditionStoreService.RebuildFromEvents(self.EventStoreService.GetAll())
+        self.ConditionsChangedSignal.emit()
         self.EventItemAddedSignal.emit(newEvent)
 
     def RemoveEvent(self) -> None:
         index = self.EventStoreService.RemoveSelected(self.ViewState.SelectedEventItem)
         if index is not None:
             self.ConditionStoreService.RebuildFromEvents(self.EventStoreService.GetAll())
+            self.ConditionsChangedSignal.emit()
             self.EventItemRemovedSignal.emit(index)
 
     def FindWindow(self, title: str) -> Optional[int]:
@@ -150,6 +153,8 @@ class DashboardViewModel(QObject):
             for condition in loadedConditions:
                 self.ConditionStoreService.Add(condition)
 
+            self.ConditionsChangedSignal.emit()
+
             # Build a UUID->ConditionItem map for relinking (works even if loadedConditions is empty)
             conditionMap = {c.Uuid: c for c in self.ConditionStoreService.GetSnapshot()}
             for event in loadedEvents:
@@ -165,6 +170,8 @@ class DashboardViewModel(QObject):
 
                 self.EventStoreService.Add(event)
                 self.EventItemAddedSignal.emit(event)
+
+            self.ConditionsChangedSignal.emit()
 
             # Apply settings (also allow clearing hotkey by saving empty list)
             self.SentinelController.SetFlowHotkey(loadedHotkey)
@@ -256,6 +263,7 @@ class DashboardViewModel(QObject):
         condition = ConditionItem()
         condition.Name = name
         self.ConditionStoreService.Add(condition)
+        self.ConditionsChangedSignal.emit()
         return condition
 
     def DeleteCondition(self, conditionUuid: str) -> None:
@@ -263,7 +271,28 @@ class DashboardViewModel(QObject):
             cid = UUID(conditionUuid)
         except Exception:
             return
-        self.ConditionStoreService.RemoveByUuid(cid)
+
+        events = self.EventStoreService.GetAll()
+        affectedEvents = [e for e in events if e.Condition.Uuid == cid]
+
+        # Choose a fallback condition (must be a shared instance from the store),
+        # or create a new one if we're deleting the last condition.
+        fallback = next((c for c in self.ConditionStoreService.GetSnapshot() if c.Uuid != cid), None)
+        if fallback is None:
+            fallback = ConditionItem()
+            fallback.Name = "New Condition"
+            self.ConditionStoreService.Add(fallback)
+
+        for event in affectedEvents:
+            self.EventEditingService.SetCondition(event, fallback)
+            self.SentinelController.RequestResetEvent(event.Uuid)
+            self.EventItemChangedSignal.emit(event)
+
+        # Rebuild library so it exactly matches the conditions referenced by events.
+        self.ConditionStoreService.RebuildFromEvents(self.EventStoreService.GetAll())
+        self.SentinelController.RequestResetCondition(cid)
+        self.SentinelController.RequestResetCondition(fallback.Uuid)
+        self.ConditionsChangedSignal.emit()
 
     def RenameCondition(self, conditionUuid: str, name: str) -> None:
         try:
@@ -275,6 +304,7 @@ class DashboardViewModel(QObject):
         if condition is None:
             return
         condition.Name = name
+        self.ConditionsChangedSignal.emit()
 
     def SetConditionTemplateAndRoi(self, conditionUuid: str, templateImage: np.ndarray[Any, Any], roi: RectangleRegion) -> None:
         try:
@@ -289,6 +319,7 @@ class DashboardViewModel(QObject):
         condition.TemplateImage = templateImage
         condition.Roi = roi
         self.SentinelController.RequestResetCondition(condition.Uuid)
+        self.ConditionsChangedSignal.emit()
 
     def SetSelectedEventCondition(self, conditionUuid: str) -> None:
         eventItem = self.ViewState.SelectedEventItem
