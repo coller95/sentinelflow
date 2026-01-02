@@ -9,6 +9,7 @@ class ActivationType(Enum):
     Loop = auto()
     ImageMatchRoi = auto()
     ProgressBar = auto()
+    CriteriaMet = auto()
 
 
 class InputType(Enum):
@@ -21,6 +22,47 @@ class ConditionType(Enum):
     NotSet = auto()
     ImageMatchRoi = auto()
     ProgressBar = auto()
+
+
+class CriteriaLogic(Enum):
+    All = auto()
+    Any = auto()
+
+
+class ConditionCriterion:
+    def __init__(
+        self,
+        conditionUuid: UUID,
+        threshold: float = 0.99,
+        triggerOnThresholdExceed: bool = True,
+    ) -> None:
+        self._conditionUuid: UUID = conditionUuid
+        self._threshold: float = threshold
+        self._triggerOnThresholdExceed: bool = triggerOnThresholdExceed
+
+    @property
+    def ConditionUuid(self) -> UUID:
+        return self._conditionUuid
+
+    @ConditionUuid.setter
+    def ConditionUuid(self, value: UUID) -> None:
+        self._conditionUuid = value
+
+    @property
+    def Threshold(self) -> float:
+        return self._threshold
+
+    @Threshold.setter
+    def Threshold(self, value: float) -> None:
+        self._threshold = value
+
+    @property
+    def TriggerOnThresholdExceed(self) -> bool:
+        return self._triggerOnThresholdExceed
+
+    @TriggerOnThresholdExceed.setter
+    def TriggerOnThresholdExceed(self, value: bool) -> None:
+        self._triggerOnThresholdExceed = value
 
 
 class RectangleRegion:
@@ -186,6 +228,9 @@ class EventItem:
         self._triggerOnThresholdExceed: bool = triggerOnThresholdExceed
         self._retriggerTimeMilliseconds: float = retriggerTimeMilliseconds
         self._assignedAction: ActionItem = action
+
+        self._criteriaLogic: CriteriaLogic = CriteriaLogic.All
+        self._criteria: List[ConditionCriterion] = []
         
     @property
     def Uuid(self) -> UUID:
@@ -289,5 +334,17 @@ class EventItem:
     @AssignedAction.setter
     def AssignedAction(self, value: ActionItem) -> None:
         self._assignedAction = value
+
+    @property
+    def CriteriaLogic(self) -> "CriteriaLogic":
+        return self._criteriaLogic
+
+    @CriteriaLogic.setter
+    def CriteriaLogic(self, value: "CriteriaLogic") -> None:
+        self._criteriaLogic = value
+
+    @property
+    def Criteria(self) -> List[ConditionCriterion]:
+        return self._criteria
 
 

@@ -8,6 +8,7 @@ from Src.Helper import IsHotkeyActive
 
 from Src.Models import (
     ActivationType, 
+    CriteriaLogic,
     EventItem
 )
 
@@ -120,6 +121,48 @@ class ActivationEngine:
                     isConditionMet = percentFilled >= event.Threshold
                 else:
                     isConditionMet = percentFilled < event.Threshold
+
+                currentTimeMs = int(time.time() * 1000)
+                timeSinceLastTrigger = currentTimeMs - state.LastTriggerTimeMs
+
+                isRisingEdge = isConditionMet and not state.IsCurrentlyHeld
+                isRetrigger = isConditionMet and (timeSinceLastTrigger > event.RetriggerTimeMilliseconds)
+
+                if isRisingEdge or isRetrigger:
+                    triggered.append(event)
+                    triggeredEventUuids.add(event.Uuid)
+                    state.LastTriggerTimeMs = currentTimeMs
+
+                state.IsCurrentlyHeld = isConditionMet
+
+            elif event.SelectedActivationType == ActivationType.CriteriaMet:
+                criteria = event.Criteria
+                logic = event.CriteriaLogic
+                if len(criteria) == 0:
+                    continue
+
+                results: List[bool] = []
+                for criterion in criteria:
+                    cid = criterion.ConditionUuid
+                    threshold = float(criterion.Threshold)
+                    triggerOnExceed = bool(criterion.TriggerOnThresholdExceed)
+
+                    value = conditionEngineResult.matchScores.get(cid, None)
+                    if value is None:
+                        value = conditionEngineResult.percentFilleds.get(cid, None)
+                    if value is None:
+                        results.append(False)
+                        continue
+
+                    if triggerOnExceed:
+                        results.append(value >= threshold)
+                    else:
+                        results.append(value < threshold)
+
+                if logic == CriteriaLogic.Any:
+                    isConditionMet = any(results)
+                else:
+                    isConditionMet = all(results)
 
                 currentTimeMs = int(time.time() * 1000)
                 timeSinceLastTrigger = currentTimeMs - state.LastTriggerTimeMs

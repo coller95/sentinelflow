@@ -10,6 +10,8 @@ from Src.Models import (
     ActivationType,
     ConditionItem,
     ConditionType,
+    CriteriaLogic,
+    ConditionCriterion,
     EventItem, RectangleRegion
 )
 
@@ -206,6 +208,10 @@ class DashboardViewModel(QObject):
         if not eventItem:
             return
         self.EventEditingService.UpdateActivationType(eventItem, activationType)
+
+        if activationType == ActivationType.CriteriaMet and len(eventItem.Criteria) == 0:
+            # Seed a first criterion using the current event condition (no new condition created).
+            eventItem.Criteria.append(ConditionCriterion(eventItem.Condition.Uuid, threshold=eventItem.Threshold, triggerOnThresholdExceed=eventItem.TriggerOnThresholdExceed))
         self.SentinelController.RequestResetEvent(eventItem.Uuid)
         self.SentinelController.RequestResetCondition(eventItem.Condition.Uuid)
         self.EventItemChangedSignal.emit(eventItem)
@@ -355,6 +361,85 @@ class DashboardViewModel(QObject):
         if condition is None:
             return
         self.EventEditingService.SetCondition(eventItem, condition)
+        self.SentinelController.RequestResetEvent(eventItem.Uuid)
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def GetSelectedCriteria(self) -> list[ConditionCriterion]:
+        eventItem = self.ViewState.SelectedEventItem
+        if not eventItem:
+            return []
+        return list(eventItem.Criteria)
+
+    def GetSelectedCriteriaLogic(self) -> CriteriaLogic:
+        eventItem = self.ViewState.SelectedEventItem
+        if not eventItem:
+            return CriteriaLogic.All
+        return eventItem.CriteriaLogic
+
+    def SetSelectedCriteriaLogic(self, logicName: str) -> None:
+        eventItem = self.ViewState.SelectedEventItem
+        if not eventItem:
+            return
+        try:
+            logic = CriteriaLogic[logicName]
+        except Exception:
+            logic = CriteriaLogic.All
+        eventItem.CriteriaLogic = logic
+        self.SentinelController.RequestResetEvent(eventItem.Uuid)
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def AddSelectedCriterion(self) -> None:
+        eventItem = self.ViewState.SelectedEventItem
+        if not eventItem:
+            return
+        library = self.ConditionStoreService.GetSnapshot()
+        if len(library) == 0:
+            return
+        eventItem.Criteria.append(ConditionCriterion(library[0].Uuid, threshold=0.99, triggerOnThresholdExceed=True))
+        self.SentinelController.RequestResetEvent(eventItem.Uuid)
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def RemoveSelectedCriterion(self, index: int) -> None:
+        eventItem = self.ViewState.SelectedEventItem
+        if not eventItem:
+            return
+        if index < 0 or index >= len(eventItem.Criteria):
+            return
+        eventItem.Criteria.pop(index)
+        self.SentinelController.RequestResetEvent(eventItem.Uuid)
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def UpdateSelectedCriterionCondition(self, index: int, conditionUuid: str) -> None:
+        eventItem = self.ViewState.SelectedEventItem
+        if not eventItem:
+            return
+        if index < 0 or index >= len(eventItem.Criteria):
+            return
+        try:
+            cid = UUID(conditionUuid)
+        except Exception:
+            return
+        eventItem.Criteria[index].ConditionUuid = cid
+        self.SentinelController.RequestResetEvent(eventItem.Uuid)
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def UpdateSelectedCriterionThreshold(self, index: int, threshold: float) -> None:
+        eventItem = self.ViewState.SelectedEventItem
+        if not eventItem:
+            return
+        if index < 0 or index >= len(eventItem.Criteria):
+            return
+        eventItem.Criteria[index].Threshold = threshold
+        self.SentinelController.RequestResetEvent(eventItem.Uuid)
+        self.EventItemChangedSignal.emit(eventItem)
+
+    def UpdateSelectedCriterionTriggerOnThresholdExceed(self, index: int, isEnabled: bool) -> None:
+        eventItem = self.ViewState.SelectedEventItem
+        if not eventItem:
+            return
+        if index < 0 or index >= len(eventItem.Criteria):
+            return
+        eventItem.Criteria[index].TriggerOnThresholdExceed = isEnabled
         self.SentinelController.RequestResetEvent(eventItem.Uuid)
         self.EventItemChangedSignal.emit(eventItem)
 

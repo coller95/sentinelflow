@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional, Protocol, cast
+from functools import partial
 from PySide6.QtCore import Qt
  
 from PySide6.QtWidgets import (
@@ -6,7 +7,16 @@ from PySide6.QtWidgets import (
     QComboBox, QListWidget, QListWidgetItem, QCheckBox, QInputDialog, QMessageBox, 
     QDialog
 )
-from Src.Models import ActivationType, InputType, ActionItem, ConditionItem, EventItem, RectangleRegion
+from Src.Models import (
+    ActivationType,
+    CriteriaLogic,
+    ConditionCriterion,
+    InputType,
+    ActionItem,
+    ConditionItem,
+    EventItem,
+    RectangleRegion,
+)
 from Src.Ui.UiShared import (
     HotkeyCaptureDialog,
 )
@@ -35,6 +45,16 @@ class DashboardViewModelProtocol(Protocol):
     def GetConditionLibrary(self) -> list[ConditionItem]: ...
     def SetConditionTemplateAndRoi(self, conditionUuid: str, templateImage: Any, roi: RectangleRegion) -> None: ...
     def SetSelectedEventCondition(self, conditionUuid: str) -> None: ...
+
+    # CriteriaMet editing
+    def GetSelectedCriteria(self) -> list[ConditionCriterion]: ...
+    def GetSelectedCriteriaLogic(self) -> CriteriaLogic: ...
+    def SetSelectedCriteriaLogic(self, logicName: str) -> None: ...
+    def AddSelectedCriterion(self) -> None: ...
+    def RemoveSelectedCriterion(self, index: int) -> None: ...
+    def UpdateSelectedCriterionCondition(self, index: int, conditionUuid: str) -> None: ...
+    def UpdateSelectedCriterionThreshold(self, index: int, threshold: float) -> None: ...
+    def UpdateSelectedCriterionTriggerOnThresholdExceed(self, index: int, isEnabled: bool) -> None: ...
     def AddSelectedMouseStepFromCapturedPosition(self) -> None: ...
     def AddSelectedKeyboardStep(self, virtualKeyCodes: list[int]) -> None: ...
     def AddSelectedDelayStep(self, milliseconds: int) -> None: ...
@@ -47,6 +67,7 @@ class RightPanelWidget(QWidget):
         super().__init__()
         self.ViewModel = viewModel
         self._isUpdatingConditionDropdown = False
+        self._isUpdatingCriteriaUi = False
         self._setupRightPanel()
         self._wireUpBindings()
 
@@ -128,7 +149,7 @@ class RightPanelWidget(QWidget):
         # Trigger Type Specific Widgets
         self.triggerOnThresholdExceedLayout = QHBoxLayout()
         self.triggerOnThresholdExceedWidget = QWidget()
-        self.triggerOnThresholdExceedCheckbox = QCheckBox("Trigger When Threshold Exceed")
+        self.triggerOnThresholdExceedCheckbox = QCheckBox(">")
         self.triggerOnThresholdExceedCheckbox.setEnabled(False)
         self.triggerOnThresholdExceedLayout.addWidget(self.triggerOnThresholdExceedCheckbox)
         self.triggerOnThresholdExceedWidget.setLayout(self.triggerOnThresholdExceedLayout)
@@ -144,6 +165,33 @@ class RightPanelWidget(QWidget):
         self.retriggerTimeLayout.addWidget(self.retriggerTimeEdit)
         self.retriggerTimeWidget.setLayout(self.retriggerTimeLayout)
         self.retriggerTimeWidget.hide()
+
+        # CriteriaMet widget (multi-condition criteria editor)
+        self.criteriaMetWidget = QWidget()
+        self.criteriaMetLayout = QVBoxLayout()
+        self.criteriaMetLayout.setContentsMargins(0, 0, 0, 0)
+
+        self.criteriaMetHeaderLayout = QHBoxLayout()
+        self.criteriaMetHeaderLayout.setContentsMargins(0, 0, 0, 0)
+        self.criteriaMetHeaderLayout.addWidget(QLabel("Criteria:"))
+
+        self.criteriaLogicDropdown = QComboBox()
+        self.criteriaLogicDropdown.addItems([logic.name for logic in CriteriaLogic])
+        self.criteriaMetHeaderLayout.addWidget(self.criteriaLogicDropdown)
+
+        self.addCriterionButton = QPushButton("+")
+        self.criteriaMetHeaderLayout.addWidget(self.addCriterionButton)
+
+        self.criteriaMetLayout.addLayout(self.criteriaMetHeaderLayout)
+
+        self.criteriaRowsWidget = QWidget()
+        self.criteriaRowsLayout = QVBoxLayout()
+        self.criteriaRowsLayout.setContentsMargins(0, 0, 0, 0)
+        self.criteriaRowsWidget.setLayout(self.criteriaRowsLayout)
+        self.criteriaMetLayout.addWidget(self.criteriaRowsWidget)
+
+        self.criteriaMetWidget.setLayout(self.criteriaMetLayout)
+        self.criteriaMetWidget.hide()
         
         # Action Sequence Properties
         self.actionNameLabel = QLabel("<b>Action Sequence</b>")
@@ -191,6 +239,7 @@ class RightPanelWidget(QWidget):
         layout.addWidget(self.conditionWidget)
         layout.addWidget(self.thresholdWidget)
         layout.addWidget(self.triggerOnThresholdExceedWidget)
+        layout.addWidget(self.criteriaMetWidget)
         layout.addWidget(self.retriggerTimeWidget)
         layout.addWidget(self.actionNameLabel)
         layout.addLayout(self.macroStepListWidgetLayout)
@@ -220,6 +269,10 @@ class RightPanelWidget(QWidget):
         self.triggerOnThresholdExceedCheckbox.stateChanged.connect(self._onCommitTriggerOnThresholdExceed)
         self.retriggerTimeEdit.editingFinished.connect(self._onCommitRetriggerTime)
 
+        # CriteriaMet editing
+        self.criteriaLogicDropdown.currentIndexChanged.connect(self._onCommitCriteriaLogic)
+        self.addCriterionButton.clicked.connect(self._onAddCriterionClicked)
+
         # --- ViewModel to View ---
         self.ViewModel.EventItemSelectedSignal.connect(self._onEventItemSelectedSignal)
         self.ViewModel.ConditionsChangedSignal.connect(self._onConditionsChanged)
@@ -228,7 +281,10 @@ class RightPanelWidget(QWidget):
         eventItem = self.ViewModel.SelectedEventItem
         if not eventItem:
             return
-        self._refreshConditionDropdown(eventItem)
+        if eventItem.SelectedActivationType == ActivationType.CriteriaMet:
+            self._refreshCriteriaMetEditor(eventItem)
+        else:
+            self._refreshConditionDropdown(eventItem)
 
     def _moveStep(self, direction: int) -> None:
         currentRow = self.macroStepListWidget.currentRow()
@@ -345,12 +401,15 @@ class RightPanelWidget(QWidget):
             self.triggerOnThresholdExceedCheckbox.setEnabled(False)
             self.retriggerTimeEdit.setEnabled(False)
             self.conditionDropdown.setEnabled(False)
+            self.criteriaLogicDropdown.setEnabled(False)
+            self.addCriterionButton.setEnabled(False)
 
             self.activationHotkeyWidget.hide()
             self.loopWidget.hide()
             self.conditionWidget.hide()
             self.thresholdWidget.hide()
             self.triggerOnThresholdExceedWidget.hide()
+            self.criteriaMetWidget.hide()
             self.retriggerTimeWidget.hide()
             return
 
@@ -378,12 +437,16 @@ class RightPanelWidget(QWidget):
         self.thresholdEdit.setEnabled(True)
 
         self.triggerOnThresholdExceedCheckbox.setChecked(eventItem.TriggerOnThresholdExceed)
+        self._syncComparatorCheckboxText(self.triggerOnThresholdExceedCheckbox)
         self.triggerOnThresholdExceedCheckbox.setEnabled(True)
 
         self.retriggerTimeEdit.setText(str(eventItem.RetriggerTimeMilliseconds))
         self.retriggerTimeEdit.setEnabled(True)
 
         self._updateVisibilityForActivation(eventItem.SelectedActivationType)
+
+        if eventItem.SelectedActivationType == ActivationType.CriteriaMet:
+            self._refreshCriteriaMetEditor(eventItem)
 
         self._refreshMacroStepList(eventItem.AssignedAction)
         self.stepDropDown.setEnabled(True)
@@ -407,12 +470,100 @@ class RightPanelWidget(QWidget):
             self.conditionWidget.show()
             self.thresholdWidget.show()
             self.triggerOnThresholdExceedWidget.show()
+            self.criteriaMetWidget.hide()
+            self.retriggerTimeWidget.show()
+        elif activationType == ActivationType.CriteriaMet:
+            self.conditionWidget.hide()
+            self.thresholdWidget.hide()
+            self.triggerOnThresholdExceedWidget.hide()
+            self.criteriaMetWidget.show()
             self.retriggerTimeWidget.show()
         else:
             self.conditionWidget.hide()
             self.thresholdWidget.hide()
             self.triggerOnThresholdExceedWidget.hide()
+            self.criteriaMetWidget.hide()
             self.retriggerTimeWidget.hide()
+
+    def _clearCriteriaRows(self) -> None:
+        while self.criteriaRowsLayout.count():
+            item = self.criteriaRowsLayout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _refreshCriteriaMetEditor(self, eventItem: EventItem) -> None:
+        self._isUpdatingCriteriaUi = True
+        try:
+            # Logic dropdown
+            logic = getattr(eventItem, "CriteriaLogic", CriteriaLogic.All)
+            logicName = logic.name if hasattr(logic, "name") else str(logic)
+            idx = self.criteriaLogicDropdown.findText(logicName)
+            if idx >= 0:
+                self.criteriaLogicDropdown.setCurrentIndex(idx)
+
+            self.criteriaLogicDropdown.setEnabled(True)
+            self.addCriterionButton.setEnabled(True)
+
+            criteria = self.ViewModel.GetSelectedCriteria()
+            library = self.ViewModel.GetConditionLibrary()
+
+            self._clearCriteriaRows()
+            for rowIndex, criterion in enumerate(criteria):
+                rowWidget = QWidget()
+                rowLayout = QHBoxLayout()
+                rowLayout.setContentsMargins(0, 0, 0, 0)
+
+                conditionDropdown = QComboBox()
+
+                selectedId = str(criterion.ConditionUuid)
+                items: list[tuple[str, str]] = []
+                if not any(str(c.Uuid) == selectedId for c in library):
+                    items.append((selectedId, f"(missing) {selectedId[:8]}"))
+
+                for condition in library:
+                    name = condition.Name.strip()
+                    if not name:
+                        name = f"(unnamed) {str(condition.Uuid)[:8]}"
+                    items.append((str(condition.Uuid), name))
+
+                selectedIndex = 0
+                for uuidStr, name in items:
+                    idx2 = conditionDropdown.count()
+                    conditionDropdown.addItem(name, uuidStr)
+                    if uuidStr == selectedId:
+                        selectedIndex = idx2
+                conditionDropdown.setCurrentIndex(selectedIndex)
+
+                thresholdEdit = QLineEdit(str(criterion.Threshold))
+                thresholdEdit.setFixedWidth(70)
+
+                exceedCheckbox = QCheckBox("Exceed")
+                exceedCheckbox.setChecked(bool(criterion.TriggerOnThresholdExceed))
+                self._syncComparatorCheckboxText(exceedCheckbox)
+
+                removeButton = QPushButton("-")
+                removeButton.setFixedWidth(26)
+
+                # Wire commits
+                conditionDropdown.currentIndexChanged.connect(partial(self._onCommitCriterionCondition, rowIndex, conditionDropdown))
+                thresholdEdit.editingFinished.connect(partial(self._onCommitCriterionThreshold, rowIndex, thresholdEdit))
+                exceedCheckbox.stateChanged.connect(partial(self._onCommitCriterionExceed, rowIndex, exceedCheckbox))
+                removeButton.clicked.connect(partial(self._onRemoveSpecificCriterionClicked, rowIndex))
+
+                rowLayout.addWidget(QLabel("C:"))
+                rowLayout.addWidget(conditionDropdown)
+                rowLayout.addWidget(QLabel("T:"))
+                rowLayout.addWidget(thresholdEdit)
+                rowLayout.addWidget(exceedCheckbox)
+                rowLayout.addWidget(removeButton)
+                rowWidget.setLayout(rowLayout)
+                self.criteriaRowsLayout.addWidget(rowWidget)
+        finally:
+            self._isUpdatingCriteriaUi = False
+
+    def _syncComparatorCheckboxText(self, checkbox: QCheckBox) -> None:
+        checkbox.setText(">" if checkbox.isChecked() else "<")
 
     def _refreshConditionDropdown(self, eventItem: EventItem) -> None:
         self._isUpdatingConditionDropdown = True
@@ -458,6 +609,9 @@ class RightPanelWidget(QWidget):
         activationType = ActivationType[typeName]
         self.ViewModel.UpdateSelectedActivationType(activationType)
         self._updateVisibilityForActivation(activationType)
+        eventItem = self.ViewModel.SelectedEventItem
+        if eventItem and activationType == ActivationType.CriteriaMet:
+            self._refreshCriteriaMetEditor(eventItem)
 
     def _onCommitLoopCount(self) -> None:
         try:
@@ -478,6 +632,7 @@ class RightPanelWidget(QWidget):
             QMessageBox.warning(self, "Error", "Invalid threshold.")
 
     def _onCommitTriggerOnThresholdExceed(self, state: int) -> None:
+        self._syncComparatorCheckboxText(self.triggerOnThresholdExceedCheckbox)
         self.ViewModel.UpdateSelectedTriggerOnThresholdExceed(state != 0)
 
     def _onCommitRetriggerTime(self) -> None:
@@ -485,3 +640,54 @@ class RightPanelWidget(QWidget):
             self.ViewModel.UpdateSelectedRetriggerTimeMs(float(self.retriggerTimeEdit.text()))
         except ValueError:
             QMessageBox.warning(self, "Error", "Invalid retrigger time.")
+
+    def _onCommitCriteriaLogic(self, index: int) -> None:
+        if self._isUpdatingCriteriaUi:
+            return
+        logicName = self.criteriaLogicDropdown.currentText()
+        self.ViewModel.SetSelectedCriteriaLogic(logicName)
+
+    def _onAddCriterionClicked(self) -> None:
+        self.ViewModel.AddSelectedCriterion()
+        eventItem = self.ViewModel.SelectedEventItem
+        if eventItem and eventItem.SelectedActivationType == ActivationType.CriteriaMet:
+            self._refreshCriteriaMetEditor(eventItem)
+
+    def _onRemoveCriterionClicked(self) -> None:
+        # Minimal behavior: remove last criterion.
+        criteria = self.ViewModel.GetSelectedCriteria()
+        if len(criteria) == 0:
+            return
+        self.ViewModel.RemoveSelectedCriterion(len(criteria) - 1)
+        eventItem = self.ViewModel.SelectedEventItem
+        if eventItem and eventItem.SelectedActivationType == ActivationType.CriteriaMet:
+            self._refreshCriteriaMetEditor(eventItem)
+
+    def _onRemoveSpecificCriterionClicked(self, rowIndex: int) -> None:
+        self.ViewModel.RemoveSelectedCriterion(rowIndex)
+        eventItem = self.ViewModel.SelectedEventItem
+        if eventItem and eventItem.SelectedActivationType == ActivationType.CriteriaMet:
+            self._refreshCriteriaMetEditor(eventItem)
+
+    def _onCommitCriterionCondition(self, rowIndex: int, dropdown: QComboBox, _: int) -> None:
+        if self._isUpdatingCriteriaUi:
+            return
+        data = dropdown.currentData()
+        if isinstance(data, str):
+            self.ViewModel.UpdateSelectedCriterionCondition(rowIndex, data)
+
+    def _onCommitCriterionThreshold(self, rowIndex: int, edit: QLineEdit) -> None:
+        if self._isUpdatingCriteriaUi:
+            return
+        try:
+            value = float(edit.text())
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid threshold.")
+            return
+        self.ViewModel.UpdateSelectedCriterionThreshold(rowIndex, value)
+
+    def _onCommitCriterionExceed(self, rowIndex: int, checkbox: QCheckBox, state: int) -> None:
+        if self._isUpdatingCriteriaUi:
+            return
+        self._syncComparatorCheckboxText(checkbox)
+        self.ViewModel.UpdateSelectedCriterionTriggerOnThresholdExceed(rowIndex, state != 0)
