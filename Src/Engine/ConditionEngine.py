@@ -49,6 +49,8 @@ class ConditionEngine:
         matchScores: Dict[UUID, float] = {}
         percentFilleds: Dict[UUID, float] = {}
         
+        activeConditionUuids = {c.Uuid for c in conditions}
+
         for condition in conditions:
             # Ensure state exists for this event
             if condition.Uuid not in context.States:
@@ -84,6 +86,11 @@ class ConditionEngine:
                 state.PercentFilled = EstimateProgressBarPercentage(state.CropImage)
                 matchUpdates.append((condition.Uuid, state.PercentFilled, state.CropImage))
                 percentFilleds[condition.Uuid] = state.PercentFilled
+
+        # Prune state for removed conditions.
+        for conditionUuid in list(context.States.keys()):
+            if conditionUuid not in activeConditionUuids:
+                context.States.pop(conditionUuid, None)
 
 
         return ConditionEngineResult(matchUpdates, matchScores, percentFilleds), context

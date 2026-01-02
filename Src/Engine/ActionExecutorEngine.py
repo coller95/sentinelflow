@@ -103,6 +103,8 @@ class ActionExecutorEngine:
         triggeredEventUuids: Set[UUID],
         context: ActionExecutionContext
     ) -> ActionExecutionContext:
+        enabledEventUuids: Set[UUID] = {e.Uuid for e in events if e.IsEnabled}
+
         toRemove : list[UUID] = []
         for event in events:
             if not event.IsEnabled:
@@ -126,4 +128,9 @@ class ActionExecutorEngine:
         # Remove completed or deactivated events
         for uuid in toRemove:
             context.eventStates.pop(uuid, None)
+
+        # Also prune state for disabled/removed events.
+        for uuid in list(context.eventStates.keys()):
+            if uuid not in enabledEventUuids:
+                context.eventStates.pop(uuid, None)
         return context

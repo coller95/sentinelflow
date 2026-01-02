@@ -48,6 +48,8 @@ class ActivationEngine:
         disabled: List[EventItem] = []
         triggeredEventUuids: Set[UUID] = set()
 
+        activeEventUuids: Set[UUID] = {e.Uuid for e in events if e.IsEnabled}
+
         for event in events:
             if not event.IsEnabled:
                 continue
@@ -72,7 +74,7 @@ class ActivationEngine:
                     continue
                 if event.LoopCount > 0 and state.LoopCounter >= event.LoopCount:
                     event.IsEnabled = False
-                    event.ResetTransientState()
+                    context.eventStates.pop(event.Uuid, None)
                     disabled.append(event)
                     continue
 
@@ -131,6 +133,11 @@ class ActivationEngine:
                     state.LastTriggerTimeMs = currentTimeMs
 
                 state.IsCurrentlyHeld = isConditionMet
+
+        # Prune state for disabled/removed events.
+        for eventUuid in list(context.eventStates.keys()):
+            if eventUuid not in activeEventUuids:
+                context.eventStates.pop(eventUuid, None)
 
         return ActivationEngineResult(
             triggered=triggered,

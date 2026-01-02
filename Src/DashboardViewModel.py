@@ -141,6 +141,7 @@ class DashboardViewModel(QObject):
             # ---------------------------
             # Populate the UI/Model
             self.SentinelController.SetFlowEnabled(False)  # Ensure flow is off during loading
+            self.SentinelController.RequestResetAllRuntimeState()
 
             self.EventStoreService.Clear()
 
@@ -152,8 +153,6 @@ class DashboardViewModel(QObject):
             # Build a UUID->ConditionItem map for relinking (works even if loadedConditions is empty)
             conditionMap = {c.Uuid: c for c in self.ConditionStoreService.GetSnapshot()}
             for event in loadedEvents:
-                event.ResetTransientState()
-
                 # Ensure events reference the shared ConditionItem instance by UUID
                 cid = event.Condition.Uuid
                 shared = conditionMap.get(cid)
@@ -181,6 +180,7 @@ class DashboardViewModel(QObject):
 
     def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None:
         self.EventEditingService.SetEventEnabled(eventItem, isEnabled)
+        self.SentinelController.RequestResetEvent(eventItem.Uuid)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedEventName(self, name: str) -> None:
@@ -195,6 +195,8 @@ class DashboardViewModel(QObject):
         if not eventItem:
             return
         self.EventEditingService.UpdateActivationType(eventItem, activationType)
+        self.SentinelController.RequestResetEvent(eventItem.Uuid)
+        self.SentinelController.RequestResetCondition(eventItem.Condition.Uuid)
         self.EventItemChangedSignal.emit(eventItem)
 
     def UpdateSelectedLoopCount(self, loopCount: int) -> None:
@@ -244,6 +246,7 @@ class DashboardViewModel(QObject):
         if not eventItem:
             return
         self.EventEditingService.SetTemplateAndRoi(eventItem, templateImage, roi)
+        self.SentinelController.RequestResetCondition(eventItem.Condition.Uuid)
         self.EventItemChangedSignal.emit(eventItem)
 
     def GetConditionLibrary(self) -> list[ConditionItem]:
@@ -279,6 +282,7 @@ class DashboardViewModel(QObject):
         if condition is None:
             return
         self.EventEditingService.SetCondition(eventItem, condition)
+        self.SentinelController.RequestResetEvent(eventItem.Uuid)
         self.EventItemChangedSignal.emit(eventItem)
 
     def AddSelectedMouseStepFromCapturedPosition(self) -> None:

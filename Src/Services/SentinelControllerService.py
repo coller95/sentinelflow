@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Callable, List, Optional, Any
+from uuid import UUID
 
 import numpy as np
 
@@ -79,6 +80,20 @@ class SentinelControllerService:
     def SetImage(self, image: Optional[np.ndarray[Any, Any]]) -> None:
         if self._triggerThread is not None:
             self._triggerThread.SetImage(image)
+
+    # -------------------- Runtime state reset --------------------
+
+    def RequestResetEvent(self, eventUuid: UUID) -> None:
+        if self._triggerThread is not None:
+            self._triggerThread.RequestResetEvent(eventUuid)
+
+    def RequestResetCondition(self, conditionUuid: UUID) -> None:
+        if self._triggerThread is not None:
+            self._triggerThread.RequestResetCondition(conditionUuid)
+
+    def RequestResetAllRuntimeState(self) -> None:
+        if self._triggerThread is not None:
+            self._triggerThread.RequestResetAllRuntimeState()
 
     # -------------------- Capture --------------------
 

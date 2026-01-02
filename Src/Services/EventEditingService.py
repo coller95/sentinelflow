@@ -18,7 +18,6 @@ class EventEditingService:
 
     def SetEventEnabled(self, eventItem: EventItem, isEnabled: bool) -> None:
         eventItem.IsEnabled = isEnabled
-        eventItem.ResetTransientState()
 
     def UpdateEventName(self, eventItem: EventItem, name: str) -> None:
         eventItem.Name = name
@@ -26,7 +25,6 @@ class EventEditingService:
     def UpdateActivationType(self, eventItem: EventItem, activationType: ActivationType) -> None:
         eventItem.SelectedActivationType = activationType
         self._syncConditionTypeFromActivation(eventItem)
-        eventItem.ResetTransientState()
 
     def UpdateLoopCount(self, eventItem: EventItem, loopCount: int) -> None:
         eventItem.LoopCount = loopCount
@@ -53,7 +51,6 @@ class EventEditingService:
     def SetCondition(self, eventItem: EventItem, condition: ConditionItem) -> None:
         eventItem.Condition = condition
         self._syncConditionTypeFromActivation(eventItem)
-        eventItem.ResetTransientState()
 
     def AddMouseStep(self, eventItem: EventItem, normalizedX: float, normalizedY: float) -> None:
         if not eventItem.AssignedAction:

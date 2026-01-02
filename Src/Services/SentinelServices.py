@@ -1,5 +1,6 @@
 import time
 import threading
+from uuid import UUID
 from typing import Callable, List, Optional, Any
 
 import numpy as np
@@ -45,6 +46,11 @@ class TriggerMonitorService:
         self._flowHotkeyVkCodes: List[int] = []
         self._flowHotkeyIsCurrentlyHeld = False
 
+        self._resetLock = threading.Lock()
+        self._resetAllRequested = False
+        self._resetEventUuids: set[UUID] = set()
+        self._resetConditionUuids: set[UUID] = set()
+
         self._conditionEngine = ConditionEngine()
         self._activationEngine = ActivationEngine()
         self._actionExecutor = ActionExecutorEngine()
@@ -52,6 +58,42 @@ class TriggerMonitorService:
         self._conditionContext = ConditionEngineContext()
         self._activationContext = ActivationEngineContext()
         self._actionExecutionContext = ActionExecutionContext()
+
+    def RequestResetEvent(self, eventUuid: UUID) -> None:
+        with self._resetLock:
+            self._resetEventUuids.add(eventUuid)
+
+    def RequestResetCondition(self, conditionUuid: UUID) -> None:
+        with self._resetLock:
+            self._resetConditionUuids.add(conditionUuid)
+
+    def RequestResetAllRuntimeState(self) -> None:
+        with self._resetLock:
+            self._resetAllRequested = True
+            self._resetEventUuids.clear()
+            self._resetConditionUuids.clear()
+
+    def _ApplyPendingResets(self) -> None:
+        with self._resetLock:
+            resetAll = self._resetAllRequested
+            resetEvents = set(self._resetEventUuids)
+            resetConditions = set(self._resetConditionUuids)
+            self._resetAllRequested = False
+            self._resetEventUuids.clear()
+            self._resetConditionUuids.clear()
+
+        if resetAll:
+            self._conditionContext.States.clear()
+            self._activationContext.eventStates.clear()
+            self._actionExecutionContext.eventStates.clear()
+            return
+
+        for eventUuid in resetEvents:
+            self._activationContext.eventStates.pop(eventUuid, None)
+            self._actionExecutionContext.eventStates.pop(eventUuid, None)
+
+        for conditionUuid in resetConditions:
+            self._conditionContext.States.pop(conditionUuid, None)
 
     def Start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -104,6 +146,9 @@ class TriggerMonitorService:
     def _Run(self) -> None:
         while not self._stopEvent.is_set():
             self._CheckFlowHotkeyPressed()
+
+            # Apply requested resets even while flow is disabled.
+            self._ApplyPendingResets()
 
             if not self._flowEnabled:
                 time.sleep(self._pollIntervalMs / 1000.0)

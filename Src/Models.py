@@ -310,10 +310,4 @@ class EventItem:
     def AssignedAction(self, value: ActionItem) -> None:
         self._assignedAction = value
 
-    def ResetTransientState(self) -> None:
-        self._isCurrentlyHeld = False
-        self._loopCounter = 0
-        self._timeOfLastTriggerMilliseconds = 0.0
-        self._matchScore = 0.0
-        self._percentFilled = 0.0
 
