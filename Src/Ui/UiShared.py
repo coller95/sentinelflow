@@ -4,7 +4,7 @@ import numpy as np
 import cv2
 from typing import List, Optional, Final, Callable, Any
 
-from PySide6.QtCore import Qt, QPoint, QRect, QSize, Signal
+from PySide6.QtCore import Qt, QPoint, QRect, QSize, Signal, QTimer
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QResizeEvent, QPixmap, QImage, QPaintEvent, QPainter, QPen
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget, QRubberBand
 
@@ -71,19 +71,55 @@ class CropperWidget(QWidget):
         onCrop: Callable[[np.ndarray[Any, Any], float, float, float, float], None]
     ) -> None:
         super().__init__()
-        self.onCrop = onCrop
+        self.onCrop: Callable[[np.ndarray[Any, Any], float, float, float, float], None] = onCrop
+        self._isSelecting: bool = False
+        self._isArmedForInput: bool = False
+        self._isArmedForInput = False
         self.setMinimumSize(640, 480)
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         self.imageLabel = QLabel()
         self.imageLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.imageLabel.setMinimumSize(1, 1)
-        self.originalPixmap = self._ndarrayToQPixmap(imageData)
+        self.originalPixmap = QPixmap()
         layout.addWidget(self.imageLabel)
         self.setLayout(layout)
-        self.showMaximized()
         self.rubberBand = QRubberBand(QRubberBand.Shape.Rectangle, self.imageLabel)
         self.origin = QPoint()
+
+        self.UpdateSession(imageData, onCrop)
+
+        # Arm input on the next tick so the button click that opened this window
+        # can't accidentally count as a crop interaction.
+        QTimer.singleShot(0, self._armInput)
+
+    def _armInput(self) -> None:
+        self._isArmedForInput = True
+
+    def UpdateSession(
+        self,
+        imageData: np.ndarray[Any, Any],
+        onCrop: Callable[[np.ndarray[Any, Any], float, float, float, float], None],
+    ) -> None:
+        # Reset state and load new image/callback.
+        self.onCrop = onCrop
+        self._isSelecting = False
+        self._isArmedForInput = False
+        self.origin = QPoint()
+        self.rubberBand.hide()
+
+        self.originalPixmap = self._ndarrayToQPixmap(imageData)
+        if not self.originalPixmap.isNull():
+            scaledPixmap = self.originalPixmap.scaled(
+                self.imageLabel.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.imageLabel.setPixmap(scaledPixmap)
+
+        # Arm input on the next tick so the click that opened this window
+        # can't accidentally count as a crop interaction.
+        QTimer.singleShot(0, self._armInput)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         """
@@ -110,9 +146,12 @@ class CropperWidget(QWidget):
             event: Mouse event
         """
         if event.button() == Qt.MouseButton.LeftButton:
+            if not self._isArmedForInput:
+                return
             self.origin = event.position().toPoint()
             self.rubberBand.setGeometry(QRect(self.origin, QSize()))
             self.rubberBand.show()
+            self._isSelecting = True
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """
@@ -121,9 +160,14 @@ class CropperWidget(QWidget):
         Args:
             event: Mouse event
         """
-        if not self.origin.isNull():
-            # Update selection rectangle dynamically
-            self.rubberBand.setGeometry(QRect(self.origin, event.position().toPoint()).normalized())
+        if not self._isArmedForInput:
+            return
+
+        if not self._isSelecting or self.origin.isNull():
+            return
+
+        # Update selection rectangle dynamically
+        self.rubberBand.setGeometry(QRect(self.origin, event.position().toPoint()).normalized())
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """
@@ -133,14 +177,37 @@ class CropperWidget(QWidget):
             event: Mouse event
         """
         if event.button() == Qt.MouseButton.LeftButton:
+            # If the widget was just shown, the mouse-release that completed the
+            # button click can be delivered here. Ignore releases unless the user
+            # actually started a selection on this widget.
+            if not self._isArmedForInput or not self._isSelecting:
+                return
+            self._isSelecting = False
+
             # 1. Get the geometry of the rubber band (Screen Space)
             selectionRect = self.rubberBand.geometry()
+
+            if not self.rubberBand.isVisible():
+                return
+
+            if selectionRect.width() < 2 or selectionRect.height() < 2:
+                self.rubberBand.hide()
+                return
+
+            pixmap = self.imageLabel.pixmap()
+            if pixmap is None or pixmap.isNull():
+                self.rubberBand.hide()
+                return
             
             # 2. Calculate the scaling ratio
-            shownPixmapSize = self.imageLabel.pixmap().size()
+            shownPixmapSize = pixmap.size()
             fullPixmapSize = self.originalPixmap.size()
             fullWidth = fullPixmapSize.width()
             fullHeight = fullPixmapSize.height()
+
+            if shownPixmapSize.width() <= 0 or shownPixmapSize.height() <= 0 or fullWidth <= 0 or fullHeight <= 0:
+                self.rubberBand.hide()
+                return
             
             ratioX = fullWidth / shownPixmapSize.width()
             ratioY = fullHeight / shownPixmapSize.height()
@@ -168,7 +235,8 @@ class CropperWidget(QWidget):
             
             # Passing normalized values to the callback
             self.onCrop(cvImage, normX, normY, normW, normH)
-            self.close()
+            # Keep the same window instance for re-use.
+            self.hide()
 
     def _qpixmapToNdarray(self, pixmap: QPixmap) -> np.ndarray[Any, Any]:
         """

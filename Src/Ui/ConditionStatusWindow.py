@@ -279,6 +279,11 @@ class ConditionStatusWindow(QDialog):
     def _onSetRoiFromLive(self) -> None:
         cid = self._getSelectedConditionUuid()
         if cid is None:
+            # Common UX case: user hasn't clicked a row yet.
+            if self.table.rowCount() > 0:
+                self.table.setCurrentCell(0, 0)
+                cid = self._getSelectedConditionUuid()
+        if cid is None:
             return
 
         lastLiveImage = self.ViewModel.GetLastLiveImage()
@@ -301,13 +306,16 @@ class ConditionStatusWindow(QDialog):
             self._refreshTable()
             self._selectRowByUuid(cid)
 
-        if self._activeCropper is not None:
-            self._activeCropper.close()
+        if self._activeCropper is None:
+            cropper = CropperWidget(cast(np.ndarray[Any, Any], lastLiveImage), onCrop)
+            self._activeCropper = cropper
+            cropper.destroyed.connect(self._onCropperDestroyed)
+        else:
+            self._activeCropper.UpdateSession(cast(np.ndarray[Any, Any], lastLiveImage), onCrop)
 
-        cropper = CropperWidget(cast(np.ndarray[Any, Any], lastLiveImage), onCrop)
-        self._activeCropper = cropper
-        cropper.destroyed.connect(self._onCropperDestroyed)
-        cropper.show()
+        self._activeCropper.showMaximized()
+        self._activeCropper.raise_()
+        self._activeCropper.activateWindow()
 
     def _onCropperDestroyed(self, _obj: object = None) -> None:
         self._activeCropper = None
@@ -334,6 +342,9 @@ class ConditionStatusWindow(QDialog):
 
         if selected is not None:
             self._selectRowByUuid(selected)
+        elif self.table.rowCount() > 0:
+            # Auto-select first row so actions (like Set ROI) work on first click.
+            self.table.setCurrentCell(0, 0)
 
         self._updateMoveButtonsEnabled()
 
