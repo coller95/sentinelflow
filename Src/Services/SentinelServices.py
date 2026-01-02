@@ -114,7 +114,7 @@ class TriggerMonitorService:
                     self._actionExecutionContext = self._actionExecutor.loop(
                         hwnd,
                         eventItemsSnapshot,
-                        activation.activatedEventUuids,
+                        activation.triggeredEventUuids,
                         self._actionExecutionContext,
                     )
 

@@ -21,7 +21,7 @@ class EngineResult:
     triggered: List[EventItem]
     disabled: List[EventItem]
     matchUpdates: List[object]
-    activatedEventUuids: Set[UUID]
+    triggeredEventUuids: Set[UUID]
 
 
 class ActivationEngine:
@@ -29,7 +29,7 @@ class ActivationEngine:
         triggered: List[EventItem] = []
         disabled: List[EventItem] = []
         matchUpdates: List[object] = []
-        activatedEventUuids: Set[UUID] = set()
+        triggeredEventUuids: Set[UUID] = set()
 
         for index, event in enumerate(events):
             if not event.IsEnabled:
@@ -42,7 +42,7 @@ class ActivationEngine:
                 isDownNow = IsHotkeyActive(event.ActivationVirtualKeyCodes)
                 if event.IsCurrentlyHeld and not isDownNow:
                     triggered.append(event)
-                    activatedEventUuids.add(event.Uuid)
+                    triggeredEventUuids.add(event.Uuid)
                 event.IsCurrentlyHeld = isDownNow
 
             elif event.SelectedActivationType == ActivationType.Loop:
@@ -61,7 +61,7 @@ class ActivationEngine:
                 event.LoopCounter += 1
                 event.TimeOfLastTriggerMilliseconds = currentTimeMs
                 triggered.append(event)
-                activatedEventUuids.add(event.Uuid)
+                triggeredEventUuids.add(event.Uuid)
 
             elif event.SelectedActivationType == ActivationType.ImageMatchRoi:
                 if localImage is None or event.TemplateImage is None:
@@ -90,7 +90,7 @@ class ActivationEngine:
 
                 if isRisingEdge or isRetrigger:
                     triggered.append(event)
-                    activatedEventUuids.add(event.Uuid)
+                    triggeredEventUuids.add(event.Uuid)
                     event.TimeOfLastTriggerMilliseconds = currentTimeMs
 
                 event.IsCurrentlyHeld = isConditionMet
@@ -122,9 +122,9 @@ class ActivationEngine:
 
                 if isRisingEdge or isRetrigger:
                     triggered.append(event)
-                    activatedEventUuids.add(event.Uuid)
+                    triggeredEventUuids.add(event.Uuid)
                     event.TimeOfLastTriggerMilliseconds = currentTimeMs
 
                 event.IsCurrentlyHeld = isConditionMet
 
-        return EngineResult(triggered=triggered, disabled=disabled, matchUpdates=matchUpdates, activatedEventUuids=activatedEventUuids)
+        return EngineResult(triggered=triggered, disabled=disabled, matchUpdates=matchUpdates, triggeredEventUuids=triggeredEventUuids)

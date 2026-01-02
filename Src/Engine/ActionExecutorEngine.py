@@ -100,7 +100,7 @@ class ActionExecutorEngine:
         self,
         windowHandle: int,
         events: List[EventItem],
-        activatedEventUuids: Set[UUID],
+        triggeredEventUuids: Set[UUID],
         context: ActionExecutionContext
     ) -> ActionExecutionContext:
         toRemove : list[UUID] = []
@@ -110,7 +110,7 @@ class ActionExecutorEngine:
             
             state = context.eventStates.get(event.Uuid)
             # if activated, check context and add state if not present
-            if event.Uuid in activatedEventUuids:
+            if event.Uuid in triggeredEventUuids:
                 if state is None:
                     state = EventExecutionState()
                     context.eventStates[event.Uuid] = state
