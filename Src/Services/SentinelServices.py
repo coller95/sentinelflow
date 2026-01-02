@@ -150,22 +150,23 @@ class TriggerMonitorService:
             # Apply requested resets even while flow is disabled.
             self._ApplyPendingResets()
 
-            if not self._flowEnabled:
-                time.sleep(self._pollIntervalMs / 1000.0)
-                continue
-
             localImage = self._CopyImageForProcessing()
             conditionItemsSnapshot = list(self._getConditionItems())
-            eventItemsSnapshot = list(self._getEventItems())
-
-            
-
             conditionEngineResult, self._conditionContext = self._conditionEngine.Loop(
                 conditionItemsSnapshot,
                 localImage,
                 self._conditionContext
             )
 
+            if self._onMatchScoreUpdated is not None:
+                for update in conditionEngineResult.matchUpdates:
+                    self._onMatchScoreUpdated(update)
+
+            if not self._flowEnabled:
+                time.sleep(self._pollIntervalMs / 1000.0)
+                continue
+
+            eventItemsSnapshot = list(self._getEventItems())
             activationResult, self._activationContext = self._activationEngine.Loop(
                 eventItemsSnapshot,
                 conditionEngineResult,
@@ -190,10 +191,6 @@ class TriggerMonitorService:
             if self._onEventDisabled is not None:
                 for event in activationResult.disabled:
                     self._onEventDisabled(event)
-
-            if self._onMatchScoreUpdated is not None:
-                for update in conditionEngineResult.matchUpdates:
-                    self._onMatchScoreUpdated(update)
 
             time.sleep(self._pollIntervalMs / 1000.0)
 
