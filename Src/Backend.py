@@ -4,8 +4,9 @@ from fastapi.responses import FileResponse
 from fastapi.responses import Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-import os
+import sys
 import time
+from pathlib import Path
 
 import cv2
 
@@ -16,8 +17,20 @@ from Src.Services import Services
 app = FastAPI()
 services: Optional[Services] = None
 
-_public_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "public")
-app.mount("/static", StaticFiles(directory=_public_dir), name="static")
+def _resource_root() -> Path:
+    """Return the runtime root directory.
+
+    - In development: project root (the folder containing `Src/` and `public/`).
+    - In PyInstaller onefile: the extraction directory (`sys._MEIPASS`).
+    """
+    mei_root = getattr(sys, "_MEIPASS", None)
+    if mei_root:
+        return Path(mei_root)
+    return Path(__file__).resolve().parents[1]
+
+
+_public_dir = _resource_root() / "public"
+app.mount("/static", StaticFiles(directory=str(_public_dir)), name="static")
 
 
 def _get_services() -> Services:
@@ -56,8 +69,8 @@ class CaptureStartRequest(BaseModel):
 # Serve the HTML file from the public directory
 @app.get("/", response_class=FileResponse)
 def ServeIndex():
-    indexPath = os.path.join(os.path.dirname(os.path.dirname(__file__)), "public", "index.html")
-    return FileResponse(indexPath, media_type="text/html")
+    index_path = _public_dir / "index.html"
+    return FileResponse(str(index_path), media_type="text/html")
 
 
 @app.post("/api/app/launch")

@@ -19,7 +19,7 @@ IF %ERRORLEVEL% NEQ 0 (
 REM Package Main.py into a single executable using .venv Python
 
 REM Change to Src directory and package
-python -m PyInstaller --onefile Src\Main.py
+python -m PyInstaller --onefile --add-data "public;public" Src\Main.py
 
 echo Packaging complete. Check the dist folder in Src.
 pause

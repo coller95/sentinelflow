@@ -32,7 +32,7 @@ def main() -> int:
     app.state.services = Services()
     # Run FastAPI backend in the main thread
     port = int(os.getenv("SENTINELFLOW_PORT", os.getenv("PORT", "8000")))
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
     return 0
 
 if __name__ == "__main__":
