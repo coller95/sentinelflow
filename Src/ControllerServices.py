@@ -87,6 +87,7 @@ class ControllerServices:
         # Condition status computation (template/crop/last) on a dedicated worker.
         self._condition_status_lock = threading.Lock()
         self._condition_status: List[ConditionStatusSnapshot] = []
+        self._condition_status_seq = 0
         self._condition_status_interval_seconds = 0.5
         self._condition_status_thread = threading.Thread(
             target=self._condition_status_worker,
@@ -102,6 +103,10 @@ class ControllerServices:
     def GetConditionStatusSnapshots(self) -> List[ConditionStatusSnapshot]:
         with self._condition_status_lock:
             return list(self._condition_status)
+
+    def GetConditionStatusSequence(self) -> int:
+        with self._condition_status_lock:
+            return int(self._condition_status_seq)
 
     def SetConditionStatusIntervalSeconds(self, intervalSeconds: float) -> None:
         if intervalSeconds <= 0:
@@ -262,6 +267,7 @@ class ControllerServices:
 
             with self._condition_status_lock:
                 self._condition_status = snapshots
+                self._condition_status_seq += 1
 
             time.sleep(interval)
 

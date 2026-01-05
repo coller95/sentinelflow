@@ -43,6 +43,7 @@ const templateImageEl = document.getElementById('templateImage');
 let selectedConditionIndex = null;
 
 let captureEvents = null;
+let conditionsEvents = null;
 // Click-to-fill coordinates; send via button.
 
 function setBusy(isBusy) {
@@ -174,6 +175,13 @@ function stopEventSource() {
   if (captureEvents) {
     captureEvents.close();
     captureEvents = null;
+  }
+}
+
+function stopConditionsEventSource() {
+  if (conditionsEvents) {
+    conditionsEvents.close();
+    conditionsEvents = null;
   }
 }
 
@@ -711,6 +719,7 @@ keyNameEl.addEventListener('keydown', (ev) => {
 
 window.addEventListener('beforeunload', () => {
   stopEventSource();
+  stopConditionsEventSource();
 });
 
 function readClickXY() {
@@ -788,6 +797,77 @@ async function refreshConditions() {
 
     condTableBody.appendChild(tr);
   }
+}
+
+function startConditionsEventSource() {
+  stopConditionsEventSource();
+  if (!condTableBody) return;
+
+  conditionsEvents = new EventSource('/api/conditions/stream');
+
+  conditionsEvents.addEventListener('status', (ev) => {
+    try {
+      const items = JSON.parse(ev.data || '[]');
+      if (!Array.isArray(items)) return;
+
+      // Render using the same logic as refreshConditions, but without a fetch.
+      condTableBody.textContent = '';
+      for (const it of items) {
+        const tr = document.createElement('tr');
+        tr.dataset.index = String(it.index);
+        if (selectedConditionIndex !== null && Number(it.index) === Number(selectedConditionIndex)) {
+          tr.classList.add('selected');
+        }
+
+        const tdName = document.createElement('td');
+        tdName.textContent = String(it.name ?? '');
+
+        const tdType = document.createElement('td');
+        tdType.textContent = String(it.type ?? '');
+
+        const tdTpl = document.createElement('td');
+        const tplImg = document.createElement('img');
+        tplImg.className = 'thumb';
+        if (it.templateThumbBase64) {
+          tplImg.src = `data:image/jpeg;base64,${it.templateThumbBase64}`;
+        }
+        tdTpl.appendChild(tplImg);
+
+        const tdCrop = document.createElement('td');
+        const cropImg = document.createElement('img');
+        cropImg.className = 'thumb';
+        if (it.cropThumbBase64) {
+          cropImg.src = `data:image/jpeg;base64,${it.cropThumbBase64}`;
+        }
+        tdCrop.appendChild(cropImg);
+
+        const tdLast = document.createElement('td');
+        tdLast.textContent = (it.last === null || it.last === undefined) ? '' : String(it.last);
+
+        tr.appendChild(tdName);
+        tr.appendChild(tdType);
+        tr.appendChild(tdTpl);
+        tr.appendChild(tdCrop);
+        tr.appendChild(tdLast);
+
+        tr.addEventListener('click', () => {
+          selectedConditionIndex = Number(it.index);
+          // Selection highlight will show on the next SSE update; force a quick render now.
+          try {
+            const rows = condTableBody.querySelectorAll('tr');
+            rows.forEach(r => r.classList.remove('selected'));
+            tr.classList.add('selected');
+          } catch {
+            // ignore
+          }
+        });
+
+        condTableBody.appendChild(tr);
+      }
+    } catch {
+      // ignore
+    }
+  });
 }
 
 if (btnRefreshConditions) {
@@ -938,7 +1018,10 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById(`tab-${target}`).classList.add("active");
 
             if (target === 'conditions') {
+              startConditionsEventSource();
               refreshConditions().catch(() => {});
+            } else {
+              stopConditionsEventSource();
             }
         });
     });

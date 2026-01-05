@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from enum import Enum
 import base64
+import json
 
 import cv2
 import numpy as np
@@ -474,6 +475,47 @@ def GetConditionsStatus() -> List[ConditionStatusDto]:
             )
         )
     return out
+
+
+@app.get("/api/conditions/stream")
+def ConditionsStream():
+    """Stream condition status updates over SSE as compact JSON payloads."""
+    svc = _get_services()
+
+    def event_stream():
+        yield "retry: 1000\n\n"
+
+        last_seq = svc.GetConditionStatusSequence()
+        last_keepalive = time.monotonic()
+
+        while True:
+            seq = svc.GetConditionStatusSequence()
+            if seq != last_seq:
+                last_seq = seq
+                snapshots = svc.GetConditionStatusSnapshots()
+                payload = []
+                for s in snapshots:
+                    payload.append(
+                        {
+                            "index": int(s.index),
+                            "name": s.name,
+                            "type": s.type.name,
+                            "templateThumbBase64": s.templateThumbBase64,
+                            "cropThumbBase64": s.cropThumbBase64,
+                            "last": s.last,
+                        }
+                    )
+                data = json.dumps(payload, separators=(",", ":"))
+                yield f"event: status\ndata: {data}\n\n"
+
+            now = time.monotonic()
+            if now - last_keepalive >= 10.0:
+                yield ": keepalive\n\n"
+                last_keepalive = now
+
+            time.sleep(0.2)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.post("/api/conditions/remove")
