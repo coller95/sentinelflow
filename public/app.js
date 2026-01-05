@@ -15,6 +15,7 @@ const btnStartCapture = document.getElementById('btnStartCapture');
 const btnStopCapture = document.getElementById('btnStopCapture');
 const captureImage = document.getElementById('captureImage');
 const captureIntervalEl = document.getElementById('captureInterval');
+const roiOverlay = document.getElementById('roiOverlay');
 
 const keyNameEl = document.getElementById('keyName');
 const btnSendKey = document.getElementById('btnSendKey');
@@ -22,6 +23,19 @@ const btnSendKey = document.getElementById('btnSendKey');
 const clickXEl = document.getElementById('clickX');
 const clickYEl = document.getElementById('clickY');
 const btnSendClick = document.getElementById('btnSendClick');
+
+const btnRefreshConditions = document.getElementById('btnRefreshConditions');
+const conditionsJsonEl = document.getElementById('conditionsJson');
+
+const btnAddCondition = document.getElementById('btnAddCondition');
+const btnClearConditions = document.getElementById('btnClearConditions');
+const conditionNameEl = document.getElementById('conditionName');
+const conditionTypeEl = document.getElementById('conditionType');
+const roiXEl = document.getElementById('roiX');
+const roiYEl = document.getElementById('roiY');
+const roiWEl = document.getElementById('roiW');
+const roiHEl = document.getElementById('roiH');
+const templateImageEl = document.getElementById('templateImage');
 
 let captureEvents = null;
 // Click-to-fill coordinates; send via button.
@@ -57,6 +71,25 @@ async function postJson(path, body) {
     const detail = (data && (data.detail || data.message)) ? (data.detail || data.message) : text;
     throw new Error(detail || `Request failed (${res.status})`);
   }
+  return data;
+}
+
+async function getJson(path) {
+  const res = await fetch(path, { method: 'GET' });
+  const text = await res.text();
+
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    // ignore
+  }
+
+  if (!res.ok) {
+    const detail = (data && (data.detail || data.message)) ? (data.detail || data.message) : text;
+    throw new Error(detail || `Request failed (${res.status})`);
+  }
+
   return data;
 }
 
@@ -160,8 +193,29 @@ function clamp01(v) {
   return v;
 }
 
+function read01(el, label) {
+  const raw = (el && el.value ? String(el.value) : '').trim();
+  const val = Number(raw);
+  if (!Number.isFinite(val)) {
+    throw new Error(`${label} must be a number`);
+  }
+  if (val < 0 || val > 1) {
+    throw new Error(`${label} must be between 0 and 1`);
+  }
+  return val;
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.readAsDataURL(file);
+  });
+}
+
 function getNormalizedPointFromMouseEvent(ev) {
-    const rect = captureImage.getBoundingClientRect();
+  const rect = (roiOverlay || captureImage).getBoundingClientRect();
     
     const nw = captureImage.naturalWidth;
     const nh = captureImage.naturalHeight;
@@ -202,15 +256,398 @@ function getNormalizedPointFromMouseEvent(ev) {
     return { x, y };
 }
 
-captureImage.addEventListener('click', (ev) => {
+function tryParseRgb(color) {
+  const m = String(color || '').match(/rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?\)/i);
+  if (!m) return null;
+  return { r: Number(m[1]), g: Number(m[2]), b: Number(m[3]) };
+}
+
+function rgbaFromComputedColor(alpha) {
+  const rgb = tryParseRgb(getComputedStyle(document.body).color);
+  if (!rgb) return `rgba(255,255,255,${alpha})`;
+  return `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
+}
+
+function ensureOverlayCanvasSize() {
+  if (!roiOverlay) return;
+  const w = Math.max(1, Math.floor(roiOverlay.clientWidth));
+  const h = Math.max(1, Math.floor(roiOverlay.clientHeight));
+  if (roiOverlay.width !== w) roiOverlay.width = w;
+  if (roiOverlay.height !== h) roiOverlay.height = h;
+}
+
+function getRenderedImageBox() {
+  const rect = (roiOverlay || captureImage).getBoundingClientRect();
+  const nw = captureImage.naturalWidth;
+  const nh = captureImage.naturalHeight;
+  const elementW = rect.width;
+  const elementH = rect.height;
+
+  if (!nw || !nh || elementW <= 0 || elementH <= 0) {
+    return { renderWidth: elementW, renderHeight: elementH, offsetX: 0, offsetY: 0 };
+  }
+
+  const elementRatio = elementW / elementH;
+  const imageRatio = nw / nh;
+
+  let renderWidth, renderHeight;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  if (elementRatio > imageRatio) {
+    renderHeight = elementH;
+    renderWidth = elementH * imageRatio;
+    offsetX = (elementW - renderWidth) / 2;
+  } else {
+    renderWidth = elementW;
+    renderHeight = elementW / imageRatio;
+    offsetY = (elementH - renderHeight) / 2;
+  }
+
+  return { renderWidth, renderHeight, offsetX, offsetY };
+}
+
+function drawOverlayRoi(roi) {
+  if (!roiOverlay) return;
+  ensureOverlayCanvasSize();
+  const ctx = roiOverlay.getContext('2d');
+  if (!ctx) return;
+
+  ctx.clearRect(0, 0, roiOverlay.width, roiOverlay.height);
+  if (!roi) return;
+
+  const { renderWidth, renderHeight, offsetX, offsetY } = getRenderedImageBox();
+  if (renderWidth <= 0 || renderHeight <= 0) return;
+
+  const x1 = offsetX + roi.x * renderWidth;
+  const y1 = offsetY + roi.y * renderHeight;
+  const x2 = offsetX + (roi.x + roi.w) * renderWidth;
+  const y2 = offsetY + (roi.y + roi.h) * renderHeight;
+
+  const left = Math.min(x1, x2);
+  const top = Math.min(y1, y2);
+  const width = Math.abs(x2 - x1);
+  const height = Math.abs(y2 - y1);
+
+  ctx.fillStyle = rgbaFromComputedColor(0.15);
+  ctx.strokeStyle = rgbaFromComputedColor(0.9);
+  ctx.lineWidth = _activeRoiHandle ? 3 : 2;
+  ctx.fillRect(left, top, width, height);
+  ctx.strokeRect(left + 1, top + 1, Math.max(0, width - 2), Math.max(0, height - 2));
+
+  if (_activeRoiHandle) {
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = rgbaFromComputedColor(0.7);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(left + 4, top + 4, Math.max(0, width - 8), Math.max(0, height - 8));
+    ctx.restore();
+  }
+
+  // Handles
+  const handleFill = rgbaFromComputedColor(0.85);
+  const handleStroke = rgbaFromComputedColor(1.0);
+  const activeFill = rgbaFromComputedColor(1.0);
+  const size = 6;
+  const activeSize = 12;
+
+  function drawHandle(px, py, isActive) {
+    const s = isActive ? activeSize : size;
+    const x = Math.round(px - s / 2);
+    const y = Math.round(py - s / 2);
+    ctx.fillStyle = isActive ? activeFill : handleFill;
+    ctx.strokeStyle = handleStroke;
+    ctx.lineWidth = isActive ? 2 : 1;
+    ctx.fillRect(x, y, s, s);
+    ctx.strokeRect(x + 0.5, y + 0.5, s - 1, s - 1);
+  }
+
+  const midX = left + width / 2;
+  const midY = top + height / 2;
+  const handles = [
+    { key: 'nw', x: left, y: top },
+    { key: 'n', x: midX, y: top },
+    { key: 'ne', x: left + width, y: top },
+    { key: 'w', x: left, y: midY },
+    { key: 'e', x: left + width, y: midY },
+    { key: 'sw', x: left, y: top + height },
+    { key: 's', x: midX, y: top + height },
+    { key: 'se', x: left + width, y: top + height },
+  ];
+
+  for (const h of handles) {
+    drawHandle(h.x, h.y, _activeRoiHandle === h.key);
+  }
+}
+
+let _roiDrag = null; // {start:{x,y}, current:{x,y}, roi:{x,y,w,h}}
+let _lastRoi = null;
+let _activeRoiHandle = null; // 'nw'|'n'|'ne'|'w'|'e'|'sw'|'s'|'se'|'move'|null
+
+function setRoiInputsFromNormalized(roi) {
+  if (!roiXEl || !roiYEl || !roiWEl || !roiHEl) return;
+  roiXEl.value = roi.x.toFixed(3);
+  roiYEl.value = roi.y.toFixed(3);
+  roiWEl.value = roi.w.toFixed(3);
+  roiHEl.value = roi.h.toFixed(3);
+}
+
+function finalizeRoiOrClick(startPt, endPt) {
+  const x = Math.min(startPt.x, endPt.x);
+  const y = Math.min(startPt.y, endPt.y);
+  const w = Math.abs(endPt.x - startPt.x);
+  const h = Math.abs(endPt.y - startPt.y);
+
+  // Treat tiny drags as clicks (keeps existing click-to-fill behavior).
+  if (w < 0.005 && h < 0.005) {
+    clickXEl.value = startPt.x.toFixed(3);
+    clickYEl.value = startPt.y.toFixed(3);
+    setStatus(`Selected (${startPt.x.toFixed(3)}, ${startPt.y.toFixed(3)})`, 'ok');
+    return;
+  }
+
+  const roi = { x, y, w, h };
+  _lastRoi = roi;
+  _activeRoiHandle = 'se';
+  setRoiInputsFromNormalized(roi);
+  drawOverlayRoi(roi);
+  setStatus(`ROI set: (${x.toFixed(3)}, ${y.toFixed(3)}) ${w.toFixed(3)}×${h.toFixed(3)}`, 'ok');
+}
+
+function getOverlayLocalPoint(ev) {
+  const rect = (roiOverlay || captureImage).getBoundingClientRect();
+  return { x: ev.clientX - rect.left, y: ev.clientY - rect.top, rect };
+}
+
+function getRoiPixelRect(roi) {
+  const { renderWidth, renderHeight, offsetX, offsetY } = getRenderedImageBox();
+  const left = offsetX + roi.x * renderWidth;
+  const top = offsetY + roi.y * renderHeight;
+  const width = roi.w * renderWidth;
+  const height = roi.h * renderHeight;
+  return { left, top, width, height, renderWidth, renderHeight, offsetX, offsetY };
+}
+
+function pickHandleFromPointer(ev, roi) {
+  if (!roiOverlay || !roi) return null;
+  ensureOverlayCanvasSize();
+  const ctx = roiOverlay.getContext('2d');
+  if (!ctx) return null;
+
+  const { x: px, y: py } = getOverlayLocalPoint(ev);
+  const r = getRoiPixelRect(roi);
+  const left = r.left;
+  const top = r.top;
+  const right = r.left + r.width;
+  const bottom = r.top + r.height;
+
+  const midX = (left + right) / 2;
+  const midY = (top + bottom) / 2;
+
+  const candidates = [
+    { key: 'nw', x: left, y: top },
+    { key: 'n', x: midX, y: top },
+    { key: 'ne', x: right, y: top },
+    { key: 'w', x: left, y: midY },
+    { key: 'e', x: right, y: midY },
+    { key: 'sw', x: left, y: bottom },
+    { key: 's', x: midX, y: bottom },
+    { key: 'se', x: right, y: bottom },
+  ];
+
+  const threshold = 10;
+  let best = null;
+  let bestD2 = Infinity;
+  for (const c of candidates) {
+    const dx = px - c.x;
+    const dy = py - c.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = c;
+    }
+  }
+
+  if (best && bestD2 <= threshold * threshold) return best.key;
+
+  // If inside the ROI but not near a handle, allow moving the ROI with arrows.
+  if (px >= left && px <= right && py >= top && py <= bottom) return 'move';
+  return null;
+}
+
+function normalizeRoi(roi) {
+  const nw = captureImage.naturalWidth || 0;
+  const nh = captureImage.naturalHeight || 0;
+  const minW = nw > 0 ? (1 / nw) : 0.001;
+  const minH = nh > 0 ? (1 / nh) : 0.001;
+
+  let x = Number(roi.x);
+  let y = Number(roi.y);
+  let w = Number(roi.w);
+  let h = Number(roi.h);
+
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) {
+    return { x: 0, y: 0, w: minW, h: minH };
+  }
+
+  w = Math.max(w, minW);
+  h = Math.max(h, minH);
+  x = Math.max(0, x);
+  y = Math.max(0, y);
+
+  if (x + w > 1) w = 1 - x;
+  if (y + h > 1) h = 1 - y;
+
+  w = Math.max(w, minW);
+  h = Math.max(h, minH);
+
+  if (x + w > 1) x = 1 - w;
+  if (y + h > 1) y = 1 - h;
+
+  x = clamp01(x);
+  y = clamp01(y);
+  w = Math.max(minW, Math.min(1 - x, w));
+  h = Math.max(minH, Math.min(1 - y, h));
+
+  return { x, y, w, h };
+}
+
+function nudgeRoi(handle, dx, dy) {
+  if (!_lastRoi) return;
+  let { x, y, w, h } = _lastRoi;
+
+  switch (handle) {
+    case 'move':
+      x += dx; y += dy;
+      break;
+    case 'n':
+      y += dy; h -= dy;
+      break;
+    case 's':
+      h += dy;
+      break;
+    case 'w':
+      x += dx; w -= dx;
+      break;
+    case 'e':
+      w += dx;
+      break;
+    case 'nw':
+      x += dx; w -= dx;
+      y += dy; h -= dy;
+      break;
+    case 'ne':
+      w += dx;
+      y += dy; h -= dy;
+      break;
+    case 'sw':
+      x += dx; w -= dx;
+      h += dy;
+      break;
+    case 'se':
+      w += dx;
+      h += dy;
+      break;
+  }
+
+  const roi = normalizeRoi({ x, y, w, h });
+  _lastRoi = roi;
+  setRoiInputsFromNormalized(roi);
+  drawOverlayRoi(roi);
+}
+
+const roiEventTarget = roiOverlay || captureImage;
+
+roiEventTarget.addEventListener('mousedown', (ev) => {
+  if (ev.button !== 0) return;
+  try {
+    if (_lastRoi && roiOverlay) {
+      const picked = pickHandleFromPointer(ev, _lastRoi);
+      if (picked) {
+        _activeRoiHandle = picked;
+        _roiDrag = null;
+        roiOverlay.focus();
+        drawOverlayRoi(_lastRoi);
+        setStatus(`ROI handle selected: ${picked}`, 'ok');
+        ev.preventDefault();
+        return;
+      }
+    }
+
+    _activeRoiHandle = null;
+    const pt = getNormalizedPointFromMouseEvent(ev);
+    _roiDrag = { start: pt, current: pt };
+    drawOverlayRoi({ x: pt.x, y: pt.y, w: 0, h: 0 });
+  } catch {
+    // ignore
+  }
+});
+
+roiEventTarget.addEventListener('mousemove', (ev) => {
+  if (!_roiDrag) return;
   try {
     const pt = getNormalizedPointFromMouseEvent(ev);
-    clickXEl.value = pt.x.toFixed(3);
-    clickYEl.value = pt.y.toFixed(3);
-    setStatus(`Selected (${pt.x.toFixed(3)}, ${pt.y.toFixed(3)})`, 'ok');
-  } catch (e) {
-    setStatus(`Select point failed: ${e.message}`, 'err');
+    _roiDrag.current = pt;
+    const x = Math.min(_roiDrag.start.x, pt.x);
+    const y = Math.min(_roiDrag.start.y, pt.y);
+    const w = Math.abs(pt.x - _roiDrag.start.x);
+    const h = Math.abs(pt.y - _roiDrag.start.y);
+    drawOverlayRoi({ x, y, w, h });
+  } catch {
+    // ignore
   }
+});
+
+function endDrag(ev) {
+  if (!_roiDrag) return;
+  try {
+    const pt = getNormalizedPointFromMouseEvent(ev);
+    finalizeRoiOrClick(_roiDrag.start, pt);
+  } catch (e) {
+    setStatus(`ROI select failed: ${e.message}`, 'err');
+  } finally {
+    _roiDrag = null;
+  }
+}
+
+roiEventTarget.addEventListener('mouseup', endDrag);
+roiEventTarget.addEventListener('mouseleave', (ev) => {
+  // If the user drags out, finalize at last known point.
+  if (_roiDrag) endDrag(ev);
+});
+
+captureImage.addEventListener('load', () => {
+  ensureOverlayCanvasSize();
+  if (_lastRoi) drawOverlayRoi(_lastRoi);
+});
+
+window.addEventListener('resize', () => {
+  ensureOverlayCanvasSize();
+  if (_lastRoi) drawOverlayRoi(_lastRoi);
+});
+
+document.addEventListener('keydown', (ev) => {
+  if (!_lastRoi || !_activeRoiHandle) return;
+  const tag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : '';
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+  const nw = captureImage.naturalWidth || 0;
+  const nh = captureImage.naturalHeight || 0;
+  const stepX = nw > 0 ? (1 / nw) : 0.001;
+  const stepY = nh > 0 ? (1 / nh) : 0.001;
+  const mult = ev.shiftKey ? 10 : 1;
+
+  let dx = 0;
+  let dy = 0;
+
+  if (ev.key === 'ArrowLeft') dx = -stepX * mult;
+  else if (ev.key === 'ArrowRight') dx = stepX * mult;
+  else if (ev.key === 'ArrowUp') dy = -stepY * mult;
+  else if (ev.key === 'ArrowDown') dy = stepY * mult;
+  else return;
+
+  nudgeRoi(_activeRoiHandle, dx, dy);
+  ev.preventDefault();
 });
 
 btnStartCapture.addEventListener('click', async () => {
@@ -294,6 +731,74 @@ btnSendClick.addEventListener('click', async () => {
   }
 });
 
+async function refreshConditions() {
+  if (!conditionsJsonEl) return;
+  const items = await getJson('/api/conditions');
+  conditionsJsonEl.textContent = JSON.stringify(items ?? [], null, 2);
+}
+
+if (btnRefreshConditions) {
+  btnRefreshConditions.addEventListener('click', async () => {
+    setStatus('Refreshing conditions...', null);
+    try {
+      await refreshConditions();
+      setStatus('Conditions refreshed.', 'ok');
+    } catch (e) {
+      setStatus(`Refresh conditions failed: ${e.message}`, 'err');
+    }
+  });
+}
+
+if (btnClearConditions) {
+  btnClearConditions.addEventListener('click', async () => {
+    setStatus('Clearing conditions...', null);
+    try {
+      await postJson('/api/conditions/clear');
+      await refreshConditions();
+      setStatus('Conditions cleared.', 'ok');
+    } catch (e) {
+      setStatus(`Clear conditions failed: ${e.message}`, 'err');
+    }
+  });
+}
+
+if (btnAddCondition) {
+  btnAddCondition.addEventListener('click', async () => {
+    setStatus('Adding condition...', null);
+    try {
+      const name = (conditionNameEl && conditionNameEl.value ? conditionNameEl.value : '').trim();
+      if (!name) throw new Error('Name is required');
+
+      const type = (conditionTypeEl && conditionTypeEl.value ? conditionTypeEl.value : 'ImageMatchRoi');
+      const xNormalized = read01(roiXEl, 'ROI X');
+      const yNormalized = read01(roiYEl, 'ROI Y');
+      const widthNormalized = read01(roiWEl, 'ROI W');
+      const heightNormalized = read01(roiHEl, 'ROI H');
+      if (widthNormalized <= 0 || heightNormalized <= 0) {
+        throw new Error('ROI W/H must be > 0');
+      }
+
+      let templateImageBase64 = null;
+      const file = templateImageEl && templateImageEl.files && templateImageEl.files.length ? templateImageEl.files[0] : null;
+      if (file) {
+        templateImageBase64 = await fileToDataUrl(file);
+      }
+
+      await postJson('/api/conditions', {
+        name,
+        type,
+        roi: { xNormalized, yNormalized, widthNormalized, heightNormalized },
+        templateImageBase64,
+      });
+
+      await refreshConditions();
+      setStatus('Condition added.', 'ok');
+    } catch (e) {
+      setStatus(`Add condition failed: ${e.message}`, 'err');
+    }
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     const tabs = document.querySelectorAll(".controlTabs button");
     const panels = document.querySelectorAll(".tabPanel");
@@ -309,6 +814,10 @@ document.addEventListener("DOMContentLoaded", () => {
             // activate selected
             tab.classList.add("active");
             document.getElementById(`tab-${target}`).classList.add("active");
+
+            if (target === 'conditions') {
+              refreshConditions().catch(() => {});
+            }
         });
     });
 });

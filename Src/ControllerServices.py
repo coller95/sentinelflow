@@ -1,4 +1,4 @@
-from enum import auto
+from enum import Enum, auto
 import queue
 import threading
 import time
@@ -19,19 +19,23 @@ class _ControlAction:
     key: str = ""
 
 @dataclass(frozen=True)
+class ConditionRoi:
+    xNormalized: float
+    yNormalized: float
+    widthNormalized: float
+    heightNormalized: float
+
+
+class ConditionType(Enum):
+    ImageMatchRoi = auto()
+    ProgressBar = auto()
+
+
+@dataclass(frozen=True)
 class ConditionItem:
-    class Roi:
-        xNormalized: float
-        yNormalized: float
-        widthNormalized: float
-        heightNormalized: float
-    
-    class Type:
-        ImageMatchRoi = auto()
-        ProgressBar = auto()
     name: str
-    roi: Roi
-    type: Type
+    roi: ConditionRoi
+    type: ConditionType
     templateImage: Optional[np.ndarray[Any, Any]] = None
 
 class ControllerServices:
@@ -68,6 +72,28 @@ class ControllerServices:
         self._control_thread.start()
 
         self._conditionItemList : List[ConditionItem] = []
+
+    def GetConditionItems(self) -> List[ConditionItem]:
+        with self._state_lock:
+            return list(self._conditionItemList)
+
+    def ClearConditionItems(self) -> None:
+        with self._state_lock:
+            self._conditionItemList.clear()
+
+    def AddConditionItem(self, item: ConditionItem) -> None:
+        with self._state_lock:
+            self._conditionItemList.append(item)
+
+    def RemoveConditionItemsByName(self, name: str) -> int:
+        target = (name or "").strip()
+        if not target:
+            return 0
+
+        with self._state_lock:
+            before = len(self._conditionItemList)
+            self._conditionItemList = [ci for ci in self._conditionItemList if ci.name != target]
+            return before - len(self._conditionItemList)
 
     def LaunchApp(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
         self.LaucnhApp(app_path, left=left, top=top, width=width, height=height)

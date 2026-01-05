@@ -7,10 +7,13 @@ from pydantic import BaseModel
 import sys
 import time
 from pathlib import Path
+from enum import Enum
+import base64
 
 import cv2
+import numpy as np
 
-from typing import Optional
+from typing import List, Optional
 
 from Src.ControllerServices import ControllerServices
 
@@ -73,6 +76,31 @@ class ClickRequest(BaseModel):
 
 class KeyRequest(BaseModel):
     keyName: str
+
+
+class ConditionTypeDto(str, Enum):
+    ImageMatchRoi = "ImageMatchRoi"
+    ProgressBar = "ProgressBar"
+
+
+class ConditionRoiDto(BaseModel):
+    xNormalized: float
+    yNormalized: float
+    widthNormalized: float
+    heightNormalized: float
+
+
+class ConditionItemDto(BaseModel):
+    name: str
+    type: ConditionTypeDto
+    roi: ConditionRoiDto
+
+
+class ConditionUpsertRequest(BaseModel):
+    name: str
+    type: ConditionTypeDto
+    roi: ConditionRoiDto
+    templateImageBase64: Optional[str] = None
 
 
 # Serve the HTML file from the public directory
@@ -185,3 +213,83 @@ def ControlKey(req: KeyRequest):
     svc = _get_services()
     svc.EnqueueKeyStroke(req.keyName)
     return {"ok": True}
+
+
+@app.get("/api/conditions")
+def GetConditions() -> List[ConditionItemDto]:
+    svc = _get_services()
+    items = []
+    for item in svc.GetConditionItems():
+        items.append(
+            ConditionItemDto(
+                name=item.name,
+                type=ConditionTypeDto[item.type.name],
+                roi=ConditionRoiDto(
+                    xNormalized=float(item.roi.xNormalized),
+                    yNormalized=float(item.roi.yNormalized),
+                    widthNormalized=float(item.roi.widthNormalized),
+                    heightNormalized=float(item.roi.heightNormalized),
+                ),
+            )
+        )
+    return items
+
+
+@app.post("/api/conditions")
+def AddCondition(req: ConditionUpsertRequest):
+    svc = _get_services()
+
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name cannot be empty")
+
+    if req.roi.widthNormalized <= 0 or req.roi.heightNormalized <= 0:
+        raise HTTPException(status_code=400, detail="roi width/height must be > 0")
+
+    from Src.ControllerServices import ConditionItem, ConditionRoi, ConditionType
+
+    template = None
+    raw_b64 = (req.templateImageBase64 or "").strip()
+    if raw_b64:
+        # Support both raw base64 and data URLs (data:image/png;base64,...)
+        if "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            binary = base64.b64decode(raw_b64, validate=True)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid templateImageBase64")
+
+        arr = np.frombuffer(binary, dtype=np.uint8)
+        decoded = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if decoded is None:
+            raise HTTPException(status_code=400, detail="templateImageBase64 is not a supported image")
+        template = decoded
+
+    item = ConditionItem(
+        name=name,
+        type=ConditionType[req.type.name],
+        roi=ConditionRoi(
+            xNormalized=float(req.roi.xNormalized),
+            yNormalized=float(req.roi.yNormalized),
+            widthNormalized=float(req.roi.widthNormalized),
+            heightNormalized=float(req.roi.heightNormalized),
+        ),
+        templateImage=template,
+    )
+
+    svc.AddConditionItem(item)
+    return {"ok": True}
+
+
+@app.post("/api/conditions/clear")
+def ClearConditions():
+    svc = _get_services()
+    svc.ClearConditionItems()
+    return {"ok": True}
+
+
+@app.post("/api/conditions/remove")
+def RemoveCondition(name: str):
+    svc = _get_services()
+    removed = svc.RemoveConditionItemsByName(name)
+    return {"ok": True, "removed": int(removed)}

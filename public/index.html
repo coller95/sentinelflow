@@ -23,6 +23,7 @@
                 class="captureImage"
                 alt="Window capture preview"
             />
+            <canvas id="roiOverlay" class="roiOverlay" aria-label="ROI overlay" tabindex="0"></canvas>
         </div>
     </section>
 
@@ -41,6 +42,7 @@
             <button class="active" data-tab="launcher">Launcher</button>
             <button data-tab="capture">Capture</button>
             <button data-tab="input">Input</button>
+            <button data-tab="conditions">Conditions</button>
             </nav>
 
         <section id="tab-launcher" class="tabPanel active">
@@ -134,6 +136,60 @@
 
                 <div class="buttons">
                     <button id="btnSendKey" class="primary" type="button">Send Key</button>
+                </div>
+            </fieldset>
+        </section>
+
+        <section id="tab-conditions" class="tabPanel">
+            <fieldset>
+                <legend>Conditions</legend>
+
+                <div class="buttons">
+                    <button id="btnAddCondition" class="primary" type="button">Add</button>
+                    <button id="btnRefreshConditions" class="primary" type="button">Refresh</button>
+                    <button id="btnClearConditions" class="danger" type="button">Clear</button>
+                </div>
+
+                <div class="row">
+                    <label for="conditionName">Name</label>
+                    <input id="conditionName" type="text" placeholder="Example: HpBar" />
+                </div>
+
+                <div class="row">
+                    <label for="conditionType">Type</label>
+                    <select id="conditionType" class="selectLike">
+                        <option value="ImageMatchRoi">ImageMatchRoi</option>
+                        <option value="ProgressBar">ProgressBar</option>
+                    </select>
+                </div>
+
+                <div class="grid2">
+                    <div class="row">
+                        <label for="roiX">ROI X (0~1)</label>
+                        <input id="roiX" type="text" placeholder="0.100" />
+                    </div>
+                    <div class="row">
+                        <label for="roiY">ROI Y (0~1)</label>
+                        <input id="roiY" type="text" placeholder="0.100" />
+                    </div>
+                    <div class="row">
+                        <label for="roiW">ROI W (0~1)</label>
+                        <input id="roiW" type="text" placeholder="0.200" />
+                    </div>
+                    <div class="row">
+                        <label for="roiH">ROI H (0~1)</label>
+                        <input id="roiH" type="text" placeholder="0.050" />
+                    </div>
+                </div>
+
+                <div class="row">
+                    <label for="templateImage">Template image (optional)</label>
+                    <input id="templateImage" type="file" accept="image/*" />
+                </div>
+
+                <div class="row">
+                    <label for="conditionsJson">Condition items (JSON)</label>
+                    <pre id="conditionsJson" class="monoBox" aria-live="polite">[]</pre>
                 </div>
             </fieldset>
         </section>
