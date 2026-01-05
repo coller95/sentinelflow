@@ -976,9 +976,13 @@ if (btnCondMoveDown) {
 
 if (btnSetFromLive) {
   btnSetFromLive.addEventListener('click', async () => {
-    setStatus('Setting ROI/template from live...', null);
+    setStatus('Setting selected condition...', null);
     try {
       if (selectedConditionIndex === null) throw new Error('Select a row first');
+
+      const name = (conditionNameEl && conditionNameEl.value ? conditionNameEl.value : '').trim();
+      const type = (conditionTypeEl && conditionTypeEl.value ? conditionTypeEl.value : 'ImageMatchRoi');
+
       const xNormalized = read01(roiXEl, 'ROI X');
       const yNormalized = read01(roiYEl, 'ROI Y');
       const widthNormalized = read01(roiWEl, 'ROI W');
@@ -987,16 +991,26 @@ if (btnSetFromLive) {
         throw new Error('ROI W/H must be > 0');
       }
 
+      let templateImageBase64 = null;
+      const file = templateImageEl && templateImageEl.files && templateImageEl.files.length ? templateImageEl.files[0] : null;
+      if (file) {
+        templateImageBase64 = await fileToDataUrl(file);
+      }
+      const templateFromLive = !file;
+
       await postJson('/api/conditions/set_from_live', {
         index: selectedConditionIndex,
+        name,
+        type,
         roi: { xNormalized, yNormalized, widthNormalized, heightNormalized },
-        setTemplate: true,
+        templateImageBase64,
+        templateFromLive,
       });
 
       await refreshConditions();
-      setStatus('Updated from live.', 'ok');
+      setStatus('Updated.', 'ok');
     } catch (e) {
-      setStatus(`Set from live failed: ${e.message}`, 'err');
+      setStatus(`Set failed: ${e.message}`, 'err');
     }
   });
 }

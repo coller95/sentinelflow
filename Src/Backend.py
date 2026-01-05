@@ -119,7 +119,10 @@ class ConditionMoveRequest(BaseModel):
 class ConditionSetFromLiveRequest(BaseModel):
     index: int
     roi: ConditionRoiDto
-    setTemplate: bool = True
+    name: Optional[str] = None
+    type: Optional[ConditionTypeDto] = None
+    templateImageBase64: Optional[str] = None
+    templateFromLive: bool = True
 
 
 class ConditionUpsertRequest(BaseModel):
@@ -451,13 +454,40 @@ def SetConditionFromLive(req: ConditionSetFromLiveRequest):
         heightNormalized=float(req.roi.heightNormalized),
     )
 
+    # Name/type updates are optional.
+    new_name = (req.name or "").strip()
+    if not new_name:
+        new_name = item.name
+
+    new_type = item.type
+    if req.type is not None:
+        new_type = ConditionType[req.type.name]
+
+    # Template update policy:
+    # - If templateImageBase64 provided: use it.
+    # - Else if templateFromLive: crop from latest frame.
+    # - Else: keep existing.
     template = item.templateImage
-    if bool(req.setTemplate):
+    raw_b64 = (req.templateImageBase64 or "").strip()
+    if raw_b64:
+        if "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            binary = base64.b64decode(raw_b64, validate=True)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid templateImageBase64")
+
+        arr = np.frombuffer(binary, dtype=np.uint8)
+        decoded = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if decoded is None:
+            raise HTTPException(status_code=400, detail="templateImageBase64 is not a supported image")
+        template = decoded
+    elif bool(req.templateFromLive):
         template = _crop_frame_normalized(frame, req.roi)
 
     updated = ConditionItem(
-        name=item.name,
-        type=ConditionType[item.type.name],
+        name=new_name,
+        type=new_type,
         roi=roi,
         templateImage=template,
     )
