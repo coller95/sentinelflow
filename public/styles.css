@@ -9,6 +9,7 @@
 html, body {
     height: 100%;
     margin: 0;
+    overflow: hidden; /* Prevents double scrollbars */
 }
 
 body {
@@ -24,7 +25,8 @@ body {
 
 .appRoot {
     display: grid;
-    grid-template-rows: 60vh 1fr;
+    /* CHANGED: Increased image area to 75% of screen height */
+    grid-template-rows: 75vh 1fr;
     height: 100vh;
 }
 
@@ -34,31 +36,29 @@ body {
 /* ===================================================== */
 
 .livePreviewRoot {
-    padding: 12px;
-    background: linear-gradient(
-        to bottom,
-        rgba(0,0,0,0.03),
-        rgba(0,0,0,0)
-    );
+    /* CHANGED: Removed padding to maximize size */
+    padding: 0;
+    background: #000; /* Dark background looks better for video/images */
+    display: flex;
+    overflow: hidden;
 }
 
 .livePreviewFrame {
+    width: 100%;
     height: 100%;
-    border-radius: 12px;
-    background: Canvas;
-    box-shadow:
-        0 10px 30px rgba(0,0,0,0.15),
-        0 2px 6px rgba(0,0,0,0.08);
+    /* CHANGED: Removed border-radius/shadow for cleaner edge-to-edge look */
+    background: #000;
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
 .captureImage {
-    max-width: 100%;
-    max-height: 100%;
+    /* CHANGED: width/height 100% ensures it fills available space */
+    width: 100%;
+    height: 100%;
+    /* OPTION: 'contain' keeps aspect ratio. Change to 'fill' to STRETCH (distort). */
     object-fit: contain;
-    border-radius: 6px;
 }
 
 
@@ -69,7 +69,9 @@ body {
 .controlWorkspace {
     display: flex;
     flex-direction: column;
-    background: rgba(0,0,0,0.02);
+    background: Canvas;
+    border-top: 1px solid rgba(0,0,0,0.1);
+    overflow: hidden; /* Ensure inner tabs scroll, not the workspace */
 }
 
 
@@ -81,26 +83,29 @@ body {
     display: flex;
     gap: 6px;
     padding: 10px 12px;
+    background: rgba(0,0,0,0.03);
+    border-bottom: 1px solid rgba(0,0,0,0.05);
 }
 
 .controlTabs button {
     appearance: none;
     border: none;
-    padding: 8px 14px;
-    border-radius: 8px;
-    background: rgba(0,0,0,0.06);
+    padding: 6px 12px;
+    border-radius: 6px;
+    background: transparent;
     color: inherit;
     cursor: pointer;
     font-size: 13px;
-    transition: background 120ms ease, transform 120ms ease;
+    font-weight: 500;
+    transition: background 120ms ease;
 }
 
 .controlTabs button:hover {
-    background: rgba(0,0,0,0.12);
+    background: rgba(0,0,0,0.08);
 }
 
 .controlTabs button.active {
-    background: rgba(0,0,0,0.2);
+    background: rgba(0,0,0,0.15);
     font-weight: 600;
 }
 
@@ -112,12 +117,34 @@ body {
 .tabPanel {
     display: none;
     padding: 14px;
-    overflow-y: auto;
+    overflow-y: auto; /* Allows scrolling within the tab area */
     flex: 1;
 }
 
 .tabPanel.active {
     display: block;
+}
+
+
+/* ===================================================== */
+/* STATUS PANEL (NEW - FIXED AT BOTTOM)                  */
+/* ===================================================== */
+
+.statusPanel {
+    padding: 8px 14px;
+    background: rgba(0,0,0,0.05);
+    border-top: 1px solid rgba(0,0,0,0.1);
+    flex-shrink: 0; /* Prevents it from crushing when window is small */
+}
+
+.statusPanel fieldset {
+    margin: 0;
+}
+
+.status {
+    font-family: monospace;
+    font-size: 11px;
+    opacity: 0.8;
 }
 
 
@@ -128,17 +155,16 @@ body {
 fieldset {
     border: none;
     padding: 0;
-    margin-bottom: 16px;
+    margin-bottom: 10px;
 }
 
 legend {
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.5;
     margin-bottom: 8px;
-}
-
-.subgroup {
-    margin-top: 12px;
 }
 
 .row {
@@ -154,16 +180,18 @@ label {
 }
 
 input {
-    padding: 8px 10px;
-    border-radius: 8px;
-    border: 1px solid rgba(0,0,0,0.15);
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(0,0,0,0.2);
     background: Canvas;
     color: CanvasText;
     outline: none;
+    font-size: 13px;
 }
 
 input:focus {
-    border-color: rgba(0,0,0,0.35);
+    border-color: #0078d4;
+    box-shadow: 0 0 0 2px rgba(0,120,212,0.2);
 }
 
 
@@ -185,71 +213,80 @@ input:focus {
 .buttons {
     display: flex;
     gap: 10px;
-    margin-top: 8px;
-}
-
-.buttonsTight {
-    gap: 6px;
+    margin-top: 12px;
 }
 
 button {
     appearance: none;
     border: none;
     padding: 8px 14px;
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
-    background: rgba(0,0,0,0.15);
+    background: rgba(0,0,0,0.1);
     color: inherit;
-    transition: background 120ms ease, transform 120ms ease;
+    font-size: 13px;
 }
 
 button:hover {
-    background: rgba(0,0,0,0.25);
+    background: rgba(0,0,0,0.2);
 }
 
 button.primary {
-    font-weight: 600;
+    background: #0078d4;
+    color: white;
+}
+
+button.primary:hover {
+    background: #106ebe;
 }
 
 button.danger {
-    background: rgba(200,0,0,0.2);
+    background: #d13438;
+    color: white;
 }
 
 button.danger:hover {
-    background: rgba(200,0,0,0.3);
+    background: #a4262c;
 }
 
 
 /* ===================================================== */
-/* STATUS                                                */
-/* ===================================================== */
-
-.status {
-    padding: 10px;
-    border-radius: 8px;
-    background: rgba(0,0,0,0.08);
-    font-size: 12px;
-}
-
-
-/* ===================================================== */
-/* DARK MODE FINE TUNING (OS-DRIVEN)                     */
+/* DARK MODE TUNING                                      */
 /* ===================================================== */
 
 @media (prefers-color-scheme: dark) {
     .controlWorkspace {
+        border-top-color: rgba(255,255,255,0.1);
+    }
+    
+    .statusPanel {
         background: rgba(255,255,255,0.03);
+        border-top-color: rgba(255,255,255,0.1);
     }
 
-    .controlTabs button {
-        background: rgba(255,255,255,0.08);
+    .controlTabs {
+        background: rgba(0,0,0,0.2);
+        border-bottom-color: rgba(255,255,255,0.1);
+    }
+
+    .controlTabs button:hover {
+        background: rgba(255,255,255,0.1);
     }
 
     .controlTabs button.active {
-        background: rgba(255,255,255,0.18);
+        background: rgba(255,255,255,0.2);
     }
 
     input {
         border-color: rgba(255,255,255,0.2);
+        background: rgba(0,0,0,0.2);
+    }
+    
+    button {
+        background: rgba(255,255,255,0.1);
+    }
+    
+    button:hover {
+        background: rgba(255,255,255,0.2);
     }
 }

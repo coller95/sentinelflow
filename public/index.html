@@ -15,6 +15,7 @@
     <!-- ================================================= -->
     <!-- LIVE IMAGE VIEW (PRIMARY, NEVER AFFECTED)        -->
     <!-- ================================================= -->
+    
     <section class="livePreviewRoot">
         <div class="livePreviewFrame">
             <img
@@ -23,20 +24,19 @@
                 alt="Window capture preview"
             />
         </div>
-        
     </section>
 
-    <section class="statusPanel">
-        <fieldset>
-            <legend>Status</legend>
-            <div id="status" class="status" aria-live="polite"></div>
-        </fieldset>
-    </section>
+    
     <!-- ================================================= -->
     <!-- CONTROL WORKSPACE (FUNCTION-SEPARATED TABS)      -->
     <!-- ================================================= -->
     <section class="controlWorkspace">
-
+        <section class="statusPanel">
+            <fieldset>
+                <legend>Status</legend>
+                <div id="status" class="status" aria-live="polite"></div>
+            </fieldset>
+        </section>
         <nav class="controlTabs">
             <button class="active" data-tab="launcher">Launcher</button>
             <button data-tab="capture">Capture</button>
