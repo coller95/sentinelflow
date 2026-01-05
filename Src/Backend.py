@@ -15,8 +15,9 @@ from uuid import UUID
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
-from typing import List, Optional
+from typing import List, Optional, Any, Dict, cast
 
 from Src.ControllerServices import ControllerServices
 
@@ -135,7 +136,7 @@ class ConditionUpsertRequest(BaseModel):
     templateFromLive: bool = False
 
 
-def _crop_frame_normalized(frame: np.ndarray, roi: ConditionRoiDto) -> np.ndarray:
+def _crop_frame_normalized(frame: NDArray[np.uint8], roi: ConditionRoiDto) -> NDArray[np.uint8]:
     h, w = frame.shape[:2]
 
     x = float(max(0.0, min(1.0, roi.xNormalized)))
@@ -154,21 +155,6 @@ def _crop_frame_normalized(frame: np.ndarray, roi: ConditionRoiDto) -> np.ndarra
     ph = max(1, min(ph, h - py))
 
     return frame[py : py + ph, px : px + pw].copy()
-
-
-def _encode_thumb_b64(img: np.ndarray, max_size: int = 64) -> str:
-    h, w = img.shape[:2]
-    if h <= 0 or w <= 0:
-        return ""
-    scale = float(max_size) / float(max(h, w))
-    if scale < 1.0:
-        new_w = max(1, int(round(w * scale)))
-        new_h = max(1, int(round(h * scale)))
-        img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-    ok, encoded = cv2.imencode(".jpg", img)
-    if not ok:
-        return ""
-    return base64.b64encode(encoded.tobytes()).decode("ascii")
 
 
 # Serve the HTML file from the public directory
@@ -338,7 +324,7 @@ def ControlKey(req: KeyRequest):
 @app.get("/api/conditions")
 def GetConditions() -> List[ConditionItemDto]:
     svc = _get_services()
-    items = []
+    items: List[ConditionItemDto] = []
     for item in svc.GetConditionItems():
         items.append(
             ConditionItemDto(
@@ -357,7 +343,7 @@ def GetConditions() -> List[ConditionItemDto]:
 
 
 @app.post("/api/conditions")
-def AddCondition(req: ConditionUpsertRequest):
+def AddCondition(req: ConditionUpsertRequest) -> Dict[str, Any]:
     svc = _get_services()
 
     name = (req.name or "").strip()
@@ -369,7 +355,7 @@ def AddCondition(req: ConditionUpsertRequest):
 
     from Src.ControllerServices import ConditionRoi, ConditionType
 
-    template = None
+    template: Optional[NDArray[np.uint8]] = None
     raw_b64 = (req.templateImageBase64 or "").strip()
     if raw_b64:
         # Support both raw base64 and data URLs (data:image/png;base64,...)
@@ -384,7 +370,7 @@ def AddCondition(req: ConditionUpsertRequest):
         decoded = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         if decoded is None:
             raise HTTPException(status_code=400, detail="templateImageBase64 is not a supported image")
-        template = decoded
+        template = cast(NDArray[np.uint8], decoded)
 
     if template is None and bool(req.templateFromLive):
         frame = svc.GetLatestCapture()
@@ -469,7 +455,7 @@ def SetConditionFromLive(req: ConditionSetFromLiveRequest):
     # - If templateImageBase64 provided: use it.
     # - Else if templateFromLive: crop from latest frame.
     # - Else: keep existing.
-    template = item.templateImage
+    template: Optional[NDArray[np.uint8]] = cast(Optional[NDArray[np.uint8]], item.templateImage)
     raw_b64 = (req.templateImageBase64 or "").strip()
     if raw_b64:
         if "," in raw_b64:
@@ -483,7 +469,7 @@ def SetConditionFromLive(req: ConditionSetFromLiveRequest):
         decoded = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         if decoded is None:
             raise HTTPException(status_code=400, detail="templateImageBase64 is not a supported image")
-        template = decoded
+        template = cast(NDArray[np.uint8], decoded)
     elif bool(req.templateFromLive):
         template = _crop_frame_normalized(frame, req.roi)
 
@@ -503,7 +489,7 @@ def SetConditionFromLive(req: ConditionSetFromLiveRequest):
 
 
 @app.get("/api/conditions/status")
-def GetConditionsStatus():
+def GetConditionsStatus() -> Dict[str, Any]:
     """Return condition status keyed by uuid.
 
     Payload shape:
@@ -513,7 +499,7 @@ def GetConditionsStatus():
     snapshots = svc.GetConditionStatusSnapshots()
 
     order: List[str] = []
-    by_uuid = {}
+    by_uuid: Dict[str, Any] = {}
 
     for idx, s in enumerate(snapshots):
         key = str(s.uuid)
@@ -551,7 +537,7 @@ async def ConditionsStream(request: Request):
                 last_seq = seq
                 snapshots = svc.GetConditionStatusSnapshots()
                 order: List[str] = []
-                by_uuid = {}
+                by_uuid: Dict[str, Any] = {}
 
                 for idx, s in enumerate(snapshots):
                     key = str(s.uuid)
@@ -580,7 +566,7 @@ async def ConditionsStream(request: Request):
 
 
 @app.post("/api/conditions/remove")
-def RemoveCondition(name: str):
+def RemoveCondition(name: str) -> Dict[str, Any]:
     svc = _get_services()
     removed = svc.RemoveConditionItemsByName(name)
     return {"ok": True, "removed": int(removed)}
