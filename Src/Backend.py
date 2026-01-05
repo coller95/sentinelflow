@@ -2,8 +2,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.responses import Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import os
+import time
 
 import cv2
 
@@ -33,10 +35,18 @@ def _get_services() -> Services:
 
 class LaunchRequest(BaseModel):
     app_path: str
+    left: int = 0
+    top: int = 0
+    width: int = 640
+    height: int = 480
 
 
 class AttachRequest(BaseModel):
     window_title: str
+    left: int = 0
+    top: int = 0
+    width: int = 640
+    height: int = 480
 
 
 class CaptureStartRequest(BaseModel):
@@ -53,14 +63,14 @@ def ServeIndex():
 @app.post("/api/app/launch")
 def LaunchApp(req: LaunchRequest):
     svc = _get_services()
-    svc.LaunchApp(req.app_path)
+    svc.LaunchApp(req.app_path, left=req.left, top=req.top, width=req.width, height=req.height)
     return {"ok": True}
 
 
 @app.post("/api/app/attach")
 def AttachApp(req: AttachRequest):
     svc = _get_services()
-    svc.AttachApp(req.window_title)
+    svc.AttachApp(req.window_title, left=req.left, top=req.top, width=req.width, height=req.height)
     return {"ok": True}
 
 
@@ -111,3 +121,31 @@ def GetLatestCapture(fmt: str = "png"):
         raise HTTPException(status_code=500, detail="Failed to encode captured frame")
 
     return Response(content=encoded.tobytes(), media_type=media)
+
+
+@app.get("/api/capture/events")
+def CaptureEvents():
+    svc = _get_services()
+
+    def event_stream():
+        # Send an initial retry hint to the browser.
+        yield "retry: 1000\n\n"
+
+        last_seq = svc.GetCaptureSequence()
+        last_keepalive = time.monotonic()
+
+        while True:
+            seq = svc.GetCaptureSequence()
+            if seq != last_seq and seq > 0:
+                last_seq = seq
+                yield f"event: frame\ndata: {seq}\n\n"
+
+            now = time.monotonic()
+            if now - last_keepalive >= 10.0:
+                # Comment line as keepalive.
+                yield ": keepalive\n\n"
+                last_keepalive = now
+
+            time.sleep(0.2)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")

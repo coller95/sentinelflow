@@ -21,6 +21,7 @@ class Services:
         self._capture_lock = threading.Lock()
         self._latest_capture: Optional[NDArray[np.uint8]] = None
         self._capture_last_error: Optional[BaseException] = None
+        self._capture_seq = 0
 
         # Create the capture worker thread at startup to avoid runtime thread-creation instability.
         self._capture_thread = threading.Thread(
@@ -30,25 +31,32 @@ class Services:
         )
         self._capture_thread.start()
 
-    def LaunchApp(self, app_path: str) -> None:
-        self.LaucnhApp(app_path)
+    def LaunchApp(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
+        self.LaucnhApp(app_path, left=left, top=top, width=width, height=height)
 
-    def LaucnhApp(self, app_path: str) -> None:
+    def LaucnhApp(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
         self._pid = LaunchProcessByExecutable(app_path)
         foundHwnd = FindHwndByPid(self._pid)
         if foundHwnd is None:
             raise Exception("Failed to find window handle for launched application.")
         with self._state_lock:
             self._hwnd = foundHwnd
-        ResizeAndRepositionWindow(self._hwnd, 0, 0, 640, 480)
 
-    def AttachApp(self, window_title: str) -> None:
+        if width <= 0 or height <= 0:
+            raise ValueError("width and height must be > 0")
+        ResizeAndRepositionWindow(self._hwnd, int(left), int(top), int(width), int(height))
+
+    def AttachApp(self, window_title: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
         foundHwnd = FindHwndByTitle(window_title)
         if foundHwnd is None:
             raise Exception("Failed to find window handle for the specified title.")
         with self._state_lock:
             self._hwnd = foundHwnd
             self._pid = FindPidByHwnd(self._hwnd)
+
+        if width <= 0 or height <= 0:
+            raise ValueError("width and height must be > 0")
+        ResizeAndRepositionWindow(self._hwnd, int(left), int(top), int(width), int(height))
 
     def CloseApp(self) -> None:
         # Ensure any capture loop is stopped before tearing down the window/process.
@@ -87,6 +95,7 @@ class Services:
                     with self._capture_lock:
                         self._latest_capture = cast(NDArray[np.uint8], frame)
                         self._capture_last_error = None
+                        self._capture_seq += 1
                 except BaseException as exc:
                     with self._capture_lock:
                         self._capture_last_error = exc
@@ -114,6 +123,10 @@ class Services:
                 return None
             # Defensive copy so callers can't mutate internal state.
             return self._latest_capture.copy()
+
+    def GetCaptureSequence(self) -> int:
+        with self._capture_lock:
+            return int(self._capture_seq)
 
     def GetLastCaptureError(self) -> Optional[BaseException]:
         with self._capture_lock:

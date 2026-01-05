@@ -11,21 +11,63 @@
         <h1>SentinelFlow Backend</h1>
         <p>The backend server is running.<br>Use the API endpoints to interact with the system.</p>
 
-        <div class="controls">
-            <div class="row">
-                <label for="appPath">App path (or command)</label>
-                <input id="appPath" type="text" value="C:\Users\HONG\Desktop\frozenthrone1.26\war3.exe -window" placeholder='Example: C:\\Path\\To\\App.exe' />
+        <div class="layout">
+            <div class="panel controls">
+                <div class="row">
+                    <label for="appPath">App path (or command)</label>
+                    <input id="appPath" type="text" value="C:\Users\HONG\Desktop\frozenthrone1.26\war3.exe -window" placeholder='Example: C:\\Path\\To\\App.exe' />
+                </div>
+                <div class="row">
+                    <label for="windowTitle">Window title</label>
+                    <input id="windowTitle" type="text" value="Warcraft III" placeholder="Example: Notepad" />
+                </div>
+
+                <div class="grid2">
+                    <div class="row">
+                        <label for="windowLeft">Window left</label>
+                        <input id="windowLeft" type="text" value="0" placeholder="0" />
+                    </div>
+                    <div class="row">
+                        <label for="windowTop">Window top</label>
+                        <input id="windowTop" type="text" value="0" placeholder="0" />
+                    </div>
+                    <div class="row">
+                        <label for="windowWidth">Window width</label>
+                        <input id="windowWidth" type="text" value="640" placeholder="640" />
+                    </div>
+                    <div class="row">
+                        <label for="windowHeight">Window height</label>
+                        <input id="windowHeight" type="text" value="480" placeholder="480" />
+                    </div>
+                </div>
+
+                <div class="buttons">
+                    <button id="btnLaunch" class="primary" type="button">Launch</button>
+                    <button id="btnAttach" class="primary" type="button">Attach</button>
+                    <button id="btnClose" class="danger" type="button">Close</button>
+                </div>
+
+                <div class="grid2">
+                    <div class="row">
+                        <label for="captureInterval">Refresh interval (seconds)</label>
+                        <input id="captureInterval" type="text" value="1" placeholder="1" />
+                    </div>
+                    <div class="row" style="display:flex; align-items:flex-end;">
+                        <div class="buttons" style="margin:0; width:100%;">
+                            <button id="btnStartCapture" class="primary" type="button">Start Capture</button>
+                            <button id="btnStopCapture" type="button">Stop Capture</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="status" class="status" aria-live="polite"></div>
             </div>
-            <div class="row">
-                <label for="windowTitle">Window title</label>
-                <input id="windowTitle" type="text" value="Warcraft III" placeholder="Example: Notepad" />
+
+            <div class="panel previewPanel">
+                <div class="preview">
+                    <img id="captureImage" class="captureImage" alt="Window capture preview" />
+                </div>
             </div>
-            <div class="buttons">
-                <button id="btnLaunch" class="primary" type="button">Launch</button>
-                <button id="btnAttach" class="primary" type="button">Attach</button>
-                <button id="btnClose" class="danger" type="button">Close</button>
-            </div>
-            <div id="status" class="status" aria-live="polite"></div>
         </div>
 
         <p style="margin-top:2em; color:#888; font-size:0.9em;">&copy; 2026 SentinelFlow Team</p>
