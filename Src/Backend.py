@@ -82,6 +82,33 @@ class KeyRequest(BaseModel):
     keyName: str
 
 
+class MacroTypeDto(str, Enum):
+    Click = "Click"
+    KeyStroke = "KeyStroke"
+    Delay = "Delay"
+
+
+class MacroStepDto(BaseModel):
+    action: MacroTypeDto
+    parameters: Dict[str, Any] = {}
+
+
+class ActionItemDto(BaseModel):
+    uuid: str
+    name: str
+    steps: List[MacroStepDto]
+
+
+class ActionUpsertRequest(BaseModel):
+    uuid: Optional[UUID] = None
+    name: str
+    steps: List[MacroStepDto] = []
+
+
+class ActionUuidRequest(BaseModel):
+    uuid: UUID
+
+
 class ConditionTypeDto(str, Enum):
     ImageMatchRoi = "ImageMatchRoi"
     ProgressBar = "ProgressBar"
@@ -318,6 +345,65 @@ def ControlClick(req: ClickRequest):
 def ControlKey(req: KeyRequest):
     svc = _get_services()
     svc.EnqueueKeyStroke(req.keyName)
+    return {"ok": True}
+
+
+@app.get("/api/actions")
+def GetActions() -> List[ActionItemDto]:
+    svc = _get_services()
+    out: List[ActionItemDto] = []
+    for item in svc.GetActionItems():
+        steps: List[MacroStepDto] = []
+        for s in item.steps:
+            # Best-effort: map MacroType enum to string value.
+            action_name = s.action.name
+            steps.append(MacroStepDto(action=MacroTypeDto[action_name], parameters=dict(s.parameters)))
+
+        out.append(ActionItemDto(uuid=str(item.uuid), name=item.name, steps=steps))
+    return out
+
+
+@app.post("/api/actions/upsert")
+def UpsertAction(req: ActionUpsertRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    from Src.ControllerServices import MacroType, MacroStep
+
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name cannot be empty")
+
+    steps: List[MacroStep] = []
+    for s in req.steps or []:
+        try:
+            steps.append(MacroStep(action=MacroType[s.action.value], parameters=dict(s.parameters or {})))
+        except KeyError:
+            raise HTTPException(status_code=400, detail=f"Invalid step action: {s.action}")
+
+    try:
+        item = svc.UpsertActionItem(req.uuid, name=name, steps=steps)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {"ok": True, "uuid": str(item.uuid)}
+
+
+@app.post("/api/actions/remove_uuid")
+def RemoveActionByUuid(req: ActionUuidRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.RemoveActionItemByUuid(req.uuid)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Action uuid not found")
+    return {"ok": True}
+
+
+@app.post("/api/actions/run")
+def RunAction(req: ActionUuidRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.EnqueueRunActionByUuid(req.uuid)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Action uuid not found")
     return {"ok": True}
 
 

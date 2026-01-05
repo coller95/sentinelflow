@@ -33,6 +33,23 @@ const btnSendClick = document.getElementById('btnSendClick');
 const btnRefreshConditions = document.getElementById('btnRefreshConditions');
 const condTableBody = document.getElementById('condTableBody');
 
+const btnRefreshActions = document.getElementById('btnRefreshActions');
+const actionTableBody = document.getElementById('actionTableBody');
+const btnActionNew = document.getElementById('btnActionNew');
+const btnActionDelete = document.getElementById('btnActionDelete');
+const btnActionRun = document.getElementById('btnActionRun');
+const btnActionSave = document.getElementById('btnActionSave');
+const actionNameEl = document.getElementById('actionName');
+const actionStepsEl = document.getElementById('actionSteps');
+const actionStepListEl = document.getElementById('actionStepList');
+const btnActionStepUp = document.getElementById('btnActionStepUp');
+const btnActionStepDown = document.getElementById('btnActionStepDown');
+const actionStepTypeEl = document.getElementById('actionStepType');
+const btnActionAddStep = document.getElementById('btnActionAddStep');
+const btnActionRemoveStep = document.getElementById('btnActionRemoveStep');
+const actionDelayRowEl = document.getElementById('actionDelayRow');
+const actionDelayMsEl = document.getElementById('actionDelayMs');
+
 const btnCondAddRow = document.getElementById('btnCondAddRow');
 const btnCondRemoveRow = document.getElementById('btnCondRemoveRow');
 const btnCondMoveUp = document.getElementById('btnCondMoveUp');
@@ -47,6 +64,218 @@ const roiHEl = document.getElementById('roiH');
 const templateImageEl = document.getElementById('templateImage');
 
 let selectedConditionUuid = null;
+let selectedActionUuid = null;
+
+let _actionKeyCaptureArmed = false;
+let _actionClickCaptureArmed = false;
+let _actionSteps = [];
+let _selectedActionStepIndex = -1;
+let _pendingAddKeyboardStep = false;
+let _lastLiveSelectedPoint = null; // {x,y} from click-to-fill selection on live view
+
+function _setDelayRowVisible(visible) {
+  if (!actionDelayRowEl) return;
+  actionDelayRowEl.style.display = visible ? '' : 'none';
+}
+
+function _getDelayMsFromInput() {
+  const raw = actionDelayMsEl ? String(actionDelayMsEl.value || '').trim() : '';
+  const ms = Number(raw);
+  if (!Number.isFinite(ms) || ms < 0) {
+    throw new Error('Delay ms must be a number >= 0');
+  }
+  return Math.round(ms);
+}
+
+function normalizeKeyNameFromEvent(ev) {
+  const key = String(ev.key || '');
+  const code = String(ev.code || '');
+
+  // Prefer readable names that backend understands.
+  if (key.length === 1) {
+    // For letters, uppercase; for digits/symbols, keep as-is.
+    const ch = key;
+    return /^[a-z]$/i.test(ch) ? ch.toUpperCase() : ch;
+  }
+
+  // Function keys
+  if (/^F\d{1,2}$/i.test(key)) return key.toUpperCase();
+  if (/^F\d{1,2}$/i.test(code)) return code.toUpperCase();
+
+  // Common named keys
+  const map = {
+    Enter: 'Enter',
+    Escape: 'Esc',
+    Tab: 'Tab',
+    ' ': 'Space',
+    Spacebar: 'Space',
+    Backspace: 'Backspace',
+    Delete: 'Delete',
+    Insert: 'Insert',
+    Home: 'Home',
+    End: 'End',
+    PageUp: 'PageUp',
+    PageDown: 'PageDown',
+    ArrowLeft: 'ArrowLeft',
+    ArrowRight: 'ArrowRight',
+    ArrowUp: 'ArrowUp',
+    ArrowDown: 'ArrowDown',
+    Shift: ev.location === 2 ? 'RShift' : 'LShift',
+    Control: ev.location === 2 ? 'RCtrl' : 'LCtrl',
+    Alt: ev.location === 2 ? 'RAlt' : 'LAlt',
+  };
+  if (map[key]) return map[key];
+
+  // Fallback: use key string.
+  return key;
+}
+
+function _actionKindOf(step) {
+  const raw = step && typeof step === 'object' ? String(step.action ?? '') : '';
+  if (!raw) return '';
+  if (raw === 'Keyboard') return 'KeyStroke';
+  return raw;
+}
+
+function _formatStepLabel(step) {
+  const kind = _actionKindOf(step);
+  const p = step && typeof step === 'object' ? (step.parameters ?? {}) : {};
+
+  if (kind === 'Click') {
+    const x = Number(p.x ?? p.xNormalized ?? 0);
+    const y = Number(p.y ?? p.yNormalized ?? 0);
+    const fx = Number.isFinite(x) ? x : 0;
+    const fy = Number.isFinite(y) ? y : 0;
+    return `Click at (${fx.toFixed(6)}, ${fy.toFixed(6)})`;
+  }
+
+  if (kind === 'KeyStroke') {
+    const k = String(p.keyName ?? p.key ?? '').trim();
+    const kk = k || '?';
+    return `Press "${kk}"`;
+  }
+
+  if (kind === 'Delay') {
+    let ms = Number(p.ms);
+    if (!Number.isFinite(ms)) {
+      const seconds = Number(p.seconds);
+      ms = Number.isFinite(seconds) ? (seconds * 1000.0) : 0;
+    }
+    const mm = Math.max(0, Math.round(Number.isFinite(ms) ? ms : 0));
+    return `Delay ${mm}ms`;
+  }
+
+  return String(kind || 'Step');
+}
+
+function _syncHiddenActionStepsTextarea() {
+  if (!actionStepsEl) return;
+  actionStepsEl.value = safeJsonStringify(_actionSteps);
+}
+
+function _selectActionStep(index) {
+  const n = Array.isArray(_actionSteps) ? _actionSteps.length : 0;
+  if (n <= 0) {
+    _selectedActionStepIndex = -1;
+  } else {
+    _selectedActionStepIndex = Math.max(0, Math.min(n - 1, index));
+  }
+  _renderActionStepList();
+}
+
+function _renderActionStepList() {
+  if (!actionStepListEl) return;
+
+  actionStepListEl.textContent = '';
+  const steps = Array.isArray(_actionSteps) ? _actionSteps : [];
+
+  for (let i = 0; i < steps.length; i++) {
+    const div = document.createElement('div');
+    div.className = 'actionStepItem' + (i === _selectedActionStepIndex ? ' selected' : '');
+    div.textContent = _formatStepLabel(steps[i]);
+    div.addEventListener('click', () => {
+      _selectActionStep(i);
+    });
+
+    div.addEventListener('dblclick', () => {
+      _selectActionStep(i);
+
+      const step = _actionSteps && Array.isArray(_actionSteps) ? _actionSteps[i] : null;
+      const kind = _actionKindOf(step);
+
+      if (kind === 'KeyStroke') {
+        _pendingAddKeyboardStep = false;
+        _actionKeyCaptureArmed = true;
+        setStatus('Press a key to edit Keyboard step...', 'ok');
+        return;
+      }
+
+      if (kind === 'Click') {
+        const pt = _lastLiveSelectedPoint;
+        if (!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) {
+          alert('No point selected. Click on the live view to select a point first.');
+          setStatus('No point selected for Click step.', 'err');
+          return;
+        }
+        step.parameters = step.parameters && typeof step.parameters === 'object' ? step.parameters : {};
+        step.parameters.x = Number(pt.x);
+        step.parameters.y = Number(pt.y);
+        _syncHiddenActionStepsTextarea();
+        _renderActionStepList();
+        setStatus('Click step updated from selected point.', 'ok');
+        return;
+      }
+
+      if (kind === 'Delay') {
+        if (actionStepTypeEl) actionStepTypeEl.value = 'Delay';
+        _setDelayRowVisible(true);
+        let currentMs = (step && step.parameters && typeof step.parameters === 'object') ? Number(step.parameters.ms) : NaN;
+        if (!Number.isFinite(currentMs)) {
+          const sec = (step && step.parameters && typeof step.parameters === 'object') ? Number(step.parameters.seconds) : NaN;
+          currentMs = Number.isFinite(sec) ? (sec * 1000.0) : 500;
+        }
+        if (actionDelayMsEl) {
+          actionDelayMsEl.value = String(Math.max(0, Math.round(currentMs)));
+          actionDelayMsEl.focus();
+          actionDelayMsEl.select();
+        }
+        setStatus('Edit Delay: change ms and press Enter.', 'ok');
+        return;
+      }
+    });
+
+    actionStepListEl.appendChild(div);
+  }
+}
+
+function _setActionStepsFromValue(value) {
+  const rawSteps = Array.isArray(value) ? value : [];
+  const out = [];
+  for (const s of rawSteps) {
+    if (!s || typeof s !== 'object') continue;
+    const kind = _actionKindOf(s);
+    if (!kind) continue;
+    const parameters = (s.parameters && typeof s.parameters === 'object') ? s.parameters : {};
+    if (kind === 'Delay') {
+      // Normalize legacy {seconds} into {ms} for consistency.
+      const ms = Number(parameters.ms);
+      const seconds = Number(parameters.seconds);
+      const normalizedMs = Number.isFinite(ms) ? ms : (Number.isFinite(seconds) ? seconds * 1000.0 : 0);
+      out.push({ action: kind, parameters: { ms: Math.max(0, Math.round(normalizedMs)) } });
+    } else {
+      out.push({ action: kind, parameters: { ...parameters } });
+    }
+  }
+  _actionSteps = out;
+  _selectedActionStepIndex = out.length ? 0 : -1;
+  _renderActionStepList();
+  _syncHiddenActionStepsTextarea();
+}
+
+function _getActionStepsForSave() {
+  if (actionStepListEl) return Array.isArray(_actionSteps) ? _actionSteps : [];
+  return parseActionStepsFromEditor();
+}
 
 let captureEvents = null;
 let conditionsEvents = null;
@@ -62,6 +291,331 @@ function setStatus(message, kind) {
   statusEl.textContent = message || '';
   statusEl.classList.remove('ok', 'err');
   if (kind) statusEl.classList.add(kind);
+}
+
+function safeJsonStringify(value) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return '';
+  }
+}
+
+function parseActionStepsFromEditor() {
+  const raw = (actionStepsEl && actionStepsEl.value ? String(actionStepsEl.value) : '').trim();
+  if (!raw) return [];
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('Steps must be valid JSON');
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error('Steps JSON must be an array');
+  }
+
+  // Minimal shape validation; backend will validate further.
+  for (const s of parsed) {
+    if (!s || typeof s !== 'object') throw new Error('Each step must be an object');
+    if (!('action' in s)) throw new Error('Each step must have an action');
+    if (!('parameters' in s)) s.parameters = {};
+  }
+
+  return parsed;
+}
+
+function clearActionEditor() {
+  selectedActionUuid = null;
+  if (actionNameEl) actionNameEl.value = '';
+  if (actionStepsEl) actionStepsEl.value = '';
+  _actionSteps = [];
+  _selectedActionStepIndex = -1;
+  _renderActionStepList();
+}
+
+function applyActionToEditor(action) {
+  if (!action) return;
+  selectedActionUuid = String(action.uuid ?? '');
+  if (actionNameEl) actionNameEl.value = String(action.name ?? '');
+  _setActionStepsFromValue(action.steps ?? []);
+}
+
+async function refreshActions() {
+  if (!actionTableBody) return;
+  const items = await getJson('/api/actions');
+  const safeItems = Array.isArray(items) ? items : [];
+
+  actionTableBody.textContent = '';
+
+  for (const it of safeItems) {
+    const tr = document.createElement('tr');
+    tr.dataset.uuid = String(it.uuid ?? '');
+    if (selectedActionUuid && String(it.uuid) === String(selectedActionUuid)) {
+      tr.classList.add('selected');
+    }
+
+    const tdName = document.createElement('td');
+    tdName.textContent = String(it.name ?? '');
+
+    const tdSteps = document.createElement('td');
+    const steps = Array.isArray(it.steps) ? it.steps : [];
+    tdSteps.textContent = String(steps.length);
+
+    tr.appendChild(tdName);
+    tr.appendChild(tdSteps);
+
+    tr.addEventListener('click', () => {
+      applyActionToEditor(it);
+      refreshActions().catch(() => {});
+    });
+
+    actionTableBody.appendChild(tr);
+  }
+}
+
+if (btnRefreshActions) {
+  btnRefreshActions.addEventListener('click', async () => {
+    setStatus('Refreshing actions...', null);
+    try {
+      await refreshActions();
+      setStatus('Actions refreshed.', 'ok');
+    } catch (e) {
+      setStatus(`Refresh actions failed: ${e.message}`, 'err');
+    }
+  });
+}
+
+if (btnActionNew) {
+  btnActionNew.addEventListener('click', () => {
+    clearActionEditor();
+    setStatus('New action.', 'ok');
+  });
+}
+
+if (btnActionAddStep) {
+  btnActionAddStep.addEventListener('click', () => {
+    const t = actionStepTypeEl ? String(actionStepTypeEl.value || '') : 'Keyboard';
+    const typeNorm = t.trim();
+    if (!Array.isArray(_actionSteps)) _actionSteps = [];
+
+    if (typeNorm === 'Keyboard') {
+      _actionKeyCaptureArmed = true;
+      _pendingAddKeyboardStep = true;
+      setStatus('Press a key to add Keyboard step...', 'ok');
+      return;
+    }
+
+    if (typeNorm === 'Click') {
+      const pt = _lastLiveSelectedPoint;
+      if (!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) {
+        alert('No point selected. Click on the live view to select a point first.');
+        setStatus('No point selected for Click step.', 'err');
+        return;
+      }
+      _actionSteps.push({ action: 'Click', parameters: { x: Number(pt.x), y: Number(pt.y) } });
+      _syncHiddenActionStepsTextarea();
+      _selectActionStep(_actionSteps.length - 1);
+      setStatus('Click step added from selected point.', 'ok');
+      return;
+    }
+
+    if (typeNorm === 'Delay') {
+      let ms;
+      try {
+        ms = _getDelayMsFromInput();
+      } catch (e) {
+        alert(e.message);
+        return;
+      }
+      _actionSteps.push({ action: 'Delay', parameters: { ms } });
+      _syncHiddenActionStepsTextarea();
+      _selectActionStep(_actionSteps.length - 1);
+      setStatus('Delay step added.', 'ok');
+      return;
+    }
+
+    setStatus('Unknown step type.', 'err');
+  });
+}
+
+if (btnActionRemoveStep) {
+  btnActionRemoveStep.addEventListener('click', () => {
+    const i = _selectedActionStepIndex;
+    if (!Array.isArray(_actionSteps) || i < 0 || i >= _actionSteps.length) {
+      setStatus('Select a step first.', 'err');
+      return;
+    }
+    _actionSteps.splice(i, 1);
+    _syncHiddenActionStepsTextarea();
+    _selectActionStep(Math.min(i, _actionSteps.length - 1));
+    setStatus('Step removed.', 'ok');
+  });
+}
+
+if (btnActionStepUp) {
+  btnActionStepUp.addEventListener('click', () => {
+    const i = _selectedActionStepIndex;
+    if (!Array.isArray(_actionSteps) || i <= 0 || i >= _actionSteps.length) return;
+    const tmp = _actionSteps[i - 1];
+    _actionSteps[i - 1] = _actionSteps[i];
+    _actionSteps[i] = tmp;
+    _syncHiddenActionStepsTextarea();
+    _selectActionStep(i - 1);
+  });
+}
+
+if (btnActionStepDown) {
+  btnActionStepDown.addEventListener('click', () => {
+    const i = _selectedActionStepIndex;
+    if (!Array.isArray(_actionSteps) || i < 0 || i >= _actionSteps.length - 1) return;
+    const tmp = _actionSteps[i + 1];
+    _actionSteps[i + 1] = _actionSteps[i];
+    _actionSteps[i] = tmp;
+    _syncHiddenActionStepsTextarea();
+    _selectActionStep(i + 1);
+  });
+}
+
+document.addEventListener('keydown', (ev) => {
+  if (!_actionKeyCaptureArmed) return;
+
+  // Don't capture while typing in normal inputs unless they explicitly armed capture.
+  ev.preventDefault();
+  ev.stopPropagation();
+
+  const keyName = normalizeKeyNameFromEvent(ev);
+  _actionKeyCaptureArmed = false;
+
+  if (_pendingAddKeyboardStep) {
+    _pendingAddKeyboardStep = false;
+    if (!Array.isArray(_actionSteps)) _actionSteps = [];
+    _actionSteps.push({ action: 'KeyStroke', parameters: { keyName } });
+    _syncHiddenActionStepsTextarea();
+    _selectActionStep(_actionSteps.length - 1);
+    setStatus(`Added Keyboard step: ${keyName}`, 'ok');
+    return;
+  }
+
+  const i = _selectedActionStepIndex;
+  if (!Array.isArray(_actionSteps) || i < 0 || i >= _actionSteps.length) {
+    setStatus(`Captured: ${keyName} (no step selected)`, 'ok');
+    return;
+  }
+
+  const step = _actionSteps[i];
+  if (_actionKindOf(step) !== 'KeyStroke') {
+    setStatus(`Captured: ${keyName} (select a Keyboard step)`, 'ok');
+    return;
+  }
+
+  step.parameters = step.parameters && typeof step.parameters === 'object' ? step.parameters : {};
+  step.parameters.keyName = keyName;
+  _syncHiddenActionStepsTextarea();
+  _renderActionStepList();
+  setStatus(`Captured: ${keyName}`, 'ok');
+}, { capture: true });
+
+if (actionStepTypeEl) {
+  const updateDelayVisibility = () => {
+    const t = String(actionStepTypeEl.value || '').trim();
+    _setDelayRowVisible(t === 'Delay');
+    if (t === 'Delay' && actionDelayMsEl) actionDelayMsEl.focus();
+  };
+  actionStepTypeEl.addEventListener('change', updateDelayVisibility);
+  updateDelayVisibility();
+}
+
+if (actionDelayMsEl) {
+  actionDelayMsEl.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter') return;
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    let ms;
+    try {
+      ms = _getDelayMsFromInput();
+    } catch (e) {
+      alert(e.message);
+      return;
+    }
+
+    const i = _selectedActionStepIndex;
+    if (Array.isArray(_actionSteps) && i >= 0 && i < _actionSteps.length && _actionKindOf(_actionSteps[i]) === 'Delay') {
+      const step = _actionSteps[i];
+      step.parameters = step.parameters && typeof step.parameters === 'object' ? step.parameters : {};
+      delete step.parameters.seconds;
+      step.parameters.ms = ms;
+      _syncHiddenActionStepsTextarea();
+      _renderActionStepList();
+      setStatus('Delay step updated.', 'ok');
+      return;
+    }
+
+    // If no Delay step is selected, Enter behaves like Add Step for Delay.
+    if (!Array.isArray(_actionSteps)) _actionSteps = [];
+    _actionSteps.push({ action: 'Delay', parameters: { ms } });
+    _syncHiddenActionStepsTextarea();
+    _selectActionStep(_actionSteps.length - 1);
+    setStatus('Delay step added.', 'ok');
+  });
+}
+
+if (btnActionSave) {
+  btnActionSave.addEventListener('click', async () => {
+    setStatus('Saving action...', null);
+    try {
+      const name = (actionNameEl && actionNameEl.value ? String(actionNameEl.value) : '').trim();
+      if (!name) throw new Error('Name is required');
+      const steps = _getActionStepsForSave();
+
+      const payload = { name, steps };
+      if (selectedActionUuid) payload.uuid = selectedActionUuid;
+
+      const res = await postJson('/api/actions/upsert', payload);
+      if (res && res.uuid) selectedActionUuid = String(res.uuid);
+
+      await refreshActions();
+      setStatus('Action saved.', 'ok');
+    } catch (e) {
+      setStatus(`Save action failed: ${e.message}`, 'err');
+    }
+  });
+}
+
+if (btnActionDelete) {
+  btnActionDelete.addEventListener('click', async () => {
+    if (!selectedActionUuid) {
+      setStatus('Select an action first.', 'err');
+      return;
+    }
+    setStatus('Deleting action...', null);
+    try {
+      await postJson('/api/actions/remove_uuid', { uuid: selectedActionUuid });
+      clearActionEditor();
+      await refreshActions();
+      setStatus('Action deleted.', 'ok');
+    } catch (e) {
+      setStatus(`Delete action failed: ${e.message}`, 'err');
+    }
+  });
+}
+
+if (btnActionRun) {
+  btnActionRun.addEventListener('click', async () => {
+    if (!selectedActionUuid) {
+      setStatus('Select an action first.', 'err');
+      return;
+    }
+    setStatus('Running action...', null);
+    try {
+      await postJson('/api/actions/run', { uuid: selectedActionUuid });
+      setStatus('Action enqueued.', 'ok');
+    } catch (e) {
+      setStatus(`Run action failed: ${e.message}`, 'err');
+    }
+  });
 }
 
 async function postJson(path, body) {
@@ -510,6 +1064,7 @@ function finalizeRoiOrClick(startPt, endPt) {
   if (w < 0.005 && h < 0.005) {
     clickXEl.value = startPt.x.toFixed(3);
     clickYEl.value = startPt.y.toFixed(3);
+    _lastLiveSelectedPoint = { x: Number(startPt.x), y: Number(startPt.y) };
     setStatus(`Selected (${startPt.x.toFixed(3)}, ${startPt.y.toFixed(3)})`, 'ok');
     return;
   }
@@ -669,6 +1224,32 @@ const roiEventTarget = roiOverlay || captureImage;
 roiEventTarget.addEventListener('mousedown', (ev) => {
   if (ev.button !== 0) return;
   try {
+    if (_actionClickCaptureArmed) {
+      const pt = getNormalizedPointFromMouseEvent(ev);
+      _actionClickCaptureArmed = false;
+
+      const i = _selectedActionStepIndex;
+      if (!Array.isArray(_actionSteps) || i < 0 || i >= _actionSteps.length) {
+        setStatus('Captured click (no step selected).', 'ok');
+      } else {
+        const step = _actionSteps[i];
+        if (_actionKindOf(step) !== 'Click') {
+          setStatus('Captured click (select a Click step).', 'ok');
+        } else {
+          step.parameters = step.parameters && typeof step.parameters === 'object' ? step.parameters : {};
+          step.parameters.x = Number(pt.x);
+          step.parameters.y = Number(pt.y);
+          _syncHiddenActionStepsTextarea();
+          _renderActionStepList();
+          setStatus(`Captured click: (${pt.x.toFixed(6)}, ${pt.y.toFixed(6)})`, 'ok');
+        }
+      }
+
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
+
     if (_panMode) {
       _panDrag = {
         sx: ev.clientX,
@@ -1256,6 +1837,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 .catch(() => {});
             } else {
               stopConditionsEventSource();
+            }
+
+            if (target === 'actions') {
+              refreshActions().catch(() => {});
             }
         });
     });

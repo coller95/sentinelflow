@@ -351,6 +351,57 @@ input:focus {
     margin-top: 10px;
 }
 
+/* ===================================================== */
+/* ACTIONS STEP BUILDER                                  */
+/* ===================================================== */
+
+.actionSequenceBox {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    border: 1px solid rgba(0,0,0,0.2);
+    border-radius: 6px;
+    overflow: hidden;
+    background: Canvas;
+}
+
+.actionStepList {
+    min-height: 140px;
+    max-height: 220px;
+    overflow: auto;
+}
+
+.actionStepItem {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+    cursor: pointer;
+    user-select: none;
+    font-size: 13px;
+}
+
+.actionStepItem:last-child {
+    border-bottom: none;
+}
+
+.actionStepItem.selected {
+    background: rgba(0,0,0,0.08);
+    font-weight: 600;
+}
+
+.actionStepReorder {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+    border-left: 1px solid rgba(0,0,0,0.08);
+    align-items: stretch;
+    justify-content: center;
+}
+
+.actionStepReorder button {
+    min-width: 42px;
+}
+
 button {
     appearance: none;
     border: none;
@@ -438,6 +489,22 @@ button.danger:hover {
 
     .condTable tr.selected {
         background: rgba(255,255,255,0.12);
+    }
+
+    .actionSequenceBox {
+        border-color: rgba(255,255,255,0.2);
+    }
+
+    .actionStepItem {
+        border-bottom-color: rgba(255,255,255,0.08);
+    }
+
+    .actionStepItem.selected {
+        background: rgba(255,255,255,0.12);
+    }
+
+    .actionStepReorder {
+        border-left-color: rgba(255,255,255,0.08);
     }
 
     .thumb {

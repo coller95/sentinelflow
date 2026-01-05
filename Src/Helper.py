@@ -261,10 +261,61 @@ def _TryFocusWindow(hwnd: HWND) -> None:
         pass
 
 def VkFromKeyName(keyName: str) -> VirtualKey:
-    vk = VirtualKey(win32api.VkKeyScan(keyName))  # type: ignore
-    if vk == -1:
-        raise ValueError(f"Invalid key name: {keyName}")
-    return vk & 0xFF
+    name = (keyName or "").strip()
+    if not name:
+        raise ValueError("Invalid key name: (empty)")
+
+    # Common named keys.
+    norm = name.lower()
+    named: dict[str, int] = {
+        "enter": win32con.VK_RETURN,
+        "return": win32con.VK_RETURN,
+        "tab": win32con.VK_TAB,
+        "escape": win32con.VK_ESCAPE,
+        "esc": win32con.VK_ESCAPE,
+        "space": win32con.VK_SPACE,
+        "spacebar": win32con.VK_SPACE,
+        "backspace": win32con.VK_BACK,
+        "delete": win32con.VK_DELETE,
+        "del": win32con.VK_DELETE,
+        "insert": win32con.VK_INSERT,
+        "home": win32con.VK_HOME,
+        "end": win32con.VK_END,
+        "pageup": win32con.VK_PRIOR,
+        "pagedown": win32con.VK_NEXT,
+        "left": win32con.VK_LEFT,
+        "right": win32con.VK_RIGHT,
+        "up": win32con.VK_UP,
+        "down": win32con.VK_DOWN,
+        "arrowleft": win32con.VK_LEFT,
+        "arrowright": win32con.VK_RIGHT,
+        "arrowup": win32con.VK_UP,
+        "arrowdown": win32con.VK_DOWN,
+        "lctrl": 0xA2,
+        "rctrl": 0xA3,
+        "lshift": 0xA0,
+        "rshift": 0xA1,
+        "lalt": 0xA4,
+        "ralt": 0xA5,
+    }
+
+    if norm in named:
+        return VirtualKey(named[norm])
+
+    # Function keys: F1..F24
+    if len(norm) >= 2 and norm[0] == "f" and norm[1:].isdigit():
+        n = int(norm[1:])
+        if 1 <= n <= 24:
+            return VirtualKey(win32con.VK_F1 + (n - 1))
+
+    # Single visible character.
+    if len(name) == 1:
+        vk = VirtualKey(win32api.VkKeyScan(name))  # type: ignore
+        if vk == -1:
+            raise ValueError(f"Invalid key name: {keyName}")
+        return vk & 0xFF
+
+    raise ValueError(f"Invalid key name: {keyName}")
 
 
 def KeyNameFromVk(virtualKey: VirtualKey) -> str:

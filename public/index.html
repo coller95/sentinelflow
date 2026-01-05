@@ -50,6 +50,7 @@
             <button class="active" data-tab="launcher">Launcher</button>
             <button data-tab="capture">Capture</button>
             <button data-tab="input">Input</button>
+            <button data-tab="actions">Actions</button>
             <button data-tab="conditions">Conditions</button>
             </nav>
 
@@ -144,6 +145,76 @@
 
                 <div class="buttons">
                     <button id="btnSendKey" class="primary" type="button">Send Key</button>
+                </div>
+            </fieldset>
+        </section>
+
+        <section id="tab-actions" class="tabPanel">
+            <fieldset>
+                <legend>Actions</legend>
+
+                <div class="condToolbar">
+                    <button id="btnActionNew" class="primary" type="button">New</button>
+                    <button id="btnActionDelete" type="button">Delete</button>
+                    <button id="btnActionRun" class="primary" type="button">Run</button>
+                    <span class="condSpacer"></span>
+                    <button id="btnRefreshActions" class="primary" type="button">Refresh</button>
+                </div>
+
+                <div class="condTableWrap">
+                    <table class="condTable" aria-label="Actions table">
+                        <thead>
+                            <tr>
+                                <th>Action</th>
+                                <th>Steps</th>
+                            </tr>
+                        </thead>
+                        <tbody id="actionTableBody"></tbody>
+                    </table>
+                </div>
+
+                <div class="condBottom">
+                    <div class="row">
+                        <label for="actionName">Name</label>
+                        <input id="actionName" type="text" placeholder="Example: Heal + Move" />
+                    </div>
+
+                    <div class="row">
+                        <label>Action Sequence</label>
+                        <div class="actionSequenceBox">
+                            <div id="actionStepList" class="actionStepList" role="listbox" aria-label="Action sequence" tabindex="0"></div>
+                            <div class="actionStepReorder" aria-label="Reorder">
+                                <button id="btnActionStepUp" type="button" title="Move up">↑</button>
+                                <button id="btnActionStepDown" type="button" title="Move down">↓</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <label for="actionStepType">Step Type</label>
+                        <select id="actionStepType" class="selectLike">
+                            <option value="Keyboard">Keyboard</option>
+                            <option value="Click">Click</option>
+                            <option value="Delay">Delay</option>
+                        </select>
+
+                        <div id="actionDelayRow" class="row" style="display:none; margin-top: 10px;">
+                            <label for="actionDelayMs">Delay (ms)</label>
+                            <input id="actionDelayMs" type="number" min="0" step="10" value="50" />
+                        </div>
+
+                        <div class="buttons">
+                            <button id="btnActionAddStep" class="primary" type="button">Add Step</button>
+                            <button id="btnActionRemoveStep" type="button">Remove Step</button>
+                        </div>
+                    </div>
+
+                    <!-- Hidden: kept for backwards compatibility / debugging -->
+                    <textarea id="actionSteps" class="monoBox" rows="8" style="display:none"></textarea>
+
+                    <div class="buttons">
+                        <button id="btnActionSave" class="primary" type="button">Save</button>
+                    </div>
                 </div>
             </fieldset>
         </section>

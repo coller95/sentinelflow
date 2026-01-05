@@ -51,6 +51,22 @@ class ConditionStatusSnapshot:
     cropThumbBase64: Optional[str]
     last: Optional[float]
 
+class MacroType(Enum):
+    Click = auto()
+    KeyStroke = auto()
+    Delay = auto()
+
+@dataclass(frozen=True)
+class MacroStep:
+    action: MacroType
+    parameters: Dict[str, Any]
+
+@dataclass(frozen=True)
+class ActionItem:
+    uuid: UUID
+    name: str
+    steps: List[MacroStep]
+
 
 class ControllerServices:
     def __init__(self):
@@ -85,6 +101,17 @@ class ControllerServices:
         )
         self._control_thread.start()
 
+        # Action (macro) definitions and execution.
+        self._actionItemList: Dict[UUID, ActionItem] = {}
+        self._macro_queue: queue.Queue[UUID] = queue.Queue(maxsize=64)
+        self._macro_last_error: Optional[BaseException] = None
+        self._macro_thread = threading.Thread(
+            target=self._macro_worker,
+            name="SentinelFlowMacro",
+            daemon=True,
+        )
+        self._macro_thread.start()
+
         # Dict preserves insertion order (Python 3.7+). We also rely on it for up/down moves.
         self._conditionItemList: Dict[UUID, ConditionItem] = {}
 
@@ -103,6 +130,89 @@ class ControllerServices:
     def GetConditionItems(self) -> List[ConditionItem]:
         with self._state_lock:
             return list(self._conditionItemList.values())
+
+    def GetActionItems(self) -> List[ActionItem]:
+        with self._state_lock:
+            return list(self._actionItemList.values())
+
+    def GetActionItemByUuid(self, uuid: UUID) -> Optional[ActionItem]:
+        with self._state_lock:
+            return self._actionItemList.get(uuid)
+
+    def UpsertActionItem(self, uuid: Optional[UUID], name: str, steps: List[MacroStep]) -> ActionItem:
+        clean_name = (name or "").strip()
+        if not clean_name:
+            raise ValueError("name cannot be empty")
+
+        with self._state_lock:
+            action_uuid = uuid or uuid4()
+            item = ActionItem(uuid=action_uuid, name=clean_name, steps=list(steps))
+            self._actionItemList[action_uuid] = item
+            return item
+
+    def RemoveActionItemByUuid(self, uuid: UUID) -> None:
+        with self._state_lock:
+            if uuid not in self._actionItemList:
+                raise KeyError("Action uuid not found")
+            del self._actionItemList[uuid]
+
+    def EnqueueRunActionByUuid(self, uuid: UUID) -> None:
+        with self._state_lock:
+            if uuid not in self._actionItemList:
+                raise KeyError("Action uuid not found")
+
+        try:
+            self._macro_queue.put_nowait(uuid)
+        except queue.Full:
+            # Drop oldest and enqueue newest.
+            try:
+                self._macro_queue.get_nowait()
+                self._macro_queue.task_done()
+            except queue.Empty:
+                pass
+            try:
+                self._macro_queue.put_nowait(uuid)
+            except queue.Full:
+                pass
+
+    def GetLastMacroError(self) -> Optional[BaseException]:
+        with self._state_lock:
+            return self._macro_last_error
+
+    def _macro_worker(self) -> None:
+        while True:
+            action_uuid = self._macro_queue.get()
+            try:
+                with self._state_lock:
+                    action = self._actionItemList.get(action_uuid)
+
+                if action is None:
+                    continue
+
+                for step in action.steps:
+                    if step.action == MacroType.Click:
+                        x = step.parameters.get("x", step.parameters.get("xNormalized", 0.0))
+                        y = step.parameters.get("y", step.parameters.get("yNormalized", 0.0))
+                        self._execute_click(float(x), float(y))
+                    elif step.action == MacroType.KeyStroke:
+                        key = step.parameters.get("keyName", step.parameters.get("key", ""))
+                        self._execute_key(str(key))
+                    elif step.action == MacroType.Delay:
+                        if "seconds" in step.parameters:
+                            seconds = float(step.parameters.get("seconds", 0.0))
+                        elif "ms" in step.parameters:
+                            seconds = float(step.parameters.get("ms", 0.0)) / 1000.0
+                        else:
+                            seconds = 0.0
+                        time.sleep(max(0.0, seconds))
+            except BaseException as exc:
+                with self._state_lock:
+                    self._macro_last_error = exc
+            finally:
+                try:
+                    self._macro_queue.task_done()
+                except ValueError:
+                    pass
 
     def _condition_keys_in_order(self) -> List[UUID]:
         return list(self._conditionItemList.keys())
