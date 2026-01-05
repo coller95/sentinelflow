@@ -17,13 +17,21 @@
     <!-- ================================================= -->
     
     <section class="livePreviewRoot">
-        <div class="livePreviewFrame">
-            <img
-                id="captureImage"
-                class="captureImage"
-                alt="Window capture preview"
-            />
-            <canvas id="roiOverlay" class="roiOverlay" aria-label="ROI overlay" tabindex="0"></canvas>
+        <div class="livePreviewFrame" id="livePreviewFrame">
+            <div class="livePreviewToolbar" aria-label="Live preview tools">
+                <button id="btnPanToggle" type="button">Pan</button>
+                <button id="btnZoomOut" type="button">-</button>
+                <button id="btnZoomIn" type="button">+</button>
+            </div>
+
+            <div id="livePreviewViewport" class="livePreviewViewport">
+                <img
+                    id="captureImage"
+                    class="captureImage"
+                    alt="Window capture preview"
+                />
+                <canvas id="roiOverlay" class="roiOverlay" aria-label="ROI overlay" tabindex="0"></canvas>
+            </div>
         </div>
     </section>
 

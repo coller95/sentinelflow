@@ -17,6 +17,12 @@ const captureImage = document.getElementById('captureImage');
 const captureIntervalEl = document.getElementById('captureInterval');
 const roiOverlay = document.getElementById('roiOverlay');
 
+const livePreviewFrameEl = document.getElementById('livePreviewFrame');
+const livePreviewViewportEl = document.getElementById('livePreviewViewport');
+const btnPanToggle = document.getElementById('btnPanToggle');
+const btnZoomOut = document.getElementById('btnZoomOut');
+const btnZoomIn = document.getElementById('btnZoomIn');
+
 const keyNameEl = document.getElementById('keyName');
 const btnSendKey = document.getElementById('btnSendKey');
 
@@ -397,6 +403,95 @@ let _roiDrag = null; // {start:{x,y}, current:{x,y}, roi:{x,y,w,h}}
 let _lastRoi = null;
 let _activeRoiHandle = null; // 'nw'|'n'|'ne'|'w'|'e'|'sw'|'s'|'se'|'move'|null
 
+let _liveZoom = 1.0;
+let _livePan = { x: 0, y: 0 };
+let _panMode = false;
+let _panDrag = null; // { sx, sy, startPanX, startPanY }
+
+function clamp(v, lo, hi) {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+function applyLiveViewTransform() {
+  if (!livePreviewFrameEl || !livePreviewViewportEl) return;
+
+  const rect = livePreviewFrameEl.getBoundingClientRect();
+  const frameW = rect.width;
+  const frameH = rect.height;
+  if (!(frameW > 0 && frameH > 0)) return;
+
+  const scale = _liveZoom;
+  const viewportW = frameW * scale;
+  const viewportH = frameH * scale;
+
+  // Center + pan offsets.
+  const baseLeft = (frameW - viewportW) / 2;
+  const baseTop = (frameH - viewportH) / 2;
+
+  let left = baseLeft + _livePan.x;
+  let top = baseTop + _livePan.y;
+
+  const minLeft = frameW - viewportW;
+  const minTop = frameH - viewportH;
+
+  // Clamp so you can't pan past edges and reveal empty space.
+  left = clamp(left, minLeft, 0);
+  top = clamp(top, minTop, 0);
+
+  // Store back normalized pan relative to centered base.
+  _livePan.x = left - baseLeft;
+  _livePan.y = top - baseTop;
+
+  livePreviewViewportEl.style.width = `${scale * 100}%`;
+  livePreviewViewportEl.style.height = `${scale * 100}%`;
+  livePreviewViewportEl.style.left = `${left}px`;
+  livePreviewViewportEl.style.top = `${top}px`;
+
+  ensureOverlayCanvasSize();
+  if (_lastRoi) drawOverlayRoi(_lastRoi);
+}
+
+function setPanMode(enabled) {
+  _panMode = !!enabled;
+  if (livePreviewFrameEl) {
+    livePreviewFrameEl.classList.toggle('panMode', _panMode);
+    livePreviewFrameEl.classList.remove('panning');
+  }
+  if (btnPanToggle) btnPanToggle.classList.toggle('primary', _panMode);
+  _panDrag = null;
+}
+
+function zoomBy(factor) {
+  const prev = _liveZoom;
+  const next = clamp(prev * factor, 1.0, 8.0);
+  if (next === prev) return;
+
+  // Keep pan roughly proportional to the zoom change.
+  const ratio = next / prev;
+  _livePan.x *= ratio;
+  _livePan.y *= ratio;
+  _liveZoom = next;
+  applyLiveViewTransform();
+}
+
+if (btnPanToggle) {
+  btnPanToggle.addEventListener('click', () => {
+    setPanMode(!_panMode);
+  });
+}
+
+if (btnZoomIn) {
+  btnZoomIn.addEventListener('click', () => {
+    zoomBy(1.25);
+  });
+}
+
+if (btnZoomOut) {
+  btnZoomOut.addEventListener('click', () => {
+    zoomBy(1 / 1.25);
+  });
+}
+
 function setRoiInputsFromNormalized(roi) {
   if (!roiXEl || !roiYEl || !roiWEl || !roiHEl) return;
   roiXEl.value = roi.x.toFixed(3);
@@ -574,6 +669,18 @@ const roiEventTarget = roiOverlay || captureImage;
 roiEventTarget.addEventListener('mousedown', (ev) => {
   if (ev.button !== 0) return;
   try {
+    if (_panMode) {
+      _panDrag = {
+        sx: ev.clientX,
+        sy: ev.clientY,
+        startPanX: _livePan.x,
+        startPanY: _livePan.y,
+      };
+      if (livePreviewFrameEl) livePreviewFrameEl.classList.add('panning');
+      ev.preventDefault();
+      return;
+    }
+
     if (_lastRoi && roiOverlay) {
       const picked = pickHandleFromPointer(ev, _lastRoi);
       if (picked) {
@@ -597,6 +704,15 @@ roiEventTarget.addEventListener('mousedown', (ev) => {
 });
 
 roiEventTarget.addEventListener('mousemove', (ev) => {
+  if (_panDrag) {
+    const dx = ev.clientX - _panDrag.sx;
+    const dy = ev.clientY - _panDrag.sy;
+    _livePan.x = _panDrag.startPanX + dx;
+    _livePan.y = _panDrag.startPanY + dy;
+    applyLiveViewTransform();
+    ev.preventDefault();
+    return;
+  }
   if (!_roiDrag) return;
   try {
     const pt = getNormalizedPointFromMouseEvent(ev);
@@ -612,6 +728,11 @@ roiEventTarget.addEventListener('mousemove', (ev) => {
 });
 
 function endDrag(ev) {
+  if (_panDrag) {
+    _panDrag = null;
+    if (livePreviewFrameEl) livePreviewFrameEl.classList.remove('panning');
+    return;
+  }
   if (!_roiDrag) return;
   try {
     const pt = getNormalizedPointFromMouseEvent(ev);
@@ -630,11 +751,13 @@ roiEventTarget.addEventListener('mouseleave', (ev) => {
 });
 
 captureImage.addEventListener('load', () => {
+  applyLiveViewTransform();
   ensureOverlayCanvasSize();
   if (_lastRoi) drawOverlayRoi(_lastRoi);
 });
 
 window.addEventListener('resize', () => {
+  applyLiveViewTransform();
   ensureOverlayCanvasSize();
   if (_lastRoi) drawOverlayRoi(_lastRoi);
 });
