@@ -344,7 +344,7 @@ function drawOverlayRoi(roi) {
 
   ctx.fillStyle = rgbaFromComputedColor(0.15);
   ctx.strokeStyle = rgbaFromComputedColor(0.9);
-  ctx.lineWidth = _activeRoiHandle ? 3 : 2;
+  ctx.lineWidth = 1;
   ctx.fillRect(left, top, width, height);
   ctx.strokeRect(left + 1, top + 1, Math.max(0, width - 2), Math.max(0, height - 2));
 
@@ -793,10 +793,73 @@ async function refreshConditions() {
     tr.addEventListener('click', () => {
       selectedConditionIndex = Number(it.index);
       refreshConditions().catch(() => {});
+      loadSelectedConditionIntoEditor().catch(() => {});
     });
 
     condTableBody.appendChild(tr);
   }
+}
+
+let _conditionEditorLoadSeq = 0;
+
+function clearSelectedConditionEditor() {
+  if (conditionNameEl) conditionNameEl.value = '';
+  if (conditionTypeEl) conditionTypeEl.value = 'ImageMatchRoi';
+  if (templateImageEl) templateImageEl.value = '';
+
+  if (roiXEl) roiXEl.value = '0';
+  if (roiYEl) roiYEl.value = '0';
+  if (roiWEl) roiWEl.value = '0';
+  if (roiHEl) roiHEl.value = '0';
+
+  _lastRoi = null;
+  _activeRoiHandle = null;
+  drawOverlayRoi(null);
+}
+
+function applyConditionItemToEditor(item) {
+  if (!item) return;
+
+  if (conditionNameEl) conditionNameEl.value = String(item.name ?? '');
+  if (conditionTypeEl) conditionTypeEl.value = String(item.type ?? 'ImageMatchRoi');
+
+  // Security restriction: browsers won't allow setting a file input programmatically.
+  // Clear any previously chosen file so it's not accidentally reused.
+  if (templateImageEl) templateImageEl.value = '';
+
+  const roiDto = item.roi || {};
+  const roi = {
+    x: Number(roiDto.xNormalized ?? 0),
+    y: Number(roiDto.yNormalized ?? 0),
+    w: Number(roiDto.widthNormalized ?? 0),
+    h: Number(roiDto.heightNormalized ?? 0),
+  };
+
+  _lastRoi = roi;
+  _activeRoiHandle = null;
+  setRoiInputsFromNormalized(roi);
+  drawOverlayRoi(roi);
+}
+
+async function loadSelectedConditionIntoEditor() {
+  const index = selectedConditionIndex;
+  if (index === null || index === undefined) {
+    clearSelectedConditionEditor();
+    return;
+  }
+
+  const seq = ++_conditionEditorLoadSeq;
+  const items = await getJson('/api/conditions');
+  if (seq !== _conditionEditorLoadSeq) return;
+
+  const safeItems = Array.isArray(items) ? items : [];
+  const i = Number(index);
+  if (!Number.isFinite(i) || i < 0 || i >= safeItems.length) {
+    clearSelectedConditionEditor();
+    return;
+  }
+
+  applyConditionItemToEditor(safeItems[i]);
 }
 
 function startConditionsEventSource() {
@@ -860,6 +923,8 @@ function startConditionsEventSource() {
           } catch {
             // ignore
           }
+
+          loadSelectedConditionIntoEditor().catch(() => {});
         });
 
         condTableBody.appendChild(tr);
@@ -875,6 +940,7 @@ if (btnRefreshConditions) {
     setStatus('Refreshing conditions...', null);
     try {
       await refreshConditions();
+      await loadSelectedConditionIntoEditor();
       setStatus('Conditions refreshed.', 'ok');
     } catch (e) {
       setStatus(`Refresh conditions failed: ${e.message}`, 'err');
@@ -933,6 +999,7 @@ if (btnCondRemoveRow) {
       await postJson('/api/conditions/remove_index', { index: selectedConditionIndex });
       selectedConditionIndex = null;
       await refreshConditions();
+      clearSelectedConditionEditor();
       setStatus('Condition removed.', 'ok');
     } catch (e) {
       setStatus(`Remove condition failed: ${e.message}`, 'err');
@@ -954,6 +1021,7 @@ if (btnCondMoveUp) {
     try {
       await moveSelected('up');
       await refreshConditions();
+      await loadSelectedConditionIntoEditor();
       setStatus('Moved.', 'ok');
     } catch (e) {
       setStatus(`Move failed: ${e.message}`, 'err');
@@ -967,6 +1035,7 @@ if (btnCondMoveDown) {
     try {
       await moveSelected('down');
       await refreshConditions();
+      await loadSelectedConditionIntoEditor();
       setStatus('Moved.', 'ok');
     } catch (e) {
       setStatus(`Move failed: ${e.message}`, 'err');
@@ -1033,7 +1102,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (target === 'conditions') {
               startConditionsEventSource();
-              refreshConditions().catch(() => {});
+              refreshConditions()
+                .then(() => loadSelectedConditionIntoEditor())
+                .catch(() => {});
             } else {
               stopConditionsEventSource();
             }
