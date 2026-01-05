@@ -261,3 +261,22 @@ btnSendClick.addEventListener('click', async () => {
     setStatus(`Send click failed: ${e.message}`, 'err');
   }
 });
+
+document.addEventListener("DOMContentLoaded", () => {
+    const tabs = document.querySelectorAll(".controlTabs button");
+    const panels = document.querySelectorAll(".tabPanel");
+
+    tabs.forEach(tab => {
+        tab.addEventListener("click", () => {
+            const target = tab.dataset.tab;
+
+            // deactivate all tabs
+            tabs.forEach(t => t.classList.remove("active"));
+            panels.forEach(p => p.classList.remove("active"));
+
+            // activate selected
+            tab.classList.add("active");
+            document.getElementById(`tab-${target}`).classList.add("active");
+        });
+    });
+});
