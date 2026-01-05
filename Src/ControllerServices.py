@@ -1,11 +1,21 @@
+import queue
 import threading
 import time
+from dataclasses import dataclass
 from typing import Optional, cast
 
 import numpy as np
 from numpy.typing import NDArray
 
 from Src.Helper import *
+
+
+@dataclass(frozen=True)
+class _ControlAction:
+    kind: str
+    x: float
+    y: float
+    key: str = ""
 
 
 class ControllerServices:
@@ -30,6 +40,16 @@ class ControllerServices:
             daemon=True,
         )
         self._capture_thread.start()
+
+        # Control (macro) queue executed by a dedicated worker thread.
+        self._control_queue: queue.Queue[_ControlAction] = queue.Queue(maxsize=256)
+        self._control_last_error: Optional[BaseException] = None
+        self._control_thread = threading.Thread(
+            target=self._control_worker,
+            name="SentinelFlowControl",
+            daemon=True,
+        )
+        self._control_thread.start()
 
     def LaunchApp(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
         self.LaucnhApp(app_path, left=left, top=top, width=width, height=height)
@@ -69,6 +89,30 @@ class ControllerServices:
 
         if pidToKill != 0:
             TerminateProcessByPid(pidToKill)
+
+        # Drain any queued control actions for the closed app.
+        try:
+            while True:
+                self._control_queue.get_nowait()
+                self._control_queue.task_done()
+        except queue.Empty:
+            pass
+
+    def _control_worker(self) -> None:
+        while True:
+            action = self._control_queue.get()
+            print("Processing control action:", action)
+            try:
+                if action.kind == "click":
+                    self._execute_click(action.x, action.y)
+                elif action.kind == "key":
+                    self._execute_key(action.key)
+            except BaseException as exc:
+                with self._state_lock:
+                    print("Control action error:", exc)
+                    self._control_last_error = exc
+            finally:
+                self._control_queue.task_done()
 
     def _capture_worker(self) -> None:
         # KISS: one daemon thread for the lifetime of Services.
@@ -131,4 +175,66 @@ class ControllerServices:
     def GetLastCaptureError(self) -> Optional[BaseException]:
         with self._capture_lock:
             return self._capture_last_error
+
+    def _execute_click(self, normalizedX: float, normalizedY: float) -> None:
+        x = float(max(0.0, min(1.0, normalizedX)))
+        y = float(max(0.0, min(1.0, normalizedY)))
+
+        with self._state_lock:
+            hwnd = self._hwnd
+
+        if hwnd == 0:
+            raise Exception("No application is attached for control.")
+
+        SendMouseClickToWindow(hwnd, x, y)
+
+    def EnqueueClick(self, normalizedX: float, normalizedY: float) -> None:
+        action = _ControlAction(kind="click", x=float(normalizedX), y=float(normalizedY))
+        try:
+            self._control_queue.put_nowait(action)
+        except queue.Full:
+            # KISS stability: drop oldest action and enqueue newest.
+            try:
+                self._control_queue.get_nowait()
+                self._control_queue.task_done()
+            except queue.Empty:
+                pass
+            try:
+                self._control_queue.put_nowait(action)
+            except queue.Full:
+                pass
+
+    def _execute_key(self, keyName: str) -> None:
+        name = (keyName or "").strip()
+        if not name:
+            raise ValueError("keyName cannot be empty")
+
+        with self._state_lock:
+            hwnd = self._hwnd
+
+        if hwnd == 0:
+            raise Exception("No application is attached for control.")
+
+        vk = VkFromKeyName(name)
+        SendKeystrokeToWindow(hwnd, vk)
+
+    def EnqueueKeyStroke(self, keyName: str) -> None:
+        action = _ControlAction(kind="key", x=0.0, y=0.0, key=str(keyName))
+        try:
+            self._control_queue.put_nowait(action)
+        except queue.Full:
+            # Same policy: drop oldest and keep newest.
+            try:
+                self._control_queue.get_nowait()
+                self._control_queue.task_done()
+            except queue.Empty:
+                pass
+            try:
+                self._control_queue.put_nowait(action)
+            except queue.Full:
+                pass
+
+    def GetLastControlError(self) -> Optional[BaseException]:
+        with self._state_lock:
+            return self._control_last_error
         

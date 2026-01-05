@@ -219,6 +219,47 @@ def EstimateProgressBarPercentage(barImage: np.ndarray[Any, Any]) -> float:
 # Input Simulation
 # ────────────────────────────────────────
 
+def _TryFocusWindow(hwnd: HWND) -> None:
+    """Best-effort focus/activate a window.
+
+    Windows may reject SetForegroundWindow depending on foreground-lock rules.
+    This helper tries a few safe fallbacks and never raises.
+    """
+    try:
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    except Exception:
+        pass
+
+    try:
+        win32gui.BringWindowToTop(hwnd)
+    except Exception:
+        pass
+
+    try:
+        win32gui.SetForegroundWindow(hwnd)
+        return
+    except Exception:
+        pass
+
+    # Fallback: temporarily attach thread input to increase chance of activation.
+    try:
+        currentThreadId = win32api.GetCurrentThreadId()  # type: ignore
+        targetThreadId, _ = win32process.GetWindowThreadProcessId(hwnd)
+        win32process.AttachThreadInput(currentThreadId, targetThreadId, True)  # type: ignore
+        try:
+            try:
+                win32gui.SetActiveWindow(hwnd)  # type: ignore
+            except Exception:
+                pass
+            try:
+                win32gui.SetForegroundWindow(hwnd)
+            except Exception:
+                pass
+        finally:
+            win32process.AttachThreadInput(currentThreadId, targetThreadId, False)  # type: ignore
+    except Exception:
+        pass
+
 def VkFromKeyName(keyName: str) -> VirtualKey:
     vk = VirtualKey(win32api.VkKeyScan(keyName))  # type: ignore
     if vk == -1:
@@ -254,8 +295,7 @@ def SendKeystrokeToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
     if not hwnd:
         return
 
-    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-    win32gui.SetForegroundWindow(hwnd)
+    _TryFocusWindow(hwnd)
     time.sleep(0.05)
 
     win32api.keybd_event(virtualKey, 0, 0, 0)  # type: ignore
@@ -266,8 +306,7 @@ def SendKeyDownToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
     if not hwnd:
         return
 
-    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-    win32gui.SetForegroundWindow(hwnd)
+    _TryFocusWindow(hwnd)
     time.sleep(0.05)
 
     win32api.keybd_event(virtualKey, 0, 0, 0)  # type: ignore
@@ -277,8 +316,7 @@ def SendKeyUpToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
     if not hwnd:
         return
 
-    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-    win32gui.SetForegroundWindow(hwnd)
+    _TryFocusWindow(hwnd)
     time.sleep(0.05)
 
     win32api.keybd_event(virtualKey, 0, win32con.KEYEVENTF_KEYUP, 0)  # type: ignore
@@ -299,8 +337,7 @@ def SendKeyChordToWindow(hwnd: HWND, virtualKeys: List[VirtualKey]) -> None:
     if not keys:
         return
 
-    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-    win32gui.SetForegroundWindow(hwnd)
+    _TryFocusWindow(hwnd)
     time.sleep(0.05)
 
     modifiers = keys[:-1]
@@ -330,8 +367,7 @@ def SendMouseClickToWindow(hwnd: HWND, normalizedX: NormalizedCoord, normalizedY
     screenX = left + int(normalizedX * windowWidth)
     screenY = top + int(normalizedY * windowHeight)
 
-    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-    win32gui.SetForegroundWindow(hwnd)
+    _TryFocusWindow(hwnd)
     time.sleep(0.05)
 
     win32api.SetCursorPos((screenX, screenY))

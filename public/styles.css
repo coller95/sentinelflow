@@ -60,6 +60,7 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .preview { margin-top: 0; }
 .captureImage { width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--image-bg); display: block; }
+.captureImage { cursor: crosshair; user-select: none; -webkit-user-drag: none; }
 
 @media (max-width: 980px) {
 	.layout { flex-direction: column; }

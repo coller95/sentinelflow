@@ -66,6 +66,15 @@ class CaptureStartRequest(BaseModel):
     intervalSeconds: float = 1.0
 
 
+class ClickRequest(BaseModel):
+    x: float
+    y: float
+
+
+class KeyRequest(BaseModel):
+    keyName: str
+
+
 # Serve the HTML file from the public directory
 @app.get("/", response_class=FileResponse)
 def ServeIndex():
@@ -162,3 +171,17 @@ def CaptureEvents():
             time.sleep(0.2)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/control/click")
+def ControlClick(req: ClickRequest):
+    svc = _get_services()
+    svc.EnqueueClick(req.x, req.y)
+    return {"ok": True}
+
+
+@app.post("/api/control/key")
+def ControlKey(req: KeyRequest):
+    svc = _get_services()
+    svc.EnqueueKeyStroke(req.keyName)
+    return {"ok": True}

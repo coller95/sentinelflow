@@ -16,7 +16,11 @@ const btnStopCapture = document.getElementById('btnStopCapture');
 const captureImage = document.getElementById('captureImage');
 const captureIntervalEl = document.getElementById('captureInterval');
 
+const keyNameEl = document.getElementById('keyName');
+const btnSendKey = document.getElementById('btnSendKey');
+
 let captureEvents = null;
+let repeatTimer = null;
 
 function setBusy(isBusy) {
   btnLaunch.disabled = isBusy;
@@ -146,6 +150,70 @@ function startEventSource() {
   };
 }
 
+function clamp01(v) {
+  if (v < 0) return 0;
+  if (v > 1) return 1;
+  return v;
+}
+
+function getNormalizedPointFromMouseEvent(ev) {
+  const rect = captureImage.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) {
+    throw new Error('Preview not ready');
+  }
+  const x = clamp01((ev.clientX - rect.left) / rect.width);
+  const y = clamp01((ev.clientY - rect.top) / rect.height);
+  return { x, y };
+}
+
+async function sendClick(x, y) {
+  await postJson('/api/control/click', { x, y });
+}
+
+function stopRepeat() {
+  if (repeatTimer) {
+    clearInterval(repeatTimer);
+    repeatTimer = null;
+  }
+}
+
+captureImage.addEventListener('click', async (ev) => {
+  try {
+    const pt = getNormalizedPointFromMouseEvent(ev);
+    await sendClick(pt.x, pt.y);
+    setStatus(`Clicked (${pt.x.toFixed(3)}, ${pt.y.toFixed(3)})`, 'ok');
+  } catch (e) {
+    setStatus(`Click failed: ${e.message}`, 'err');
+  }
+});
+
+// Optional: hold left mouse button on the preview to repeat clicks.
+captureImage.addEventListener('mousedown', (ev) => {
+  if (ev.button !== 0) return;
+  stopRepeat();
+  let pt;
+  try {
+    pt = getNormalizedPointFromMouseEvent(ev);
+  } catch (e) {
+    setStatus(`Repeat click failed: ${e.message}`, 'err');
+    return;
+  }
+
+  repeatTimer = setInterval(() => {
+    sendClick(pt.x, pt.y).catch(() => {
+      // Keep silent; status will update on next successful action.
+    });
+  }, 200);
+});
+
+window.addEventListener('mouseup', () => {
+  stopRepeat();
+});
+
+captureImage.addEventListener('mouseleave', () => {
+  stopRepeat();
+});
+
 btnStartCapture.addEventListener('click', async () => {
   setStatus('Starting capture...', null);
   try {
@@ -175,6 +243,32 @@ btnStopCapture.addEventListener('click', async () => {
   }
 });
 
+async function sendKeyOnce() {
+  const keyName = (keyNameEl.value || '').trim();
+  if (!keyName) {
+    throw new Error('Enter a key name first');
+  }
+  await postJson('/api/control/key', { keyName });
+}
+
+btnSendKey.addEventListener('click', async () => {
+  setStatus('Sending key...', null);
+  try {
+    await sendKeyOnce();
+    setStatus('Key enqueued.', 'ok');
+  } catch (e) {
+    setStatus(`Send key failed: ${e.message}`, 'err');
+  }
+});
+
+keyNameEl.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter') {
+    ev.preventDefault();
+    btnSendKey.click();
+  }
+});
+
 window.addEventListener('beforeunload', () => {
   stopEventSource();
+  stopRepeat();
 });
