@@ -12,10 +12,10 @@ import cv2
 
 from typing import Optional
 
-from Src.Services import Services
+from Src.ControllerServices import ControllerServices
 
 app = FastAPI()
-services: Optional[Services] = None
+services: Optional[ControllerServices] = None
 
 def _resource_root() -> Path:
     """Return the runtime root directory.
@@ -33,7 +33,7 @@ _public_dir = _resource_root() / "public"
 app.mount("/static", StaticFiles(directory=str(_public_dir)), name="static")
 
 
-def _get_services() -> Services:
+def _get_services() -> ControllerServices:
     # Prefer an instance wired by the entrypoint (Main.py), but fall back
     # to the module-level instance for backwards compatibility.
     svc = getattr(app.state, "services", None)
@@ -42,7 +42,7 @@ def _get_services() -> Services:
 
     global services
     if services is None:
-        services = Services()
+        services = ControllerServices()
     return services
 
 

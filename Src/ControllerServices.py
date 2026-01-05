@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 from Src.Helper import *
 
 
-class Services:
+class ControllerServices:
     def __init__(self):
         self._pid: PID = 0
         self._hwnd: HWND = 0
@@ -131,3 +131,4 @@ class Services:
     def GetLastCaptureError(self) -> Optional[BaseException]:
         with self._capture_lock:
             return self._capture_last_error
+        

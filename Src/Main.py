@@ -22,14 +22,14 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from Src.Backend import app
-from Src.Services import Services
+from Src.ControllerServices import ControllerServices
 
 # =============================================================================
 # MAIN ENTRY POINT
 # =============================================================================
 def main() -> int:
     # Wire Services into the backend app state so API handlers can access it.
-    app.state.services = Services()
+    app.state.services = ControllerServices()
     # Run FastAPI backend in the main thread
     port = int(os.getenv("SENTINELFLOW_PORT", os.getenv("PORT", "8000")))
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
