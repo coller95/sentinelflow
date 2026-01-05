@@ -4,7 +4,8 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional, cast
+from typing import Optional, cast, Dict, List, Any
+from uuid import UUID, uuid4
 
 import numpy as np
 from numpy.typing import NDArray
@@ -34,6 +35,7 @@ class ConditionType(Enum):
 
 @dataclass(frozen=True)
 class ConditionItem:
+    uuid: UUID
     name: str
     roi: ConditionRoi
     type: ConditionType
@@ -42,12 +44,13 @@ class ConditionItem:
 
 @dataclass(frozen=True)
 class ConditionStatusSnapshot:
-    index: int
+    uuid: UUID
     name: str
     type: ConditionType
     templateThumbBase64: Optional[str]
     cropThumbBase64: Optional[str]
     last: Optional[float]
+
 
 class ControllerServices:
     def __init__(self):
@@ -82,11 +85,12 @@ class ControllerServices:
         )
         self._control_thread.start()
 
-        self._conditionItemList : List[ConditionItem] = []
+        # Dict preserves insertion order (Python 3.7+). We also rely on it for up/down moves.
+        self._conditionItemList: Dict[UUID, ConditionItem] = {}
 
         # Condition status computation (template/crop/last) on a dedicated worker.
         self._condition_status_lock = threading.Lock()
-        self._condition_status: List[ConditionStatusSnapshot] = []
+        self._condition_status: Dict[UUID, ConditionStatusSnapshot] = {}
         self._condition_status_seq = 0
         self._condition_status_interval_seconds = 0.5
         self._condition_status_thread = threading.Thread(
@@ -98,11 +102,25 @@ class ControllerServices:
 
     def GetConditionItems(self) -> List[ConditionItem]:
         with self._state_lock:
-            return list(self._conditionItemList)
+            return list(self._conditionItemList.values())
+
+    def _condition_keys_in_order(self) -> List[UUID]:
+        return list(self._conditionItemList.keys())
+
+    def _reorder_conditions_by_keys(self, keys: List[UUID]) -> None:
+        # Rebuild dict to apply new order.
+        self._conditionItemList = {k: self._conditionItemList[k] for k in keys}
 
     def GetConditionStatusSnapshots(self) -> List[ConditionStatusSnapshot]:
+        """Return status snapshots in current condition order."""
         with self._condition_status_lock:
-            return list(self._condition_status)
+            # Values preserve insertion order of the dict we build in the worker.
+            return list(self._condition_status.values())
+
+    def GetConditionStatusSnapshotDict(self) -> Dict[UUID, ConditionStatusSnapshot]:
+        """Return a copy of the snapshot dict keyed by uuid."""
+        with self._condition_status_lock:
+            return dict(self._condition_status)
 
     def GetConditionStatusSequence(self) -> int:
         with self._condition_status_lock:
@@ -116,15 +134,46 @@ class ControllerServices:
 
     def GetConditionItem(self, index: int) -> Optional[ConditionItem]:
         with self._state_lock:
-            if index < 0 or index >= len(self._conditionItemList):
+            keys = self._condition_keys_in_order()
+            if index < 0 or index >= len(keys):
                 return None
-            return self._conditionItemList[index]
+            return self._conditionItemList.get(keys[index])
+
+    def GetConditionItemByUuid(self, uuid: UUID) -> Optional[ConditionItem]:
+        with self._state_lock:
+            return self._conditionItemList.get(uuid)
 
     def SetConditionItem(self, index: int, item: ConditionItem) -> None:
         with self._state_lock:
-            if index < 0 or index >= len(self._conditionItemList):
+            keys = self._condition_keys_in_order()
+            if index < 0 or index >= len(keys):
                 raise IndexError("Condition index out of range")
-            self._conditionItemList[index] = item
+
+            existing_uuid = keys[index]
+            # Keep the existing UUID at this position.
+            if item.uuid != existing_uuid:
+                item = ConditionItem(
+                    uuid=existing_uuid,
+                    name=item.name,
+                    roi=item.roi,
+                    type=item.type,
+                    templateImage=item.templateImage,
+                )
+            self._conditionItemList[existing_uuid] = item
+
+    def SetConditionItemByUuid(self, uuid: UUID, item: ConditionItem) -> None:
+        with self._state_lock:
+            if uuid not in self._conditionItemList:
+                raise KeyError("Condition uuid not found")
+            if item.uuid != uuid:
+                item = ConditionItem(
+                    uuid=uuid,
+                    name=item.name,
+                    roi=item.roi,
+                    type=item.type,
+                    templateImage=item.templateImage,
+                )
+            self._conditionItemList[uuid] = item
 
     def ClearConditionItems(self) -> None:
         with self._state_lock:
@@ -132,7 +181,18 @@ class ControllerServices:
 
     def AddConditionItem(self, item: ConditionItem) -> None:
         with self._state_lock:
-            self._conditionItemList.append(item)
+            self._conditionItemList[item.uuid] = item
+
+    def AddConditionItemNewUuid(
+        self,
+        name: str,
+        roi: ConditionRoi,
+        type: ConditionType,
+        templateImage: Optional[np.ndarray[Any, Any]] = None,
+    ) -> ConditionItem:
+        new_item = ConditionItem(uuid=uuid4(), name=name, roi=roi, type=type, templateImage=templateImage)
+        self.AddConditionItem(new_item)
+        return new_item
 
     def RemoveConditionItemsByName(self, name: str) -> int:
         target = (name or "").strip()
@@ -141,40 +201,72 @@ class ControllerServices:
 
         with self._state_lock:
             before = len(self._conditionItemList)
-            self._conditionItemList = [ci for ci in self._conditionItemList if ci.name != target]
+            keys_to_delete = [k for k, ci in self._conditionItemList.items() if ci.name == target]
+            for k in keys_to_delete:
+                del self._conditionItemList[k]
             return before - len(self._conditionItemList)
 
     def RemoveConditionItemByIndex(self, index: int) -> None:
         with self._state_lock:
-            if index < 0 or index >= len(self._conditionItemList):
+            keys = self._condition_keys_in_order()
+            if index < 0 or index >= len(keys):
                 raise IndexError("Condition index out of range")
-            del self._conditionItemList[index]
+            del self._conditionItemList[keys[index]]
+
+    def RemoveConditionItemByUuid(self, uuid: UUID) -> None:
+        with self._state_lock:
+            if uuid not in self._conditionItemList:
+                raise KeyError("Condition uuid not found")
+            del self._conditionItemList[uuid]
 
     def MoveConditionItem(self, index: int, direction: str) -> int:
         """Move a condition up/down. Returns new index."""
         dir_norm = (direction or "").strip().lower()
         with self._state_lock:
-            n = len(self._conditionItemList)
+            keys = self._condition_keys_in_order()
+            n = len(keys)
             if index < 0 or index >= n:
                 raise IndexError("Condition index out of range")
 
             if dir_norm == "up":
                 if index == 0:
                     return 0
-                self._conditionItemList[index - 1], self._conditionItemList[index] = (
-                    self._conditionItemList[index],
-                    self._conditionItemList[index - 1],
-                )
+                keys[index - 1], keys[index] = keys[index], keys[index - 1]
+                self._reorder_conditions_by_keys(keys)
                 return index - 1
 
             if dir_norm == "down":
                 if index >= n - 1:
                     return n - 1
-                self._conditionItemList[index + 1], self._conditionItemList[index] = (
-                    self._conditionItemList[index],
-                    self._conditionItemList[index + 1],
-                )
+                keys[index + 1], keys[index] = keys[index], keys[index + 1]
+                self._reorder_conditions_by_keys(keys)
                 return index + 1
+
+            raise ValueError("direction must be 'up' or 'down'")
+
+    def MoveConditionItemByUuid(self, uuid: UUID, direction: str) -> None:
+        dir_norm = (direction or "").strip().lower()
+        with self._state_lock:
+            keys = self._condition_keys_in_order()
+            if uuid not in self._conditionItemList:
+                raise KeyError("Condition uuid not found")
+
+            index = keys.index(uuid)
+            n = len(keys)
+
+            if dir_norm == "up":
+                if index == 0:
+                    return
+                keys[index - 1], keys[index] = keys[index], keys[index - 1]
+                self._reorder_conditions_by_keys(keys)
+                return
+
+            if dir_norm == "down":
+                if index >= n - 1:
+                    return
+                keys[index + 1], keys[index] = keys[index], keys[index + 1]
+                self._reorder_conditions_by_keys(keys)
+                return
 
             raise ValueError("direction must be 'up' or 'down'")
 
@@ -226,7 +318,7 @@ class ControllerServices:
 
             # Snapshot conditions.
             with self._state_lock:
-                items = list(self._conditionItemList)
+                items = list(self._conditionItemList.values())
 
             # Snapshot latest capture.
             with self._capture_lock:
@@ -234,7 +326,7 @@ class ControllerServices:
 
             snapshots: List[ConditionStatusSnapshot] = []
 
-            for idx, item in enumerate(items):
+            for item in items:
                 template_thumb = self._encode_thumb_b64(item.templateImage) if item.templateImage is not None else None
 
                 crop_thumb: Optional[str] = None
@@ -256,7 +348,7 @@ class ControllerServices:
 
                 snapshots.append(
                     ConditionStatusSnapshot(
-                        index=int(idx),
+                        uuid=item.uuid,
                         name=item.name,
                         type=item.type,
                         templateThumbBase64=template_thumb,
@@ -266,7 +358,8 @@ class ControllerServices:
                 )
 
             with self._condition_status_lock:
-                self._condition_status = snapshots
+                # Store as dict keyed by UUID, preserving the order of `items`.
+                self._condition_status = {s.uuid: s for s in snapshots}
                 self._condition_status_seq += 1
 
             time.sleep(interval)

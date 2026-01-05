@@ -40,7 +40,7 @@ const roiWEl = document.getElementById('roiW');
 const roiHEl = document.getElementById('roiH');
 const templateImageEl = document.getElementById('templateImage');
 
-let selectedConditionIndex = null;
+let selectedConditionUuid = null;
 
 let captureEvents = null;
 let conditionsEvents = null;
@@ -747,15 +747,17 @@ btnSendClick.addEventListener('click', async () => {
 
 async function refreshConditions() {
   if (!condTableBody) return;
-  const items = await getJson('/api/conditions/status');
+
+  const payload = await getJson('/api/conditions/status');
+  const items = coerceConditionStatusItems(payload);
 
   condTableBody.textContent = '';
 
   const safeItems = Array.isArray(items) ? items : [];
   for (const it of safeItems) {
     const tr = document.createElement('tr');
-    tr.dataset.index = String(it.index);
-    if (selectedConditionIndex !== null && Number(it.index) === Number(selectedConditionIndex)) {
+    tr.dataset.uuid = String(it.uuid ?? '');
+    if (selectedConditionUuid && String(it.uuid) === String(selectedConditionUuid)) {
       tr.classList.add('selected');
     }
 
@@ -791,13 +793,34 @@ async function refreshConditions() {
     tr.appendChild(tdLast);
 
     tr.addEventListener('click', () => {
-      selectedConditionIndex = Number(it.index);
+      selectedConditionUuid = String(it.uuid ?? '');
       refreshConditions().catch(() => {});
       loadSelectedConditionIntoEditor().catch(() => {});
     });
 
     condTableBody.appendChild(tr);
   }
+}
+
+function coerceConditionStatusItems(payload) {
+  // New shape: { order: [uuid...], byUuid: {uuid: {...}} }
+  // Old shape: [ {...}, {...} ]
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+
+  const byUuid = (payload.byUuid && typeof payload.byUuid === 'object') ? payload.byUuid : null;
+  if (!byUuid) return [];
+
+  const order = Array.isArray(payload.order) ? payload.order.map(String) : Object.keys(byUuid);
+
+  const out = [];
+  for (const uuid of order) {
+    const it = byUuid[uuid];
+    if (!it) continue;
+    // Ensure uuid is present for render/selection logic.
+    out.push({ uuid: String(uuid), ...(typeof it === 'object' ? it : {}) });
+  }
+  return out;
 }
 
 let _conditionEditorLoadSeq = 0;
@@ -842,8 +865,8 @@ function applyConditionItemToEditor(item) {
 }
 
 async function loadSelectedConditionIntoEditor() {
-  const index = selectedConditionIndex;
-  if (index === null || index === undefined) {
+  const uuid = selectedConditionUuid;
+  if (!uuid) {
     clearSelectedConditionEditor();
     return;
   }
@@ -853,13 +876,12 @@ async function loadSelectedConditionIntoEditor() {
   if (seq !== _conditionEditorLoadSeq) return;
 
   const safeItems = Array.isArray(items) ? items : [];
-  const i = Number(index);
-  if (!Number.isFinite(i) || i < 0 || i >= safeItems.length) {
+  const found = safeItems.find((it) => String(it.uuid ?? '') === String(uuid));
+  if (!found) {
     clearSelectedConditionEditor();
     return;
   }
-
-  applyConditionItemToEditor(safeItems[i]);
+  applyConditionItemToEditor(found);
 }
 
 function startConditionsEventSource() {
@@ -870,15 +892,16 @@ function startConditionsEventSource() {
 
   conditionsEvents.addEventListener('status', (ev) => {
     try {
-      const items = JSON.parse(ev.data || '[]');
+      const payload = JSON.parse(ev.data || '{}');
+      const items = coerceConditionStatusItems(payload);
       if (!Array.isArray(items)) return;
 
       // Render using the same logic as refreshConditions, but without a fetch.
       condTableBody.textContent = '';
       for (const it of items) {
         const tr = document.createElement('tr');
-        tr.dataset.index = String(it.index);
-        if (selectedConditionIndex !== null && Number(it.index) === Number(selectedConditionIndex)) {
+        tr.dataset.uuid = String(it.uuid ?? '');
+        if (selectedConditionUuid && String(it.uuid) === String(selectedConditionUuid)) {
           tr.classList.add('selected');
         }
 
@@ -914,7 +937,7 @@ function startConditionsEventSource() {
         tr.appendChild(tdLast);
 
         tr.addEventListener('click', () => {
-          selectedConditionIndex = Number(it.index);
+          selectedConditionUuid = String(it.uuid ?? '');
           // Selection highlight will show on the next SSE update; force a quick render now.
           try {
             const rows = condTableBody.querySelectorAll('tr');
@@ -969,21 +992,27 @@ async function addConditionFromInputs() {
 
   const templateFromLive = !file;
 
-  await postJson('/api/conditions', {
+  const res = await postJson('/api/conditions', {
     name,
     type,
     roi: { xNormalized, yNormalized, widthNormalized, heightNormalized },
     templateImageBase64,
     templateFromLive,
   });
+
+  return res;
 }
 
 if (btnCondAddRow) {
   btnCondAddRow.addEventListener('click', async () => {
     setStatus('Adding condition...', null);
     try {
-      await addConditionFromInputs();
+      const res = await addConditionFromInputs();
+      if (res && res.uuid) {
+        selectedConditionUuid = String(res.uuid);
+      }
       await refreshConditions();
+      await loadSelectedConditionIntoEditor();
       setStatus('Condition added.', 'ok');
     } catch (e) {
       setStatus(`Add condition failed: ${e.message}`, 'err');
@@ -995,9 +1024,9 @@ if (btnCondRemoveRow) {
   btnCondRemoveRow.addEventListener('click', async () => {
     setStatus('Removing condition...', null);
     try {
-      if (selectedConditionIndex === null) throw new Error('Select a row first');
-      await postJson('/api/conditions/remove_index', { index: selectedConditionIndex });
-      selectedConditionIndex = null;
+      if (!selectedConditionUuid) throw new Error('Select a row first');
+      await postJson('/api/conditions/remove_uuid', { uuid: selectedConditionUuid });
+      selectedConditionUuid = null;
       await refreshConditions();
       clearSelectedConditionEditor();
       setStatus('Condition removed.', 'ok');
@@ -1008,11 +1037,8 @@ if (btnCondRemoveRow) {
 }
 
 async function moveSelected(direction) {
-  if (selectedConditionIndex === null) throw new Error('Select a row first');
-  const res = await postJson('/api/conditions/move', { index: selectedConditionIndex, direction });
-  if (res && res.index !== undefined && res.index !== null) {
-    selectedConditionIndex = Number(res.index);
-  }
+  if (!selectedConditionUuid) throw new Error('Select a row first');
+  await postJson('/api/conditions/move', { uuid: selectedConditionUuid, direction });
 }
 
 if (btnCondMoveUp) {
@@ -1047,7 +1073,7 @@ if (btnSetFromLive) {
   btnSetFromLive.addEventListener('click', async () => {
     setStatus('Setting selected condition...', null);
     try {
-      if (selectedConditionIndex === null) throw new Error('Select a row first');
+      if (!selectedConditionUuid) throw new Error('Select a row first');
 
       const name = (conditionNameEl && conditionNameEl.value ? conditionNameEl.value : '').trim();
       const type = (conditionTypeEl && conditionTypeEl.value ? conditionTypeEl.value : 'ImageMatchRoi');
@@ -1068,7 +1094,7 @@ if (btnSetFromLive) {
       const templateFromLive = !file;
 
       await postJson('/api/conditions/set_from_live', {
-        index: selectedConditionIndex,
+        uuid: selectedConditionUuid,
         name,
         type,
         roi: { xNormalized, yNormalized, widthNormalized, heightNormalized },

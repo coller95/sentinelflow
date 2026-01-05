@@ -11,6 +11,7 @@ from pathlib import Path
 from enum import Enum
 import base64
 import json
+from uuid import UUID
 
 import cv2
 import numpy as np
@@ -93,31 +94,32 @@ class ConditionRoiDto(BaseModel):
 
 
 class ConditionItemDto(BaseModel):
+    uuid: str
     name: str
     type: ConditionTypeDto
     roi: ConditionRoiDto
 
 
 class ConditionStatusDto(BaseModel):
-    index: int
+    uuid: str
+    index: Optional[int] = None
     name: str
     type: ConditionTypeDto
     templateThumbBase64: Optional[str] = None
     cropThumbBase64: Optional[str] = None
     last: Optional[float] = None
 
-
-class ConditionIndexRequest(BaseModel):
-    index: int
+class ConditionUuidRequest(BaseModel):
+    uuid: UUID
 
 
 class ConditionMoveRequest(BaseModel):
-    index: int
+    uuid: UUID
     direction: str  # 'up' | 'down'
 
 
 class ConditionSetFromLiveRequest(BaseModel):
-    index: int
+    uuid: UUID
     roi: ConditionRoiDto
     name: Optional[str] = None
     type: Optional[ConditionTypeDto] = None
@@ -340,6 +342,7 @@ def GetConditions() -> List[ConditionItemDto]:
     for item in svc.GetConditionItems():
         items.append(
             ConditionItemDto(
+                uuid=str(item.uuid),
                 name=item.name,
                 type=ConditionTypeDto[item.type.name],
                 roi=ConditionRoiDto(
@@ -364,7 +367,7 @@ def AddCondition(req: ConditionUpsertRequest):
     if req.roi.widthNormalized <= 0 or req.roi.heightNormalized <= 0:
         raise HTTPException(status_code=400, detail="roi width/height must be > 0")
 
-    from Src.ControllerServices import ConditionItem, ConditionRoi, ConditionType
+    from Src.ControllerServices import ConditionRoi, ConditionType
 
     template = None
     raw_b64 = (req.templateImageBase64 or "").strip()
@@ -389,7 +392,7 @@ def AddCondition(req: ConditionUpsertRequest):
             raise HTTPException(status_code=404, detail="No captured frame available for templateFromLive. Start capture first.")
         template = _crop_frame_normalized(frame, req.roi)
 
-    item = ConditionItem(
+    item = svc.AddConditionItemNewUuid(
         name=name,
         type=ConditionType[req.type.name],
         roi=ConditionRoi(
@@ -401,8 +404,7 @@ def AddCondition(req: ConditionUpsertRequest):
         templateImage=template,
     )
 
-    svc.AddConditionItem(item)
-    return {"ok": True}
+    return {"ok": True, "uuid": str(item.uuid)}
 
 
 @app.post("/api/conditions/clear")
@@ -412,13 +414,13 @@ def ClearConditions():
     return {"ok": True}
 
 
-@app.post("/api/conditions/remove_index")
-def RemoveConditionByIndex(req: ConditionIndexRequest):
+@app.post("/api/conditions/remove_uuid")
+def RemoveConditionByUuid(req: ConditionUuidRequest):
     svc = _get_services()
     try:
-        svc.RemoveConditionItemByIndex(int(req.index))
-    except IndexError:
-        raise HTTPException(status_code=404, detail="Condition index out of range")
+        svc.RemoveConditionItemByUuid(req.uuid)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Condition uuid not found")
     return {"ok": True}
 
 
@@ -426,12 +428,12 @@ def RemoveConditionByIndex(req: ConditionIndexRequest):
 def MoveCondition(req: ConditionMoveRequest):
     svc = _get_services()
     try:
-        new_index = svc.MoveConditionItem(int(req.index), str(req.direction))
-    except IndexError:
-        raise HTTPException(status_code=404, detail="Condition index out of range")
+        svc.MoveConditionItemByUuid(req.uuid, str(req.direction))
+        return {"ok": True}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Condition uuid not found")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return {"ok": True, "index": int(new_index)}
 
 
 @app.post("/api/conditions/set_from_live")
@@ -439,9 +441,9 @@ def SetConditionFromLive(req: ConditionSetFromLiveRequest):
     svc = _get_services()
     from Src.ControllerServices import ConditionItem, ConditionRoi, ConditionType
 
-    item = svc.GetConditionItem(int(req.index))
+    item = svc.GetConditionItemByUuid(req.uuid)
     if item is None:
-        raise HTTPException(status_code=404, detail="Condition index out of range")
+        raise HTTPException(status_code=404, detail="Condition uuid not found")
 
     frame = svc.GetLatestCapture()
     if frame is None:
@@ -486,32 +488,47 @@ def SetConditionFromLive(req: ConditionSetFromLiveRequest):
         template = _crop_frame_normalized(frame, req.roi)
 
     updated = ConditionItem(
+        uuid=item.uuid,
         name=new_name,
         type=new_type,
         roi=roi,
         templateImage=template,
     )
-    svc.SetConditionItem(int(req.index), updated)
+
+    try:
+        svc.SetConditionItemByUuid(req.uuid, updated)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Condition uuid not found")
     return {"ok": True}
 
 
 @app.get("/api/conditions/status")
-def GetConditionsStatus() -> List[ConditionStatusDto]:
+def GetConditionsStatus():
+    """Return condition status keyed by uuid.
+
+    Payload shape:
+      {"order": [uuid...], "byUuid": {uuid: {uuid,index,name,type,templateThumbBase64,cropThumbBase64,last}}}
+    """
     svc = _get_services()
     snapshots = svc.GetConditionStatusSnapshots()
-    out: List[ConditionStatusDto] = []
-    for s in snapshots:
-        out.append(
-            ConditionStatusDto(
-                index=int(s.index),
-                name=s.name,
-                type=ConditionTypeDto[s.type.name],
-                templateThumbBase64=s.templateThumbBase64,
-                cropThumbBase64=s.cropThumbBase64,
-                last=s.last,
-            )
-        )
-    return out
+
+    order: List[str] = []
+    by_uuid = {}
+
+    for idx, s in enumerate(snapshots):
+        key = str(s.uuid)
+        order.append(key)
+        by_uuid[key] = {
+            "uuid": key,
+            "index": int(idx),
+            "name": s.name,
+            "type": s.type.name,
+            "templateThumbBase64": s.templateThumbBase64,
+            "cropThumbBase64": s.cropThumbBase64,
+            "last": s.last,
+        }
+
+    return {"order": order, "byUuid": by_uuid}
 
 
 @app.get("/api/conditions/stream")
@@ -533,19 +550,23 @@ async def ConditionsStream(request: Request):
             if seq != last_seq:
                 last_seq = seq
                 snapshots = svc.GetConditionStatusSnapshots()
-                payload = []
-                for s in snapshots:
-                    payload.append(
-                        {
-                            "index": int(s.index),
-                            "name": s.name,
-                            "type": s.type.name,
-                            "templateThumbBase64": s.templateThumbBase64,
-                            "cropThumbBase64": s.cropThumbBase64,
-                            "last": s.last,
-                        }
-                    )
-                data = json.dumps(payload, separators=(",", ":"))
+                order: List[str] = []
+                by_uuid = {}
+
+                for idx, s in enumerate(snapshots):
+                    key = str(s.uuid)
+                    order.append(key)
+                    by_uuid[key] = {
+                        "uuid": key,
+                        "index": int(idx),
+                        "name": s.name,
+                        "type": s.type.name,
+                        "templateThumbBase64": s.templateThumbBase64,
+                        "cropThumbBase64": s.cropThumbBase64,
+                        "last": s.last,
+                    }
+
+                data = json.dumps({"order": order, "byUuid": by_uuid}, separators=(",", ":"))
                 yield f"event: status\ndata: {data}\n\n"
 
             now = time.monotonic()
