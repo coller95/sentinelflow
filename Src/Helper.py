@@ -35,6 +35,19 @@ def FindPidByHwnd(hwnd: HWND) -> PID:
     _, pid = win32process.GetWindowThreadProcessId(hwnd)
     return pid
 
+def FindHwndByPid(pid: PID) -> Optional[HWND]:
+    def EnumWindowsCallback(hwnd: HWND, pidToFind: PID) -> bool:
+        _, windowPid = win32process.GetWindowThreadProcessId(hwnd)
+        if windowPid == pidToFind:
+            nonlocal foundHwnd
+            foundHwnd = hwnd
+            return False  # Stop enumeration
+        return True  # Continue enumeration
+
+    foundHwnd: Optional[HWND] = None
+    win32gui.EnumWindows(EnumWindowsCallback, pid)
+    return foundHwnd
+
 
 def LaunchProcessByExecutable(executablePath: str) -> PID:
     command = executablePath.strip()
@@ -80,6 +93,15 @@ def ResizeWindow(hwnd: HWND, width: int, height: int) -> None:
     left, top, _, _ = win32gui.GetWindowRect(hwnd)
     win32gui.MoveWindow(hwnd, left, top, width, height, True)
 
+def ResizeAndRepositionWindow(hwnd: HWND, left: int, top: int, width: int, height: int) -> None:
+    win32gui.MoveWindow(hwnd, left, top, width, height, True)
+
+def TerminateProcessByPid(pid: PID) -> None:
+    PROCESS_TERMINATE = 1
+    handle = win32api.OpenProcess(PROCESS_TERMINATE, False, pid)
+    if handle:
+        win32api.TerminateProcess(handle, -1)
+        win32api.CloseHandle(handle)
 
 # ────────────────────────────────────────
 # Window Capture & Image Processing

@@ -1,0 +1,16 @@
+body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; padding: 0; }
+.container { max-width: 600px; margin: 100px auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 40px; text-align: center; }
+h1 { color: #2d7ff9; }
+p { color: #333; }
+.controls { margin-top: 24px; text-align: left; }
+.row { margin-top: 12px; }
+label { display: block; font-size: 0.95em; color: #333; margin-bottom: 6px; }
+input[type="text"] { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 1em; box-sizing: border-box; }
+.buttons { margin-top: 14px; display: flex; gap: 10px; }
+button { padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; font-size: 1em; }
+button.primary { border-color: #2d7ff9; color: #2d7ff9; }
+button.danger { border-color: #c33; color: #c33; }
+button:disabled { opacity: 0.6; cursor: not-allowed; }
+.status { margin-top: 14px; font-size: 0.95em; color: #333; min-height: 1.2em; }
+.status.ok { color: #1a7f37; }
+.status.err { color: #c33; }
