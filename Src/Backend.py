@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.responses import Response
@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import sys
 import time
+import asyncio
 from pathlib import Path
 from enum import Enum
 import base64
@@ -236,10 +237,10 @@ def GetLatestCapture(fmt: str = "png"):
 
 
 @app.get("/api/capture/events")
-def CaptureEvents():
+async def CaptureEvents(request: Request):
     svc = _get_services()
 
-    def event_stream():
+    async def event_stream():
         # Send an initial retry hint to the browser.
         yield "retry: 1000\n\n"
 
@@ -247,6 +248,9 @@ def CaptureEvents():
         last_keepalive = time.monotonic()
 
         while True:
+            if await request.is_disconnected():
+                break
+
             seq = svc.GetCaptureSequence()
             if seq != last_seq and seq > 0:
                 last_seq = seq
@@ -258,13 +262,13 @@ def CaptureEvents():
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            time.sleep(0.2)
+            await asyncio.sleep(0.2)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.get("/api/capture/stream")
-def CaptureStream(fmt: str = "jpg", quality: int = 70):
+async def CaptureStream(request: Request, fmt: str = "jpg", quality: int = 70):
     """Stream captured frames over SSE as base64-encoded image payloads.
 
     This avoids a second HTTP request per frame (no /api/capture/latest polling).
@@ -278,13 +282,16 @@ def CaptureStream(fmt: str = "jpg", quality: int = 70):
     q = int(quality)
     q = max(10, min(95, q))
 
-    def event_stream():
+    async def event_stream():
         yield "retry: 1000\n\n"
 
         last_seq = svc.GetCaptureSequence()
         last_keepalive = time.monotonic()
 
         while True:
+            if await request.is_disconnected():
+                break
+
             seq = svc.GetCaptureSequence()
             if seq != last_seq and seq > 0:
                 last_seq = seq
@@ -304,7 +311,7 @@ def CaptureStream(fmt: str = "jpg", quality: int = 70):
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            time.sleep(0.2)
+            await asyncio.sleep(0.2)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -478,17 +485,20 @@ def GetConditionsStatus() -> List[ConditionStatusDto]:
 
 
 @app.get("/api/conditions/stream")
-def ConditionsStream():
+async def ConditionsStream(request: Request):
     """Stream condition status updates over SSE as compact JSON payloads."""
     svc = _get_services()
 
-    def event_stream():
+    async def event_stream():
         yield "retry: 1000\n\n"
 
         last_seq = svc.GetConditionStatusSequence()
         last_keepalive = time.monotonic()
 
         while True:
+            if await request.is_disconnected():
+                break
+
             seq = svc.GetConditionStatusSequence()
             if seq != last_seq:
                 last_seq = seq
@@ -513,7 +523,7 @@ def ConditionsStream():
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            time.sleep(0.2)
+            await asyncio.sleep(0.2)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
