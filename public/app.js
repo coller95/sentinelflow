@@ -161,13 +161,45 @@ function clamp01(v) {
 }
 
 function getNormalizedPointFromMouseEvent(ev) {
-  const rect = captureImage.getBoundingClientRect();
-  if (!rect || rect.width <= 0 || rect.height <= 0) {
-    throw new Error('Preview not ready');
-  }
-  const x = clamp01((ev.clientX - rect.left) / rect.width);
-  const y = clamp01((ev.clientY - rect.top) / rect.height);
-  return { x, y };
+    const rect = captureImage.getBoundingClientRect();
+    
+    const nw = captureImage.naturalWidth;
+    const nh = captureImage.naturalHeight;
+
+    if (!nw || !nh || rect.width <= 0 || rect.height <= 0) {
+        return { 
+            x: clamp01((ev.clientX - rect.left) / rect.width), 
+            y: clamp01((ev.clientY - rect.top) / rect.height) 
+        };
+    }
+
+    const elementRatio = rect.width / rect.height;
+    const imageRatio = nw / nh;
+
+    let renderWidth, renderHeight;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    if (elementRatio > imageRatio) {
+        renderHeight = rect.height;
+        renderWidth = rect.height * imageRatio;
+        offsetX = (rect.width - renderWidth) / 2;
+    } else {
+        renderWidth = rect.width;
+        renderHeight = rect.width / imageRatio;
+        offsetY = (rect.height - renderHeight) / 2;
+    }
+
+    const clientX = ev.clientX - rect.left;
+    const clientY = ev.clientY - rect.top;
+
+    const imageX = clientX - offsetX;
+    const imageY = clientY - offsetY;
+
+    const x = clamp01(imageX / renderWidth);
+    const y = clamp01(imageY / renderHeight);
+
+    return { x, y };
 }
 
 captureImage.addEventListener('click', (ev) => {

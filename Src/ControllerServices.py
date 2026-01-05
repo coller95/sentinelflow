@@ -1,3 +1,4 @@
+from enum import auto
 import queue
 import threading
 import time
@@ -17,6 +18,21 @@ class _ControlAction:
     y: float
     key: str = ""
 
+@dataclass(frozen=True)
+class ConditionItem:
+    class Roi:
+        xNormalized: float
+        yNormalized: float
+        widthNormalized: float
+        heightNormalized: float
+    
+    class Type:
+        ImageMatchRoi = auto()
+        ProgressBar = auto()
+    name: str
+    roi: Roi
+    type: Type
+    templateImage: Optional[np.ndarray[Any, Any]] = None
 
 class ControllerServices:
     def __init__(self):
@@ -50,6 +66,8 @@ class ControllerServices:
             daemon=True,
         )
         self._control_thread.start()
+
+        self._conditionItemList : List[ConditionItem] = []
 
     def LaunchApp(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
         self.LaucnhApp(app_path, left=left, top=top, width=width, height=height)
