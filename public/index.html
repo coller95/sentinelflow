@@ -144,52 +144,71 @@
             <fieldset>
                 <legend>Conditions</legend>
 
-                <div class="buttons">
-                    <button id="btnAddCondition" class="primary" type="button">Add</button>
+                <div class="condToolbar">
+                    <button id="btnCondAddRow" class="primary" type="button">+</button>
+                    <button id="btnCondRemoveRow" type="button">-</button>
+                    <button id="btnCondMoveUp" type="button">↑</button>
+                    <button id="btnCondMoveDown" type="button">↓</button>
+                    <span class="condSpacer"></span>
                     <button id="btnRefreshConditions" class="primary" type="button">Refresh</button>
-                    <button id="btnClearConditions" class="danger" type="button">Clear</button>
                 </div>
 
-                <div class="row">
-                    <label for="conditionName">Name</label>
-                    <input id="conditionName" type="text" placeholder="Example: HpBar" />
+                <div class="condTableWrap">
+                    <table class="condTable" aria-label="Condition status table">
+                        <thead>
+                            <tr>
+                                <th>Condition</th>
+                                <th>Type</th>
+                                <th>Template</th>
+                                <th>Crop</th>
+                                <th>Last</th>
+                            </tr>
+                        </thead>
+                        <tbody id="condTableBody"></tbody>
+                    </table>
                 </div>
 
-                <div class="row">
-                    <label for="conditionType">Type</label>
-                    <select id="conditionType" class="selectLike">
-                        <option value="ImageMatchRoi">ImageMatchRoi</option>
-                        <option value="ProgressBar">ProgressBar</option>
-                    </select>
-                </div>
-
-                <div class="grid2">
+                <div class="condBottom">
                     <div class="row">
-                        <label for="roiX">ROI X (0~1)</label>
-                        <input id="roiX" type="text" placeholder="0.100" />
+                        <label for="conditionName">Name</label>
+                        <input id="conditionName" type="text" placeholder="Example: Hero Life" />
                     </div>
-                    <div class="row">
-                        <label for="roiY">ROI Y (0~1)</label>
-                        <input id="roiY" type="text" placeholder="0.100" />
-                    </div>
-                    <div class="row">
-                        <label for="roiW">ROI W (0~1)</label>
-                        <input id="roiW" type="text" placeholder="0.200" />
-                    </div>
-                    <div class="row">
-                        <label for="roiH">ROI H (0~1)</label>
-                        <input id="roiH" type="text" placeholder="0.050" />
-                    </div>
-                </div>
 
-                <div class="row">
-                    <label for="templateImage">Template image (optional)</label>
-                    <input id="templateImage" type="file" accept="image/*" />
-                </div>
+                    <div class="row">
+                        <label for="conditionType">Type</label>
+                        <select id="conditionType" class="selectLike">
+                            <option value="ImageMatchRoi">ImageMatchRoi</option>
+                            <option value="ProgressBar">ProgressBar</option>
+                        </select>
+                    </div>
 
-                <div class="row">
-                    <label for="conditionsJson">Condition items (JSON)</label>
-                    <pre id="conditionsJson" class="monoBox" aria-live="polite">[]</pre>
+                    <div class="grid2">
+                        <div class="row">
+                            <label for="roiX">ROI X (0~1)</label>
+                            <input id="roiX" type="text" placeholder="0.100" />
+                        </div>
+                        <div class="row">
+                            <label for="roiY">ROI Y (0~1)</label>
+                            <input id="roiY" type="text" placeholder="0.100" />
+                        </div>
+                        <div class="row">
+                            <label for="roiW">ROI W (0~1)</label>
+                            <input id="roiW" type="text" placeholder="0.200" />
+                        </div>
+                        <div class="row">
+                            <label for="roiH">ROI H (0~1)</label>
+                            <input id="roiH" type="text" placeholder="0.050" />
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <label for="templateImage">Template image (optional)</label>
+                        <input id="templateImage" type="file" accept="image/*" />
+                    </div>
+
+                    <div class="buttons">
+                        <button id="btnSetFromLive" class="primary" type="button">Set ROI/Template from Live</button>
+                    </div>
                 </div>
             </fieldset>
         </section>

@@ -96,11 +96,72 @@ class ConditionItemDto(BaseModel):
     roi: ConditionRoiDto
 
 
+class ConditionStatusDto(BaseModel):
+    index: int
+    name: str
+    type: ConditionTypeDto
+    templateThumbBase64: Optional[str] = None
+    cropThumbBase64: Optional[str] = None
+    last: Optional[float] = None
+
+
+class ConditionIndexRequest(BaseModel):
+    index: int
+
+
+class ConditionMoveRequest(BaseModel):
+    index: int
+    direction: str  # 'up' | 'down'
+
+
+class ConditionSetFromLiveRequest(BaseModel):
+    index: int
+    roi: ConditionRoiDto
+    setTemplate: bool = True
+
+
 class ConditionUpsertRequest(BaseModel):
     name: str
     type: ConditionTypeDto
     roi: ConditionRoiDto
     templateImageBase64: Optional[str] = None
+    templateFromLive: bool = False
+
+
+def _crop_frame_normalized(frame: np.ndarray, roi: ConditionRoiDto) -> np.ndarray:
+    h, w = frame.shape[:2]
+
+    x = float(max(0.0, min(1.0, roi.xNormalized)))
+    y = float(max(0.0, min(1.0, roi.yNormalized)))
+    rw = float(max(0.0, min(1.0, roi.widthNormalized)))
+    rh = float(max(0.0, min(1.0, roi.heightNormalized)))
+
+    px = int(x * w)
+    py = int(y * h)
+    pw = int(rw * w)
+    ph = int(rh * h)
+
+    px = max(0, min(px, w - 1))
+    py = max(0, min(py, h - 1))
+    pw = max(1, min(pw, w - px))
+    ph = max(1, min(ph, h - py))
+
+    return frame[py : py + ph, px : px + pw].copy()
+
+
+def _encode_thumb_b64(img: np.ndarray, max_size: int = 64) -> str:
+    h, w = img.shape[:2]
+    if h <= 0 or w <= 0:
+        return ""
+    scale = float(max_size) / float(max(h, w))
+    if scale < 1.0:
+        new_w = max(1, int(round(w * scale)))
+        new_h = max(1, int(round(h * scale)))
+        img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    ok, encoded = cv2.imencode(".jpg", img)
+    if not ok:
+        return ""
+    return base64.b64encode(encoded.tobytes()).decode("ascii")
 
 
 # Serve the HTML file from the public directory
@@ -201,6 +262,52 @@ def CaptureEvents():
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+@app.get("/api/capture/stream")
+def CaptureStream(fmt: str = "jpg", quality: int = 70):
+    """Stream captured frames over SSE as base64-encoded image payloads.
+
+    This avoids a second HTTP request per frame (no /api/capture/latest polling).
+    """
+    svc = _get_services()
+
+    normalized = (fmt or "jpg").lower().strip(".")
+    if normalized not in ("jpg", "jpeg"):
+        raise HTTPException(status_code=400, detail="fmt must be 'jpg'")
+
+    q = int(quality)
+    q = max(10, min(95, q))
+
+    def event_stream():
+        yield "retry: 1000\n\n"
+
+        last_seq = svc.GetCaptureSequence()
+        last_keepalive = time.monotonic()
+
+        while True:
+            seq = svc.GetCaptureSequence()
+            if seq != last_seq and seq > 0:
+                last_seq = seq
+                frame = svc.GetLatestCapture()
+                if frame is not None:
+                    ok, encoded = cv2.imencode(
+                        ".jpg",
+                        frame,
+                        [int(cv2.IMWRITE_JPEG_QUALITY), q],
+                    )
+                    if ok:
+                        b64 = base64.b64encode(encoded.tobytes()).decode("ascii")
+                        yield f"event: frame\ndata: {b64}\n\n"
+
+            now = time.monotonic()
+            if now - last_keepalive >= 10.0:
+                yield ": keepalive\n\n"
+                last_keepalive = now
+
+            time.sleep(0.2)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 @app.post("/api/control/click")
 def ControlClick(req: ClickRequest):
     svc = _get_services()
@@ -265,6 +372,12 @@ def AddCondition(req: ConditionUpsertRequest):
             raise HTTPException(status_code=400, detail="templateImageBase64 is not a supported image")
         template = decoded
 
+    if template is None and bool(req.templateFromLive):
+        frame = svc.GetLatestCapture()
+        if frame is None:
+            raise HTTPException(status_code=404, detail="No captured frame available for templateFromLive. Start capture first.")
+        template = _crop_frame_normalized(frame, req.roi)
+
     item = ConditionItem(
         name=name,
         type=ConditionType[req.type.name],
@@ -286,6 +399,81 @@ def ClearConditions():
     svc = _get_services()
     svc.ClearConditionItems()
     return {"ok": True}
+
+
+@app.post("/api/conditions/remove_index")
+def RemoveConditionByIndex(req: ConditionIndexRequest):
+    svc = _get_services()
+    try:
+        svc.RemoveConditionItemByIndex(int(req.index))
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Condition index out of range")
+    return {"ok": True}
+
+
+@app.post("/api/conditions/move")
+def MoveCondition(req: ConditionMoveRequest):
+    svc = _get_services()
+    try:
+        new_index = svc.MoveConditionItem(int(req.index), str(req.direction))
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Condition index out of range")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "index": int(new_index)}
+
+
+@app.post("/api/conditions/set_from_live")
+def SetConditionFromLive(req: ConditionSetFromLiveRequest):
+    svc = _get_services()
+    from Src.ControllerServices import ConditionItem, ConditionRoi, ConditionType
+
+    item = svc.GetConditionItem(int(req.index))
+    if item is None:
+        raise HTTPException(status_code=404, detail="Condition index out of range")
+
+    frame = svc.GetLatestCapture()
+    if frame is None:
+        raise HTTPException(status_code=404, detail="No captured frame available. Start capture first.")
+
+    roi = ConditionRoi(
+        xNormalized=float(req.roi.xNormalized),
+        yNormalized=float(req.roi.yNormalized),
+        widthNormalized=float(req.roi.widthNormalized),
+        heightNormalized=float(req.roi.heightNormalized),
+    )
+
+    template = item.templateImage
+    if bool(req.setTemplate):
+        template = _crop_frame_normalized(frame, req.roi)
+
+    updated = ConditionItem(
+        name=item.name,
+        type=ConditionType[item.type.name],
+        roi=roi,
+        templateImage=template,
+    )
+    svc.SetConditionItem(int(req.index), updated)
+    return {"ok": True}
+
+
+@app.get("/api/conditions/status")
+def GetConditionsStatus() -> List[ConditionStatusDto]:
+    svc = _get_services()
+    snapshots = svc.GetConditionStatusSnapshots()
+    out: List[ConditionStatusDto] = []
+    for s in snapshots:
+        out.append(
+            ConditionStatusDto(
+                index=int(s.index),
+                name=s.name,
+                type=ConditionTypeDto[s.type.name],
+                templateThumbBase64=s.templateThumbBase64,
+                cropThumbBase64=s.cropThumbBase64,
+                last=s.last,
+            )
+        )
+    return out
 
 
 @app.post("/api/conditions/remove")

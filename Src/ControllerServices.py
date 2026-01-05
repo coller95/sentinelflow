@@ -1,4 +1,5 @@
 from enum import Enum, auto
+import base64
 import queue
 import threading
 import time
@@ -38,6 +39,16 @@ class ConditionItem:
     type: ConditionType
     templateImage: Optional[np.ndarray[Any, Any]] = None
 
+
+@dataclass(frozen=True)
+class ConditionStatusSnapshot:
+    index: int
+    name: str
+    type: ConditionType
+    templateThumbBase64: Optional[str]
+    cropThumbBase64: Optional[str]
+    last: Optional[float]
+
 class ControllerServices:
     def __init__(self):
         self._pid: PID = 0
@@ -73,9 +84,42 @@ class ControllerServices:
 
         self._conditionItemList : List[ConditionItem] = []
 
+        # Condition status computation (template/crop/last) on a dedicated worker.
+        self._condition_status_lock = threading.Lock()
+        self._condition_status: List[ConditionStatusSnapshot] = []
+        self._condition_status_interval_seconds = 0.5
+        self._condition_status_thread = threading.Thread(
+            target=self._condition_status_worker,
+            name="SentinelFlowConditionStatus",
+            daemon=True,
+        )
+        self._condition_status_thread.start()
+
     def GetConditionItems(self) -> List[ConditionItem]:
         with self._state_lock:
             return list(self._conditionItemList)
+
+    def GetConditionStatusSnapshots(self) -> List[ConditionStatusSnapshot]:
+        with self._condition_status_lock:
+            return list(self._condition_status)
+
+    def SetConditionStatusIntervalSeconds(self, intervalSeconds: float) -> None:
+        if intervalSeconds <= 0:
+            raise ValueError("intervalSeconds must be > 0")
+        with self._state_lock:
+            self._condition_status_interval_seconds = float(intervalSeconds)
+
+    def GetConditionItem(self, index: int) -> Optional[ConditionItem]:
+        with self._state_lock:
+            if index < 0 or index >= len(self._conditionItemList):
+                return None
+            return self._conditionItemList[index]
+
+    def SetConditionItem(self, index: int, item: ConditionItem) -> None:
+        with self._state_lock:
+            if index < 0 or index >= len(self._conditionItemList):
+                raise IndexError("Condition index out of range")
+            self._conditionItemList[index] = item
 
     def ClearConditionItems(self) -> None:
         with self._state_lock:
@@ -94,6 +138,132 @@ class ControllerServices:
             before = len(self._conditionItemList)
             self._conditionItemList = [ci for ci in self._conditionItemList if ci.name != target]
             return before - len(self._conditionItemList)
+
+    def RemoveConditionItemByIndex(self, index: int) -> None:
+        with self._state_lock:
+            if index < 0 or index >= len(self._conditionItemList):
+                raise IndexError("Condition index out of range")
+            del self._conditionItemList[index]
+
+    def MoveConditionItem(self, index: int, direction: str) -> int:
+        """Move a condition up/down. Returns new index."""
+        dir_norm = (direction or "").strip().lower()
+        with self._state_lock:
+            n = len(self._conditionItemList)
+            if index < 0 or index >= n:
+                raise IndexError("Condition index out of range")
+
+            if dir_norm == "up":
+                if index == 0:
+                    return 0
+                self._conditionItemList[index - 1], self._conditionItemList[index] = (
+                    self._conditionItemList[index],
+                    self._conditionItemList[index - 1],
+                )
+                return index - 1
+
+            if dir_norm == "down":
+                if index >= n - 1:
+                    return n - 1
+                self._conditionItemList[index + 1], self._conditionItemList[index] = (
+                    self._conditionItemList[index],
+                    self._conditionItemList[index + 1],
+                )
+                return index + 1
+
+            raise ValueError("direction must be 'up' or 'down'")
+
+    def _encode_thumb_b64(self, img: np.ndarray[Any, Any], maxSize: int = 64) -> Optional[str]:
+        if getattr(img, "size", 0) == 0:
+            return None
+        h, w = img.shape[:2]
+        if h <= 0 or w <= 0:
+            return None
+
+        scale = float(maxSize) / float(max(h, w))
+        out = img
+        if scale < 1.0:
+            new_w = max(1, int(round(w * scale)))
+            new_h = max(1, int(round(h * scale)))
+            out = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+        ok, encoded = cv2.imencode(".jpg", out)
+        if not ok:
+            return None
+        return base64.b64encode(encoded.tobytes()).decode("ascii")
+
+    def _crop_frame(self, frame: NDArray[np.uint8], roi: ConditionRoi) -> NDArray[np.uint8]:
+        imageHeight, imageWidth = frame.shape[:2]
+
+        x = float(max(0.0, min(1.0, roi.xNormalized)))
+        y = float(max(0.0, min(1.0, roi.yNormalized)))
+        rw = float(max(0.0, min(1.0, roi.widthNormalized)))
+        rh = float(max(0.0, min(1.0, roi.heightNormalized)))
+
+        pixelX = int(x * imageWidth)
+        pixelY = int(y * imageHeight)
+        pixelW = int(rw * imageWidth)
+        pixelH = int(rh * imageHeight)
+
+        pixelX = max(0, min(pixelX, imageWidth - 1))
+        pixelY = max(0, min(pixelY, imageHeight - 1))
+        pixelW = max(1, min(pixelW, imageWidth - pixelX))
+        pixelH = max(1, min(pixelH, imageHeight - pixelY))
+
+        return frame[pixelY : pixelY + pixelH, pixelX : pixelX + pixelW].copy()
+
+    def _condition_status_worker(self) -> None:
+        while True:
+            with self._state_lock:
+                interval = float(self._condition_status_interval_seconds)
+            if interval <= 0:
+                interval = 0.5
+
+            # Snapshot conditions.
+            with self._state_lock:
+                items = list(self._conditionItemList)
+
+            # Snapshot latest capture.
+            with self._capture_lock:
+                frame = self._latest_capture.copy() if self._latest_capture is not None else None
+
+            snapshots: List[ConditionStatusSnapshot] = []
+
+            for idx, item in enumerate(items):
+                template_thumb = self._encode_thumb_b64(item.templateImage) if item.templateImage is not None else None
+
+                crop_thumb: Optional[str] = None
+                last: Optional[float] = None
+
+                if frame is not None:
+                    try:
+                        crop = self._crop_frame(frame, item.roi)
+                        crop_thumb = self._encode_thumb_b64(crop)
+
+                        if item.type == ConditionType.ImageMatchRoi:
+                            if item.templateImage is not None:
+                                last = float(MatchTemplate(crop, item.templateImage))
+                        elif item.type == ConditionType.ProgressBar:
+                            last = float(EstimateProgressBarPercentage(crop))
+                    except BaseException:
+                        crop_thumb = None
+                        last = None
+
+                snapshots.append(
+                    ConditionStatusSnapshot(
+                        index=int(idx),
+                        name=item.name,
+                        type=item.type,
+                        templateThumbBase64=template_thumb,
+                        cropThumbBase64=crop_thumb,
+                        last=last,
+                    )
+                )
+
+            with self._condition_status_lock:
+                self._condition_status = snapshots
+
+            time.sleep(interval)
 
     def LaunchApp(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
         self.LaucnhApp(app_path, left=left, top=top, width=width, height=height)

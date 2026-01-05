@@ -254,6 +254,67 @@ input:focus {
     margin-top: 12px;
 }
 
+.condToolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.condToolbar button {
+    padding: 6px 10px;
+    min-width: 34px;
+}
+
+.condSpacer {
+    flex: 1;
+}
+
+.condTableWrap {
+    border: 1px solid rgba(0,0,0,0.2);
+    border-radius: 6px;
+    overflow: auto;
+    max-height: 260px;
+}
+
+.condTable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.condTable th,
+.condTable td {
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(0,0,0,0.1);
+    vertical-align: middle;
+}
+
+.condTable thead th {
+    position: sticky;
+    top: 0;
+    background: Canvas;
+    z-index: 1;
+    text-align: left;
+}
+
+.condTable tr.selected {
+    background: rgba(0,0,0,0.08);
+}
+
+.thumb {
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+    background: rgba(0,0,0,0.08);
+    border: 1px solid rgba(0,0,0,0.15);
+    border-radius: 4px;
+}
+
+.condBottom {
+    margin-top: 10px;
+}
+
 button {
     appearance: none;
     border: none;
@@ -328,6 +389,24 @@ button.danger:hover {
     .monoBox {
         border-color: rgba(255,255,255,0.2);
         background: rgba(0,0,0,0.2);
+    }
+
+    .condTableWrap {
+        border-color: rgba(255,255,255,0.2);
+    }
+
+    .condTable th,
+    .condTable td {
+        border-bottom-color: rgba(255,255,255,0.1);
+    }
+
+    .condTable tr.selected {
+        background: rgba(255,255,255,0.12);
+    }
+
+    .thumb {
+        background: rgba(255,255,255,0.06);
+        border-color: rgba(255,255,255,0.15);
     }
     
     button {

@@ -25,10 +25,13 @@ const clickYEl = document.getElementById('clickY');
 const btnSendClick = document.getElementById('btnSendClick');
 
 const btnRefreshConditions = document.getElementById('btnRefreshConditions');
-const conditionsJsonEl = document.getElementById('conditionsJson');
+const condTableBody = document.getElementById('condTableBody');
 
-const btnAddCondition = document.getElementById('btnAddCondition');
-const btnClearConditions = document.getElementById('btnClearConditions');
+const btnCondAddRow = document.getElementById('btnCondAddRow');
+const btnCondRemoveRow = document.getElementById('btnCondRemoveRow');
+const btnCondMoveUp = document.getElementById('btnCondMoveUp');
+const btnCondMoveDown = document.getElementById('btnCondMoveDown');
+const btnSetFromLive = document.getElementById('btnSetFromLive');
 const conditionNameEl = document.getElementById('conditionName');
 const conditionTypeEl = document.getElementById('conditionType');
 const roiXEl = document.getElementById('roiX');
@@ -36,6 +39,8 @@ const roiYEl = document.getElementById('roiY');
 const roiWEl = document.getElementById('roiW');
 const roiHEl = document.getElementById('roiH');
 const templateImageEl = document.getElementById('templateImage');
+
+let selectedConditionIndex = null;
 
 let captureEvents = null;
 // Click-to-fill coordinates; send via button.
@@ -174,11 +179,11 @@ function stopEventSource() {
 
 function startEventSource() {
   stopEventSource();
-  captureEvents = new EventSource('/api/capture/events');
+  captureEvents = new EventSource('/api/capture/stream?fmt=jpg&quality=70');
 
-  captureEvents.addEventListener('frame', () => {
-    // Cache-bust so the browser doesn't reuse the previous image.
-    captureImage.src = `/api/capture/latest?fmt=jpg&ts=${Date.now()}`;
+  captureEvents.addEventListener('frame', (ev) => {
+    // Directly set the image from SSE payload (base64 jpg).
+    captureImage.src = `data:image/jpeg;base64,${ev.data}`;
   });
 
   captureEvents.onerror = () => {
@@ -732,9 +737,57 @@ btnSendClick.addEventListener('click', async () => {
 });
 
 async function refreshConditions() {
-  if (!conditionsJsonEl) return;
-  const items = await getJson('/api/conditions');
-  conditionsJsonEl.textContent = JSON.stringify(items ?? [], null, 2);
+  if (!condTableBody) return;
+  const items = await getJson('/api/conditions/status');
+
+  condTableBody.textContent = '';
+
+  const safeItems = Array.isArray(items) ? items : [];
+  for (const it of safeItems) {
+    const tr = document.createElement('tr');
+    tr.dataset.index = String(it.index);
+    if (selectedConditionIndex !== null && Number(it.index) === Number(selectedConditionIndex)) {
+      tr.classList.add('selected');
+    }
+
+    const tdName = document.createElement('td');
+    tdName.textContent = String(it.name ?? '');
+
+    const tdType = document.createElement('td');
+    tdType.textContent = String(it.type ?? '');
+
+    const tdTpl = document.createElement('td');
+    const tplImg = document.createElement('img');
+    tplImg.className = 'thumb';
+    if (it.templateThumbBase64) {
+      tplImg.src = `data:image/jpeg;base64,${it.templateThumbBase64}`;
+    }
+    tdTpl.appendChild(tplImg);
+
+    const tdCrop = document.createElement('td');
+    const cropImg = document.createElement('img');
+    cropImg.className = 'thumb';
+    if (it.cropThumbBase64) {
+      cropImg.src = `data:image/jpeg;base64,${it.cropThumbBase64}`;
+    }
+    tdCrop.appendChild(cropImg);
+
+    const tdLast = document.createElement('td');
+    tdLast.textContent = (it.last === null || it.last === undefined) ? '' : String(it.last);
+
+    tr.appendChild(tdName);
+    tr.appendChild(tdType);
+    tr.appendChild(tdTpl);
+    tr.appendChild(tdCrop);
+    tr.appendChild(tdLast);
+
+    tr.addEventListener('click', () => {
+      selectedConditionIndex = Number(it.index);
+      refreshConditions().catch(() => {});
+    });
+
+    condTableBody.appendChild(tr);
+  }
 }
 
 if (btnRefreshConditions) {
@@ -749,27 +802,103 @@ if (btnRefreshConditions) {
   });
 }
 
-if (btnClearConditions) {
-  btnClearConditions.addEventListener('click', async () => {
-    setStatus('Clearing conditions...', null);
+async function addConditionFromInputs() {
+  const name = (conditionNameEl && conditionNameEl.value ? conditionNameEl.value : '').trim();
+  if (!name) throw new Error('Name is required');
+
+  const type = (conditionTypeEl && conditionTypeEl.value ? conditionTypeEl.value : 'ImageMatchRoi');
+  const xNormalized = read01(roiXEl, 'ROI X');
+  const yNormalized = read01(roiYEl, 'ROI Y');
+  const widthNormalized = read01(roiWEl, 'ROI W');
+  const heightNormalized = read01(roiHEl, 'ROI H');
+  if (widthNormalized <= 0 || heightNormalized <= 0) {
+    throw new Error('ROI W/H must be > 0');
+  }
+
+  let templateImageBase64 = null;
+  const file = templateImageEl && templateImageEl.files && templateImageEl.files.length ? templateImageEl.files[0] : null;
+  if (file) {
+    templateImageBase64 = await fileToDataUrl(file);
+  }
+
+  const templateFromLive = !file;
+
+  await postJson('/api/conditions', {
+    name,
+    type,
+    roi: { xNormalized, yNormalized, widthNormalized, heightNormalized },
+    templateImageBase64,
+    templateFromLive,
+  });
+}
+
+if (btnCondAddRow) {
+  btnCondAddRow.addEventListener('click', async () => {
+    setStatus('Adding condition...', null);
     try {
-      await postJson('/api/conditions/clear');
+      await addConditionFromInputs();
       await refreshConditions();
-      setStatus('Conditions cleared.', 'ok');
+      setStatus('Condition added.', 'ok');
     } catch (e) {
-      setStatus(`Clear conditions failed: ${e.message}`, 'err');
+      setStatus(`Add condition failed: ${e.message}`, 'err');
     }
   });
 }
 
-if (btnAddCondition) {
-  btnAddCondition.addEventListener('click', async () => {
-    setStatus('Adding condition...', null);
+if (btnCondRemoveRow) {
+  btnCondRemoveRow.addEventListener('click', async () => {
+    setStatus('Removing condition...', null);
     try {
-      const name = (conditionNameEl && conditionNameEl.value ? conditionNameEl.value : '').trim();
-      if (!name) throw new Error('Name is required');
+      if (selectedConditionIndex === null) throw new Error('Select a row first');
+      await postJson('/api/conditions/remove_index', { index: selectedConditionIndex });
+      selectedConditionIndex = null;
+      await refreshConditions();
+      setStatus('Condition removed.', 'ok');
+    } catch (e) {
+      setStatus(`Remove condition failed: ${e.message}`, 'err');
+    }
+  });
+}
 
-      const type = (conditionTypeEl && conditionTypeEl.value ? conditionTypeEl.value : 'ImageMatchRoi');
+async function moveSelected(direction) {
+  if (selectedConditionIndex === null) throw new Error('Select a row first');
+  const res = await postJson('/api/conditions/move', { index: selectedConditionIndex, direction });
+  if (res && res.index !== undefined && res.index !== null) {
+    selectedConditionIndex = Number(res.index);
+  }
+}
+
+if (btnCondMoveUp) {
+  btnCondMoveUp.addEventListener('click', async () => {
+    setStatus('Moving up...', null);
+    try {
+      await moveSelected('up');
+      await refreshConditions();
+      setStatus('Moved.', 'ok');
+    } catch (e) {
+      setStatus(`Move failed: ${e.message}`, 'err');
+    }
+  });
+}
+
+if (btnCondMoveDown) {
+  btnCondMoveDown.addEventListener('click', async () => {
+    setStatus('Moving down...', null);
+    try {
+      await moveSelected('down');
+      await refreshConditions();
+      setStatus('Moved.', 'ok');
+    } catch (e) {
+      setStatus(`Move failed: ${e.message}`, 'err');
+    }
+  });
+}
+
+if (btnSetFromLive) {
+  btnSetFromLive.addEventListener('click', async () => {
+    setStatus('Setting ROI/template from live...', null);
+    try {
+      if (selectedConditionIndex === null) throw new Error('Select a row first');
       const xNormalized = read01(roiXEl, 'ROI X');
       const yNormalized = read01(roiYEl, 'ROI Y');
       const widthNormalized = read01(roiWEl, 'ROI W');
@@ -778,23 +907,16 @@ if (btnAddCondition) {
         throw new Error('ROI W/H must be > 0');
       }
 
-      let templateImageBase64 = null;
-      const file = templateImageEl && templateImageEl.files && templateImageEl.files.length ? templateImageEl.files[0] : null;
-      if (file) {
-        templateImageBase64 = await fileToDataUrl(file);
-      }
-
-      await postJson('/api/conditions', {
-        name,
-        type,
+      await postJson('/api/conditions/set_from_live', {
+        index: selectedConditionIndex,
         roi: { xNormalized, yNormalized, widthNormalized, heightNormalized },
-        templateImageBase64,
+        setTemplate: true,
       });
 
       await refreshConditions();
-      setStatus('Condition added.', 'ok');
+      setStatus('Updated from live.', 'ok');
     } catch (e) {
-      setStatus(`Add condition failed: ${e.message}`, 'err');
+      setStatus(`Set from live failed: ${e.message}`, 'err');
     }
   });
 }
