@@ -53,8 +53,8 @@
                         <label for="captureInterval">Refresh interval (seconds)</label>
                         <input id="captureInterval" type="text" value="1" placeholder="1" />
                     </div>
-                    <div class="row" style="display:flex; align-items:flex-end;">
-                        <div class="buttons" style="margin:0; width:100%;">
+                    <div class="row rowBottom">
+                        <div class="buttons buttonsTight">
                             <button id="btnStartCapture" class="primary" type="button">Start Capture</button>
                             <button id="btnStopCapture" type="button">Stop Capture</button>
                         </div>
@@ -66,8 +66,8 @@
                         <label for="keyName">Key name</label>
                         <input id="keyName" type="text" value="" placeholder="Example: Enter, F5, A" />
                     </div>
-                    <div class="row" style="display:flex; align-items:flex-end;">
-                        <div class="buttons" style="margin:0; width:100%;">
+                    <div class="row rowBottom">
+                        <div class="buttons buttonsTight">
                             <button id="btnSendKey" class="primary" type="button">Send Key</button>
                         </div>
                     </div>
@@ -77,6 +77,21 @@
             </div>
 
             <div class="panel previewPanel">
+                <div class="previewControls">
+                    <div class="grid2" style="margin-top:0;">
+                        <div class="row">
+                            <label for="clickX">Click X (0~1)</label>
+                            <input id="clickX" type="text" value="" placeholder="0.500" />
+                        </div>
+                        <div class="row">
+                            <label for="clickY">Click Y (0~1)</label>
+                            <input id="clickY" type="text" value="" placeholder="0.500" />
+                        </div>
+                    </div>
+                    <div class="buttons">
+                        <button id="btnSendClick" class="primary" type="button">Send Click</button>
+                    </div>
+                </div>
                 <div class="preview">
                     <img id="captureImage" class="captureImage" alt="Window capture preview" />
                 </div>

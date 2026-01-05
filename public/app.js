@@ -19,8 +19,12 @@ const captureIntervalEl = document.getElementById('captureInterval');
 const keyNameEl = document.getElementById('keyName');
 const btnSendKey = document.getElementById('btnSendKey');
 
+const clickXEl = document.getElementById('clickX');
+const clickYEl = document.getElementById('clickY');
+const btnSendClick = document.getElementById('btnSendClick');
+
 let captureEvents = null;
-let repeatTimer = null;
+// Click-to-fill coordinates; send via button.
 
 function setBusy(isBusy) {
   btnLaunch.disabled = isBusy;
@@ -166,52 +170,15 @@ function getNormalizedPointFromMouseEvent(ev) {
   return { x, y };
 }
 
-async function sendClick(x, y) {
-  await postJson('/api/control/click', { x, y });
-}
-
-function stopRepeat() {
-  if (repeatTimer) {
-    clearInterval(repeatTimer);
-    repeatTimer = null;
-  }
-}
-
-captureImage.addEventListener('click', async (ev) => {
+captureImage.addEventListener('click', (ev) => {
   try {
     const pt = getNormalizedPointFromMouseEvent(ev);
-    await sendClick(pt.x, pt.y);
-    setStatus(`Clicked (${pt.x.toFixed(3)}, ${pt.y.toFixed(3)})`, 'ok');
+    clickXEl.value = pt.x.toFixed(3);
+    clickYEl.value = pt.y.toFixed(3);
+    setStatus(`Selected (${pt.x.toFixed(3)}, ${pt.y.toFixed(3)})`, 'ok');
   } catch (e) {
-    setStatus(`Click failed: ${e.message}`, 'err');
+    setStatus(`Select point failed: ${e.message}`, 'err');
   }
-});
-
-// Optional: hold left mouse button on the preview to repeat clicks.
-captureImage.addEventListener('mousedown', (ev) => {
-  if (ev.button !== 0) return;
-  stopRepeat();
-  let pt;
-  try {
-    pt = getNormalizedPointFromMouseEvent(ev);
-  } catch (e) {
-    setStatus(`Repeat click failed: ${e.message}`, 'err');
-    return;
-  }
-
-  repeatTimer = setInterval(() => {
-    sendClick(pt.x, pt.y).catch(() => {
-      // Keep silent; status will update on next successful action.
-    });
-  }, 200);
-});
-
-window.addEventListener('mouseup', () => {
-  stopRepeat();
-});
-
-captureImage.addEventListener('mouseleave', () => {
-  stopRepeat();
 });
 
 btnStartCapture.addEventListener('click', async () => {
@@ -270,5 +237,27 @@ keyNameEl.addEventListener('keydown', (ev) => {
 
 window.addEventListener('beforeunload', () => {
   stopEventSource();
-  stopRepeat();
+});
+
+function readClickXY() {
+  const x = Number((clickXEl.value || '').trim());
+  const y = Number((clickYEl.value || '').trim());
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    throw new Error('Click X/Y must be numbers');
+  }
+  if (x < 0 || x > 1 || y < 0 || y > 1) {
+    throw new Error('Click X/Y must be between 0 and 1');
+  }
+  return { x, y };
+}
+
+btnSendClick.addEventListener('click', async () => {
+  setStatus('Sending click...', null);
+  try {
+    const pt = readClickXY();
+    await postJson('/api/control/click', pt);
+    setStatus('Click enqueued.', 'ok');
+  } catch (e) {
+    setStatus(`Send click failed: ${e.message}`, 'err');
+  }
 });

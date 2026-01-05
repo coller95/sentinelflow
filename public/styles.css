@@ -39,26 +39,28 @@ p { color: var(--text); }
 .previewPanel { flex: 1; }
 
 .row { margin-top: 12px; }
-label { display: block; font-size: 0.95em; color: #333; margin-bottom: 6px; }
 label { display: block; font-size: 0.95em; color: var(--text); margin-bottom: 6px; }
 input[type="text"] { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 1em; box-sizing: border-box; background: var(--panel); color: var(--text); }
 
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
 .grid2 .row { margin-top: 0; }
 
+.rowBottom { display: flex; align-items: flex-end; }
+
 .buttons { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
-button { padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; font-size: 1em; }
 button { padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); cursor: pointer; font-size: 1em; color: var(--text); }
 button.primary { border-color: var(--accent); color: var(--accent); }
 button.danger { border-color: var(--danger); color: var(--danger); }
 button:disabled { opacity: 0.6; cursor: not-allowed; }
 
-.status { margin-top: 14px; font-size: 0.95em; color: #333; min-height: 1.2em; }
+.buttonsTight { margin-top: 0; width: 100%; }
+
 .status { margin-top: 14px; font-size: 0.95em; color: var(--text); min-height: 1.2em; }
 .status.ok { color: var(--ok); }
 .status.err { color: var(--danger); }
 
 .preview { margin-top: 0; }
+.previewControls { margin-bottom: 12px; }
 .captureImage { width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--image-bg); display: block; }
 .captureImage { cursor: crosshair; user-select: none; -webkit-user-drag: none; }
 
