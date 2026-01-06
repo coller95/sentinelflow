@@ -24,6 +24,40 @@ from Src.ControllerServices import ControllerServices
 app = FastAPI()
 services: Optional[ControllerServices] = None
 
+
+def _state_root() -> Path:
+    """Where to store persistent state.
+
+    - In dev: project root
+    - In packaged exe: folder next to the executable
+    """
+    if bool(getattr(sys, "frozen", False)):
+        try:
+            return Path(sys.executable).resolve().parent
+        except Exception:
+            return Path.cwd()
+    return Path(__file__).resolve().parents[1]
+
+
+_STATE_PATH = _state_root() / "state.json"
+
+
+def _try_load_state(svc: ControllerServices) -> None:
+    try:
+        svc.LoadState(_STATE_PATH)
+    except FileNotFoundError:
+        return
+    except Exception as exc:
+        # Don't block startup on corrupted state; operator can delete state.json.
+        print(f"[state] Load failed: {exc}")
+
+
+def _try_save_state(svc: ControllerServices) -> None:
+    try:
+        svc.SaveState(_STATE_PATH)
+    except Exception as exc:
+        print(f"[state] Save failed: {exc}")
+
 def _resource_root() -> Path:
     """Return the runtime root directory.
 
@@ -45,12 +79,47 @@ def _get_services() -> ControllerServices:
     # to the module-level instance for backwards compatibility.
     svc = getattr(app.state, "services", None)
     if svc is not None:
+        if not bool(getattr(app.state, "stateLoaded", False)):
+            _try_load_state(svc)
+            app.state.stateLoaded = True
         return svc
 
     global services
     if services is None:
         services = ControllerServices()
+        _try_load_state(services)
     return services
+
+
+@app.get("/api/server/info")
+def GetServerInfo() -> Dict[str, Any]:
+    svc = _get_services()
+    return {
+        "serverUuid": str(svc.GetServerUuid()),
+    }
+
+
+@app.get("/api/state/export")
+def ExportState(includeServerUuid: bool = False) -> Dict[str, Any]:
+    svc = _get_services()
+    return svc.ExportStateDict(includeServerUuid=bool(includeServerUuid))
+
+
+class StateImportRequest(BaseModel):
+    state: Dict[str, Any]
+    keepServerUuid: bool = True
+
+
+@app.post("/api/state/import")
+def ImportState(req: StateImportRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.ImportStateDict(dict(req.state), keepServerUuid=bool(req.keepServerUuid))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Import failed: {exc}")
+
+    _try_save_state(svc)
+    return {"ok": True}
 
 
 class LaunchRequest(BaseModel):
@@ -471,6 +540,7 @@ def UpsertTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
         # Could be missing action or condition UUID.
         raise HTTPException(status_code=404, detail=str(exc))
 
+    _try_save_state(svc)
     return {"ok": True, "uuid": str(item.uuid)}
 
 
@@ -481,6 +551,7 @@ def RemoveTriggerByUuid(req: TriggerUuidRequest) -> Dict[str, Any]:
         svc.RemoveTriggerItemByUuid(req.uuid)
     except KeyError:
         raise HTTPException(status_code=404, detail="Trigger uuid not found")
+    _try_save_state(svc)
     return {"ok": True}
 
 
@@ -491,6 +562,7 @@ def SetTriggerEnabled(req: TriggerSetEnabledRequest) -> Dict[str, Any]:
         item = svc.SetTriggerEnabled(req.uuid, bool(req.enabled))
     except KeyError:
         raise HTTPException(status_code=404, detail="Trigger uuid not found")
+    _try_save_state(svc)
     return {"ok": True, "uuid": str(item.uuid), "enabled": bool(item.enabled)}
 
 
@@ -577,6 +649,7 @@ def UpsertAction(req: ActionUpsertRequest) -> Dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    _try_save_state(svc)
     return {"ok": True, "uuid": str(item.uuid)}
 
 
@@ -587,6 +660,7 @@ def RemoveActionByUuid(req: ActionUuidRequest) -> Dict[str, Any]:
         svc.RemoveActionItemByUuid(req.uuid)
     except KeyError:
         raise HTTPException(status_code=404, detail="Action uuid not found")
+    _try_save_state(svc)
     return {"ok": True}
 
 
@@ -679,6 +753,7 @@ def AddCondition(req: ConditionUpsertRequest) -> Dict[str, Any]:
         templateImage=template,
     )
 
+    _try_save_state(svc)
     return {"ok": True, "uuid": str(item.uuid)}
 
 
@@ -686,6 +761,7 @@ def AddCondition(req: ConditionUpsertRequest) -> Dict[str, Any]:
 def ClearConditions():
     svc = _get_services()
     svc.ClearConditionItems()
+    _try_save_state(svc)
     return {"ok": True}
 
 
@@ -696,6 +772,7 @@ def RemoveConditionByUuid(req: ConditionUuidRequest):
         svc.RemoveConditionItemByUuid(req.uuid)
     except KeyError:
         raise HTTPException(status_code=404, detail="Condition uuid not found")
+    _try_save_state(svc)
     return {"ok": True}
 
 
@@ -704,6 +781,7 @@ def MoveCondition(req: ConditionMoveRequest):
     svc = _get_services()
     try:
         svc.MoveConditionItemByUuid(req.uuid, str(req.direction))
+        _try_save_state(svc)
         return {"ok": True}
     except KeyError:
         raise HTTPException(status_code=404, detail="Condition uuid not found")
@@ -774,6 +852,7 @@ def SetConditionFromLive(req: ConditionSetFromLiveRequest):
         svc.SetConditionItemByUuid(req.uuid, updated)
     except KeyError:
         raise HTTPException(status_code=404, detail="Condition uuid not found")
+    _try_save_state(svc)
     return {"ok": True}
 
 
@@ -858,4 +937,5 @@ async def ConditionsStream(request: Request):
 def RemoveCondition(name: str) -> Dict[str, Any]:
     svc = _get_services()
     removed = svc.RemoveConditionItemsByName(name)
+    _try_save_state(svc)
     return {"ok": True, "removed": int(removed)}

@@ -29,7 +29,17 @@ from Src.ControllerServices import ControllerServices
 # =============================================================================
 def main() -> int:
     # Wire Services into the backend app state so API handlers can access it.
-    app.state.services = ControllerServices()
+    svc = ControllerServices()
+    try:
+        # Backend.py will also lazy-load if needed, but load here for predictable startup.
+        from Src.Backend import _STATE_PATH  # type: ignore
+        svc.LoadState(_STATE_PATH)
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        print(f"[state] Load failed: {exc}")
+
+    app.state.services = svc
     # Run FastAPI backend in the main thread
     port = int(os.getenv("SENTINELFLOW_PORT", os.getenv("PORT", "8000")))
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

@@ -1,10 +1,12 @@
 from enum import Enum, auto
 import base64
+import json
 import queue
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional, cast, Dict, List, Any
+from pathlib import Path
+from typing import Optional, cast, Dict, List, Any, Union
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -92,6 +94,10 @@ class TriggerItem:
 
 class ControllerServices:
     def __init__(self):
+        # Stable server identity for future centralized orchestration.
+        # Persisted in state.json. Generated once if missing.
+        self._server_uuid: UUID = uuid4()
+
         self._pid: PID = 0
         self._hwnd: HWND = 0
 
@@ -174,6 +180,285 @@ class ControllerServices:
             daemon=True,
         )
         self._trigger_thread.start()
+
+    def GetServerUuid(self) -> UUID:
+        with self._state_lock:
+            return self._server_uuid
+
+    def ExportStateDict(self, includeServerUuid: bool = True) -> Dict[str, Any]:
+        with self._state_lock:
+            server_uuid = self._server_uuid
+            conditions = list(self._conditionItemList.values())
+            actions = list(self._actionItemList.values())
+            triggers = list(self._triggerItemList.values())
+
+        def encode_png_b64(img: Optional[np.ndarray[Any, Any]]) -> Optional[str]:
+            if img is None:
+                return None
+            if getattr(img, "size", 0) == 0:
+                return None
+            ok, encoded = cv2.imencode(".png", img)
+            if not ok:
+                return None
+            return base64.b64encode(encoded.tobytes()).decode("ascii")
+
+        data: Dict[str, Any] = {
+            "version": 1,
+            "savedAtUnix": float(time.time()),
+            "conditions": [],
+            "actions": [],
+            "triggers": [],
+        }
+        if includeServerUuid:
+            data["serverUuid"] = str(server_uuid)
+
+        for c in conditions:
+            data["conditions"].append({
+                "uuid": str(c.uuid),
+                "name": c.name,
+                "type": c.type.name,
+                "roi": {
+                    "xNormalized": float(c.roi.xNormalized),
+                    "yNormalized": float(c.roi.yNormalized),
+                    "widthNormalized": float(c.roi.widthNormalized),
+                    "heightNormalized": float(c.roi.heightNormalized),
+                },
+                "templateImageBase64": encode_png_b64(c.templateImage),
+            })
+
+        for a in actions:
+            steps_out: List[Dict[str, Any]] = []
+            for s in (a.steps or []):
+                steps_out.append({
+                    "action": s.action.name,
+                    "parameters": dict(s.parameters or {}),
+                })
+            data["actions"].append({
+                "uuid": str(a.uuid),
+                "name": a.name,
+                "steps": steps_out,
+            })
+
+        for t in triggers:
+            crit_out: List[Dict[str, Any]] = []
+            for c in (t.triggerCiterias or []):
+                crit_out.append({
+                    "conditionUuid": str(c.conditionUuid),
+                    "expectedValue": c.expectedValue,
+                    "comparator": c.comparator.name,
+                })
+            data["triggers"].append({
+                "uuid": str(t.uuid),
+                "name": t.name,
+                "enabled": bool(t.enabled),
+                "retriggerMs": int(getattr(t, "retriggerMs", 0) or 0),
+                "action": str(t.action),
+                "triggerCiterias": crit_out,
+            })
+
+        return data
+
+    def SaveState(self, path: Union[str, Path]) -> None:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+
+        data = self.ExportStateDict(includeServerUuid=True)
+
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        text = json.dumps(data, ensure_ascii=False, indent=2)
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(p)
+
+    def ImportStateDict(self, obj: Dict[str, Any], keepServerUuid: bool = True) -> None:
+        version = int(obj.get("version", 0) or 0)
+        if version != 1:
+            raise ValueError(f"Unsupported state version: {version}")
+
+        with self._state_lock:
+            current_server_uuid = self._server_uuid
+
+        new_server_uuid: UUID
+        if keepServerUuid:
+            new_server_uuid = current_server_uuid
+        else:
+            server_uuid_raw = str(obj.get("serverUuid", "") or "").strip()
+            parsed_uuid: Optional[UUID] = None
+            try:
+                if server_uuid_raw:
+                    parsed_uuid = UUID(server_uuid_raw)
+            except Exception:
+                parsed_uuid = None
+            new_server_uuid = parsed_uuid if parsed_uuid is not None else uuid4()
+
+        def decode_png_b64(b64: Optional[str]) -> Optional[NDArray[np.uint8]]:
+            raw_b64 = (b64 or "").strip()
+            if not raw_b64:
+                return None
+            if "," in raw_b64:
+                raw_b64 = raw_b64.split(",", 1)[1]
+            try:
+                binary = base64.b64decode(raw_b64, validate=True)
+            except Exception:
+                return None
+            arr = np.frombuffer(binary, dtype=np.uint8)
+            decoded = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if decoded is None:
+                return None
+            return cast(NDArray[np.uint8], decoded)
+
+        cond_list: Any = obj.get("conditions", [])
+        act_list: Any = obj.get("actions", [])
+        trig_list: Any = obj.get("triggers", [])
+
+        loaded_conditions: Dict[UUID, ConditionItem] = {}
+        if isinstance(cond_list, list):
+            for c_any in cast(List[Any], cond_list):
+                if not isinstance(c_any, dict):
+                    continue
+                c: Dict[str, Any] = cast(Dict[str, Any], c_any)
+                try:
+                    cu = UUID(str(c.get("uuid", "")))
+                except Exception:
+                    continue
+                name = str(c.get("name", "") or "").strip()
+                if not name:
+                    continue
+                type_name = str(c.get("type", "") or "").strip() or "ImageMatchRoi"
+                try:
+                    ctype = ConditionType[type_name]
+                except Exception:
+                    continue
+                roi_obj = c.get("roi", {})
+                if not isinstance(roi_obj, dict):
+                    roi_obj = {}
+                roi_obj_t: Dict[str, Any] = cast(Dict[str, Any], roi_obj)
+                roi = ConditionRoi(
+                    xNormalized=float(roi_obj_t.get("xNormalized", 0.0) or 0.0),
+                    yNormalized=float(roi_obj_t.get("yNormalized", 0.0) or 0.0),
+                    widthNormalized=float(roi_obj_t.get("widthNormalized", 0.0) or 0.0),
+                    heightNormalized=float(roi_obj_t.get("heightNormalized", 0.0) or 0.0),
+                )
+                template = decode_png_b64(c.get("templateImageBase64", None))
+                loaded_conditions[cu] = ConditionItem(
+                    uuid=cu,
+                    name=name,
+                    roi=roi,
+                    type=ctype,
+                    templateImage=template,
+                )
+
+        loaded_actions: Dict[UUID, ActionItem] = {}
+        if isinstance(act_list, list):
+            for a_any in cast(List[Any], act_list):
+                if not isinstance(a_any, dict):
+                    continue
+                a: Dict[str, Any] = cast(Dict[str, Any], a_any)
+                try:
+                    au = UUID(str(a.get("uuid", "")))
+                except Exception:
+                    continue
+                name = str(a.get("name", "") or "").strip()
+                if not name:
+                    continue
+                steps_in = a.get("steps", [])
+                steps: List[MacroStep] = []
+                if isinstance(steps_in, list):
+                    for s_any in cast(List[Any], steps_in):
+                        if not isinstance(s_any, dict):
+                            continue
+                        s: Dict[str, Any] = cast(Dict[str, Any], s_any)
+                        action_name = str(s.get("action", "") or "").strip()
+                        try:
+                            st = MacroType[action_name]
+                        except Exception:
+                            continue
+                        params = s.get("parameters", {})
+                        if not isinstance(params, dict):
+                            params = {}
+                        steps.append(MacroStep(action=st, parameters=dict(cast(Dict[str, Any], params))))
+                loaded_actions[au] = ActionItem(uuid=au, name=name, steps=steps)
+
+        loaded_triggers: Dict[UUID, TriggerItem] = {}
+        if isinstance(trig_list, list):
+            for t_any in cast(List[Any], trig_list):
+                if not isinstance(t_any, dict):
+                    continue
+                t: Dict[str, Any] = cast(Dict[str, Any], t_any)
+                try:
+                    tu = UUID(str(t.get("uuid", "")))
+                except Exception:
+                    continue
+                name = str(t.get("name", "") or "").strip()
+                if not name:
+                    continue
+                try:
+                    action_uuid = UUID(str(t.get("action", "")))
+                except Exception:
+                    continue
+                if action_uuid not in loaded_actions:
+                    continue
+                enabled = bool(t.get("enabled", False))
+                retrigger_ms = int(t.get("retriggerMs", 0) or 0)
+                if retrigger_ms < 0:
+                    retrigger_ms = 0
+
+                crit_in = t.get("triggerCiterias", [])
+                crit_out: List[TriggerCiteria] = []
+                if isinstance(crit_in, list):
+                    for c_any in cast(List[Any], crit_in):
+                        if not isinstance(c_any, dict):
+                            continue
+                        c: Dict[str, Any] = cast(Dict[str, Any], c_any)
+                        try:
+                            cond_uuid = UUID(str(c.get("conditionUuid", "")))
+                        except Exception:
+                            continue
+                        if cond_uuid not in loaded_conditions:
+                            continue
+                        comp_name = str(c.get("comparator", "") or "").strip()
+                        try:
+                            comp = TriggerComparator[comp_name]
+                        except Exception:
+                            continue
+                        crit_out.append(TriggerCiteria(
+                            conditionUuid=cond_uuid,
+                            expectedValue=c.get("expectedValue", None),
+                            comparator=comp,
+                        ))
+
+                loaded_triggers[tu] = TriggerItem(
+                    uuid=tu,
+                    name=name,
+                    triggerCiterias=crit_out,
+                    action=action_uuid,
+                    enabled=enabled,
+                    retriggerMs=retrigger_ms,
+                )
+
+        with self._state_lock:
+            self._server_uuid = new_server_uuid
+            # Replace config state atomically.
+            self._conditionItemList = dict(loaded_conditions)
+            self._actionItemList = dict(loaded_actions)
+            self._triggerItemList = dict(loaded_triggers)
+
+            # Reset runtime caches/counters.
+            self._trigger_last_match.clear()
+            self._trigger_fire_count.clear()
+            self._trigger_last_fire_unix.clear()
+            self._trigger_last_fire_mono.clear()
+            self._trigger_last_eval.clear()
+            self._trigger_status_seq += 1
+
+    def LoadState(self, path: Union[str, Path]) -> None:
+        p = Path(path)
+        raw = p.read_text(encoding="utf-8")
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError("state file must be a JSON object")
+        obj: Dict[str, Any] = cast(Dict[str, Any], parsed)
+        # When loading local state, we want to restore serverUuid.
+        self.ImportStateDict(obj, keepServerUuid=False)
 
     def GetConditionItems(self) -> List[ConditionItem]:
         with self._state_lock:
