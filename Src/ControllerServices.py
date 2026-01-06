@@ -98,6 +98,10 @@ class ControllerServices:
         # Persisted in state.json. Generated once if missing.
         self._server_uuid: UUID = uuid4()
 
+        # Persisted UX defaults (so operators don't retype common values).
+        self._default_app_path: str = ""
+        self._default_window_title: str = ""
+
         self._pid: PID = 0
         self._hwnd: HWND = 0
 
@@ -185,9 +189,18 @@ class ControllerServices:
         with self._state_lock:
             return self._server_uuid
 
+    def GetAppDefaults(self) -> Dict[str, str]:
+        with self._state_lock:
+            return {
+                "defaultAppPath": str(self._default_app_path or ""),
+                "defaultWindowTitle": str(self._default_window_title or ""),
+            }
+
     def ExportStateDict(self, includeServerUuid: bool = True) -> Dict[str, Any]:
         with self._state_lock:
             server_uuid = self._server_uuid
+            default_app_path = self._default_app_path
+            default_window_title = self._default_window_title
             conditions = list(self._conditionItemList.values())
             actions = list(self._actionItemList.values())
             triggers = list(self._triggerItemList.values())
@@ -205,6 +218,10 @@ class ControllerServices:
         data: Dict[str, Any] = {
             "version": 1,
             "savedAtUnix": float(time.time()),
+            "app": {
+                "defaultAppPath": str(default_app_path or ""),
+                "defaultWindowTitle": str(default_window_title or ""),
+            },
             "conditions": [],
             "actions": [],
             "triggers": [],
@@ -273,6 +290,13 @@ class ControllerServices:
         version = int(obj.get("version", 0) or 0)
         if version != 1:
             raise ValueError(f"Unsupported state version: {version}")
+
+        app_obj = obj.get("app", {})
+        if not isinstance(app_obj, dict):
+            app_obj = {}
+        app_obj_t: Dict[str, Any] = cast(Dict[str, Any], app_obj)
+        imported_default_app_path = str(app_obj_t.get("defaultAppPath", "") or "").strip()
+        imported_default_window_title = str(app_obj_t.get("defaultWindowTitle", "") or "").strip()
 
         with self._state_lock:
             current_server_uuid = self._server_uuid
@@ -437,6 +461,11 @@ class ControllerServices:
 
         with self._state_lock:
             self._server_uuid = new_server_uuid
+
+            # Restore persisted operator defaults.
+            self._default_app_path = imported_default_app_path
+            self._default_window_title = imported_default_window_title
+
             # Replace config state atomically.
             self._conditionItemList = dict(loaded_conditions)
             self._actionItemList = dict(loaded_actions)
@@ -1129,6 +1158,8 @@ class ControllerServices:
             time.sleep(interval)
 
     def LaunchApp(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
+        with self._state_lock:
+            self._default_app_path = str(app_path or "").strip()
         self.LaucnhApp(app_path, left=left, top=top, width=width, height=height)
 
     def LaucnhApp(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
@@ -1144,6 +1175,8 @@ class ControllerServices:
         ResizeAndRepositionWindow(self._hwnd, int(left), int(top), int(width), int(height))
 
     def AttachApp(self, window_title: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
+        with self._state_lock:
+            self._default_window_title = str(window_title or "").strip()
         foundHwnd = FindHwndByTitle(window_title)
         if foundHwnd is None:
             raise Exception("Failed to find window handle for the specified title.")

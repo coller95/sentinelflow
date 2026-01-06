@@ -363,6 +363,10 @@ Response (shape):
   "version": 1,
   "savedAtUnix": 1730000000.0,
   "serverUuid": "... (only if includeServerUuid=true)",
+  "app": {
+    "defaultAppPath": "C:/Path/To/App.exe",
+    "defaultWindowTitle": "My Game"
+  },
   "conditions": [ ... ],
   "actions": [ ... ],
   "triggers": [ ... ]
@@ -413,6 +417,19 @@ Errors:
 
 These configure which application window is being captured/controlled.
 
+### `GET /api/app/defaults`
+
+Returns persisted operator defaults (stored in `state.json`).
+
+Response:
+
+```json
+{
+  "defaultAppPath": "C:/Path/To/App.exe",
+  "defaultWindowTitle": "My Game"
+}
+```
+
 ### `POST /api/app/launch`
 
 Launches an application and attaches capture/control.
@@ -435,6 +452,9 @@ Response:
 { "ok": true }
 ```
 
+Notes:
+- On success, the server updates and persists `defaultAppPath`.
+
 ### `POST /api/app/attach`
 
 Attach by window title.
@@ -456,6 +476,9 @@ Response:
 ```json
 { "ok": true }
 ```
+
+Notes:
+- On success, the server updates and persists `defaultWindowTitle`.
 
 ### `POST /api/app/close`
 

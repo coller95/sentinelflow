@@ -141,6 +141,12 @@ def ReloadState() -> Dict[str, Any]:
     return {"ok": True, "serverUuid": str(svc.GetServerUuid())}
 
 
+@app.get("/api/app/defaults")
+def GetAppDefaults() -> Dict[str, Any]:
+    svc = _get_services()
+    return svc.GetAppDefaults()
+
+
 class LaunchRequest(BaseModel):
     app_path: str
     left: int = 0
@@ -325,6 +331,7 @@ def ServeIndex():
 def LaunchApp(req: LaunchRequest):
     svc = _get_services()
     svc.LaunchApp(req.app_path, left=req.left, top=req.top, width=req.width, height=req.height)
+    _try_save_state(svc)
     return {"ok": True}
 
 
@@ -332,6 +339,7 @@ def LaunchApp(req: LaunchRequest):
 def AttachApp(req: AttachRequest):
     svc = _get_services()
     svc.AttachApp(req.window_title, left=req.left, top=req.top, width=req.width, height=req.height)
+    _try_save_state(svc)
     return {"ok": True}
 
 

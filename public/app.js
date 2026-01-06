@@ -1212,6 +1212,25 @@ async function getJson(path) {
   return data;
 }
 
+async function tryLoadAppDefaults() {
+  try {
+    const defaults = await getJson('/api/app/defaults');
+    if (!defaults) return;
+
+    const defaultAppPath = (defaults.defaultAppPath || '').trim();
+    const defaultWindowTitle = (defaults.defaultWindowTitle || '').trim();
+
+    if (appPathEl && !((appPathEl.value || '').trim()) && defaultAppPath) {
+      appPathEl.value = defaultAppPath;
+    }
+    if (windowTitleEl && !((windowTitleEl.value || '').trim()) && defaultWindowTitle) {
+      windowTitleEl.value = defaultWindowTitle;
+    }
+  } catch {
+    // Ignore: defaults are optional.
+  }
+}
+
 function readWindowGeometry() {
   const left = Number((windowLeftEl.value || '').trim() || '0');
   const top = Number((windowTopEl.value || '').trim() || '0');
@@ -1283,6 +1302,9 @@ btnClose.addEventListener('click', async () => {
     setBusy(false);
   }
 });
+
+// Best-effort: prefill app path / title from persisted node state.
+tryLoadAppDefaults();
 
 function stopEventSource() {
   if (captureEvents) {
