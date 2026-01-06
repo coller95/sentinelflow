@@ -2,6 +2,8 @@
 
 This document describes the HTTP/SSE API exposed by a SentinelFlow node ("cluster server").
 
+This repo also contains a separate centralized server ("orchestrator") which can keep track of multiple cluster servers by UUID and a human label.
+
 - API style: REST-ish JSON + Server-Sent Events (SSE)
 - Base URL (default dev): `http://127.0.0.1:8000`
 - Content-Type for JSON requests: `application/json`
@@ -84,6 +86,231 @@ Response:
 
 Notes:
 - `serverUuid` is persisted in `state.json`.
+
+## Central Orchestrator (Registry)
+
+The orchestrator is a separate FastAPI app intended to run as a central registry for multiple cluster servers.
+
+- Default base URL (dev): `http://127.0.0.1:8010`
+- State file: `orchestrator_state.json`
+
+### Run the orchestrator
+
+From the repo root:
+
+```bash
+python Src/OrchestratorMain.py
+```
+
+Note:
+- Uvicorn may log `http://0.0.0.0:PORT` (bind-all). In a browser, use `http://127.0.0.1:PORT/` or `http://localhost:PORT/`.
+
+Environment variables:
+- `SENTINELFLOW_ORCH_PORT` (default `8010`)
+
+### `GET /api/orchestrator/info`
+
+Returns the stable identity of the orchestrator.
+
+Response:
+
+```json
+{ "orchestratorUuid": "6b7c5a7f-..." }
+```
+
+### Commission / Decommission clusters
+
+The orchestrator stores clusters by their UUID (the cluster server's `serverUuid`) and assigns a human label.
+
+#### `POST /api/orchestrator/clusters/commission`
+
+Registers (or updates) a cluster by UUID.
+
+Request:
+
+```json
+{
+  "clusterUuid": "6b7c5a7f-...",
+  "label": "Cluster A",
+  "baseUrl": "http://10.0.0.10:8000"
+}
+```
+
+Response:
+
+```json
+{
+  "ok": true,
+  "cluster": {
+    "uuid": "6b7c5a7f-...",
+    "label": "Cluster A",
+    "baseUrl": "http://10.0.0.10:8000",
+    "commissionedAtUnix": 1730000000.0,
+    "decommissionedAtUnix": null
+  }
+}
+```
+
+Errors:
+- `400` if `label` is empty or invalid
+
+#### `POST /api/orchestrator/clusters/commission_from_url`
+
+Registers (or updates) a cluster by providing only its network address. The orchestrator will call the cluster's `GET /api/server/info` to discover the UUID automatically.
+
+Request:
+
+```json
+{
+  "baseUrl": "10.0.0.10:8000",
+  "label": "Cluster A (optional)"
+}
+```
+
+Notes:
+- `baseUrl` may be `IP:port` or a full URL like `http://IP:port`.
+- If `label` is omitted, the orchestrator defaults it to `host:port`.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "cluster": { "uuid": "6b7c5a7f-...", "label": "10.0.0.10:8000", "baseUrl": "http://10.0.0.10:8000" },
+  "discovered": { "serverUuid": "6b7c5a7f-..." }
+}
+```
+
+#### `POST /api/orchestrator/clusters/{clusterUuid}/decommission`
+
+Marks a cluster as decommissioned (soft-delete).
+
+Response:
+
+```json
+{ "ok": true, "cluster": { "uuid": "...", "decommissionedAtUnix": 1730000100.0 } }
+```
+
+Errors:
+- `404` if the cluster UUID is unknown
+
+#### `POST /api/orchestrator/clusters/{clusterUuid}/remove`
+
+Hard-delete a cluster record from the orchestrator registry.
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+Errors:
+- `404` if the cluster UUID is unknown
+
+### Query clusters
+
+#### `GET /api/orchestrator/clusters?includeDecommissioned=false`
+
+Lists commissioned clusters.
+
+Response:
+
+```json
+{
+  "clusters": [
+    {
+      "uuid": "6b7c5a7f-...",
+      "label": "Cluster A",
+      "baseUrl": "http://10.0.0.10:8000",
+      "commissionedAtUnix": 1730000000.0,
+      "decommissionedAtUnix": null
+    }
+  ]
+}
+```
+
+#### `GET /api/orchestrator/clusters/{clusterUuid}`
+
+Fetch a single cluster record.
+
+Response:
+
+```json
+{ "cluster": { "uuid": "6b7c5a7f-...", "label": "Cluster A" } }
+```
+
+Errors:
+- `404` if the cluster UUID is unknown
+
+### Manage a cluster's Actions / Conditions / Triggers
+
+The orchestrator can proxy management calls to a specific cluster server using that cluster's registered `baseUrl`.
+
+Notes:
+- These endpoints require the cluster to have `baseUrl` set.
+- Errors from the cluster are surfaced as `502` from the orchestrator (with the cluster's error message in `detail`).
+
+#### Actions
+
+- `GET /api/orchestrator/clusters/{clusterUuid}/actions` → proxies `GET {baseUrl}/api/actions`
+- `POST /api/orchestrator/clusters/{clusterUuid}/actions/upsert`
+- `POST /api/orchestrator/clusters/{clusterUuid}/actions/remove_uuid`
+- `POST /api/orchestrator/clusters/{clusterUuid}/actions/run`
+
+For the POST endpoints, send the cluster request JSON inside a wrapper object:
+
+```json
+{ "body": { "uuid": null, "name": "My Action", "steps": [] } }
+```
+
+#### Conditions
+
+- `GET /api/orchestrator/clusters/{clusterUuid}/conditions`
+- `GET /api/orchestrator/clusters/{clusterUuid}/conditions/status`
+- `POST /api/orchestrator/clusters/{clusterUuid}/conditions`
+- `POST /api/orchestrator/clusters/{clusterUuid}/conditions/set_from_live`
+- `POST /api/orchestrator/clusters/{clusterUuid}/conditions/move`
+- `POST /api/orchestrator/clusters/{clusterUuid}/conditions/remove_uuid`
+
+POST body wrapper example:
+
+```json
+{ "body": { "name": "HP", "type": "ProgressBar", "roi": { "xNormalized": 0.1, "yNormalized": 0.2, "widthNormalized": 0.3, "heightNormalized": 0.05 } } }
+```
+
+#### Triggers
+
+- `GET /api/orchestrator/clusters/{clusterUuid}/triggers`
+- `GET /api/orchestrator/clusters/{clusterUuid}/triggers/status`
+- `POST /api/orchestrator/clusters/{clusterUuid}/triggers/upsert`
+- `POST /api/orchestrator/clusters/{clusterUuid}/triggers/remove_uuid`
+- `POST /api/orchestrator/clusters/{clusterUuid}/triggers/set_enabled`
+
+POST body wrapper example:
+
+```json
+{ "body": { "uuid": null, "name": "Auto Heal", "enabled": true, "retriggerMs": 2000, "triggerCiterias": [], "action": "00000000-0000-0000-0000-000000000000" } }
+```
+
+### Orchestrator state (persistence)
+
+#### `GET /api/orchestrator/state/export`
+
+Exports orchestrator state (including orchestrator UUID and cluster records).
+
+#### `POST /api/orchestrator/state/import`
+
+Imports orchestrator state.
+
+Request:
+
+```json
+{ "state": { "version": 1, "orchestratorUuid": "...", "clusters": [] } }
+```
+
+#### `POST /api/orchestrator/state/reload`
+
+Reloads `orchestrator_state.json` from disk.
 
 ## State (Persistence / Cluster Orchestration)
 

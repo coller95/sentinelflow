@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>SentinelFlow Orchestrator</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+</head>
+
+<body>
+<main class="orchRoot">
+    <section class="orchCard">
+        <h1 class="orchTitle">Orchestrator</h1>
+
+        <fieldset>
+            <legend>Commission Cluster</legend>
+
+            <div class="row">
+                <label for="clusterLabel">Label</label>
+                <input id="clusterLabel" type="text" placeholder="Optional (defaults to host:port)" />
+            </div>
+
+            <div class="row">
+                <label for="clusterBaseUrl">Cluster Address</label>
+                <input id="clusterBaseUrl" type="text" placeholder="Example: 10.0.0.10:8000 (or http://10.0.0.10:8000)" />
+                <div class="orchSubHint">The orchestrator will call <span class="mono">/api/server/info</span> to auto-discover the cluster UUID.</div>
+            </div>
+
+            <div class="buttons">
+                <button id="btnCommission" class="primary" type="button">Register</button>
+            </div>
+
+            <div class="row">
+                <label>Status</label>
+                <div id="regStatus" class="status" aria-live="polite"></div>
+            </div>
+        </fieldset>
+
+        <fieldset class="orchSection">
+            <legend>Manage Cluster</legend>
+
+            <div class="row">
+                <label for="clusterSelect">Select Cluster</label>
+                <select id="clusterSelect"></select>
+                <div class="orchSubHint" id="clusterMeta"></div>
+            </div>
+
+            <div class="buttons">
+                <button id="btnRefreshClusters" type="button">Refresh Clusters</button>
+            </div>
+
+            <div class="row">
+                <label for="editClusterLabel">Edit Label</label>
+                <input id="editClusterLabel" type="text" placeholder="Cluster label" />
+            </div>
+
+            <div class="row">
+                <label for="editClusterBaseUrl">Edit Base URL</label>
+                <input id="editClusterBaseUrl" type="text" placeholder="Example: 10.0.0.10:8000 (or http://10.0.0.10:8000)" />
+            </div>
+
+            <div class="buttons">
+                <button id="btnClusterSave" class="primary" type="button">Save</button>
+                <button id="btnClusterRemove" type="button">Remove</button>
+            </div>
+
+            <nav class="orchTabs">
+                <button class="active" data-tab="actions" type="button">Actions</button>
+                <button data-tab="conditions" type="button">Conditions</button>
+                <button data-tab="triggers" type="button">Triggers</button>
+            </nav>
+
+            <section id="tab-actions" class="orchPanel active">
+                <div class="buttons">
+                    <button id="btnActionsFetch" class="primary" type="button">Fetch</button>
+                </div>
+
+                <div class="row">
+                    <label for="actionsSelect">Select Action</label>
+                    <select id="actionsSelect"></select>
+                </div>
+
+                <div class="row">
+                    <label for="actionsList">Actions (read-only)</label>
+                    <textarea id="actionsList" class="monoBox" rows="10" readonly></textarea>
+                </div>
+
+                <div class="row">
+                    <label for="actionRunUuid">Run action UUID</label>
+                    <input id="actionRunUuid" type="text" placeholder="Action UUID" />
+                </div>
+                <div class="buttons">
+                    <button id="btnActionRun" class="primary" type="button">Run</button>
+                    <button id="btnActionRemove" type="button">Remove</button>
+                </div>
+
+                <div class="row">
+                    <label for="actionUpsertBody">Upsert payload (cluster format)</label>
+                    <textarea id="actionUpsertBody" class="monoBox" rows="8" placeholder='{"uuid": null, "name": "My Action", "steps": []}'></textarea>
+                </div>
+                <div class="buttons">
+                    <button id="btnActionUpsert" class="primary" type="button">Upsert</button>
+                </div>
+            </section>
+
+            <section id="tab-conditions" class="orchPanel">
+                <div class="buttons">
+                    <button id="btnConditionsFetch" class="primary" type="button">Fetch</button>
+                    <button id="btnConditionsStatus" type="button">Status</button>
+                </div>
+
+                <div class="row">
+                    <label for="conditionsSelect">Select Condition</label>
+                    <select id="conditionsSelect"></select>
+                </div>
+
+                <div class="row">
+                    <label for="conditionsList">Conditions / Status (read-only)</label>
+                    <textarea id="conditionsList" class="monoBox" rows="10" readonly></textarea>
+                </div>
+
+                <div class="row">
+                    <label for="conditionsOp">Operation</label>
+                    <select id="conditionsOp">
+                        <option value="/api/orchestrator/clusters/{uuid}/conditions">Create</option>
+                        <option value="/api/orchestrator/clusters/{uuid}/conditions/set_from_live">Update (set_from_live)</option>
+                        <option value="/api/orchestrator/clusters/{uuid}/conditions/move">Move</option>
+                        <option value="/api/orchestrator/clusters/{uuid}/conditions/remove_uuid">Remove</option>
+                    </select>
+                </div>
+                <div class="row">
+                    <label for="conditionsBody">Payload (cluster format)</label>
+                    <textarea id="conditionsBody" class="monoBox" rows="8" placeholder='{"name": "HP", "type": "ProgressBar", "roi": {"xNormalized":0.1,"yNormalized":0.2,"widthNormalized":0.3,"heightNormalized":0.05}}'></textarea>
+                </div>
+                <div class="buttons">
+                    <button id="btnConditionsSend" class="primary" type="button">Send</button>
+                </div>
+            </section>
+
+            <section id="tab-triggers" class="orchPanel">
+                <div class="buttons">
+                    <button id="btnTriggersFetch" class="primary" type="button">Fetch</button>
+                    <button id="btnTriggersStatus" type="button">Status</button>
+                </div>
+
+                <div class="row">
+                    <label for="triggersSelect">Select Trigger</label>
+                    <select id="triggersSelect"></select>
+                </div>
+
+                <div class="row">
+                    <label for="triggersList">Triggers / Status (read-only)</label>
+                    <textarea id="triggersList" class="monoBox" rows="10" readonly></textarea>
+                </div>
+
+                <div class="row">
+                    <label>
+                        <input id="triggerEnabled" type="checkbox" />
+                        Enabled
+                    </label>
+                </div>
+                <div class="buttons">
+                    <button id="btnTriggerApplyEnabled" type="button">Apply Enabled</button>
+                    <button id="btnTriggerRemove" type="button">Remove</button>
+                </div>
+
+                <div class="row">
+                    <label for="triggersOp">Operation</label>
+                    <select id="triggersOp">
+                        <option value="/api/orchestrator/clusters/{uuid}/triggers/upsert">Upsert</option>
+                        <option value="/api/orchestrator/clusters/{uuid}/triggers/remove_uuid">Remove</option>
+                        <option value="/api/orchestrator/clusters/{uuid}/triggers/set_enabled">Set Enabled</option>
+                    </select>
+                </div>
+                <div class="row">
+                    <label for="triggersBody">Payload (cluster format)</label>
+                    <textarea id="triggersBody" class="monoBox" rows="8" placeholder='{"uuid": null, "name": "Auto Heal", "enabled": true, "retriggerMs": 2000, "triggerCiterias": [], "action": "00000000-0000-0000-0000-000000000000"}'></textarea>
+                </div>
+                <div class="buttons">
+                    <button id="btnTriggersSend" class="primary" type="button">Send</button>
+                </div>
+            </section>
+
+            <div class="row">
+                <label>Manage Status</label>
+                <div id="manageStatus" class="status" aria-live="polite"></div>
+            </div>
+        </fieldset>
+
+        <div class="orchHint">Use `http://127.0.0.1:PORT/` in your browser.</div>
+    </section>
+</main>
+
+<script src="/static/orchestrator.js"></script>
+</body>
+</html>
