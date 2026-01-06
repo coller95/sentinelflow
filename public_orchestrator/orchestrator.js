@@ -21,6 +21,8 @@ const appHeightEl = document.getElementById('appHeight');
 const btnAppLaunchEl = document.getElementById('btnAppLaunch');
 const btnAppAttachEl = document.getElementById('btnAppAttach');
 const btnAppCloseEl = document.getElementById('btnAppClose');
+const btnCaptureStartEl = document.getElementById('btnCaptureStart');
+const btnCaptureStopEl = document.getElementById('btnCaptureStop');
 
 const manageStatusEl = document.getElementById('manageStatus');
 
@@ -315,6 +317,31 @@ async function appClose() {
     _setManageStatus('App closed.');
   } catch (err) {
     _setManageStatus(`Close failed: ${err?.message ?? err}`);
+  }
+}
+
+async function captureStart() {
+  const cu = _selectedClusterUuid();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  _setManageStatus('Starting capture on cluster...');
+  try {
+    // Use the cluster default interval (1s) unless you later add an input.
+    await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/capture/start', { intervalSeconds: 1.0 });
+    _setManageStatus('Capture started.');
+  } catch (err) {
+    _setManageStatus(`Start capture failed: ${err?.message ?? err}`);
+  }
+}
+
+async function captureStop() {
+  const cu = _selectedClusterUuid();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  _setManageStatus('Stopping capture on cluster...');
+  try {
+    await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/capture/stop`, {});
+    _setManageStatus('Capture stopped.');
+  } catch (err) {
+    _setManageStatus(`Stop capture failed: ${err?.message ?? err}`);
   }
 }
 
@@ -625,6 +652,8 @@ if (btnClusterRemoveEl) btnClusterRemoveEl.addEventListener('click', () => remov
 if (btnAppLaunchEl) btnAppLaunchEl.addEventListener('click', () => appLaunch());
 if (btnAppAttachEl) btnAppAttachEl.addEventListener('click', () => appAttach());
 if (btnAppCloseEl) btnAppCloseEl.addEventListener('click', () => appClose());
+if (btnCaptureStartEl) btnCaptureStartEl.addEventListener('click', () => captureStart());
+if (btnCaptureStopEl) btnCaptureStopEl.addEventListener('click', () => captureStop());
 
 if (btnActionsFetchEl) btnActionsFetchEl.addEventListener('click', () => actionsFetch());
 if (btnActionRunEl) btnActionRunEl.addEventListener('click', () => actionRunRemove('run'));

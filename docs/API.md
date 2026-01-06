@@ -229,6 +229,30 @@ Response:
 { "defaultAppPath": "C:/Path/To/App.exe", "defaultWindowTitle": "Exact Window Title" }
 ```
 
+### Capture control (start / stop)
+
+Start/stop the cluster's capture worker.
+
+These map directly to the cluster server endpoints:
+- `POST {baseUrl}/api/capture/start`
+- `POST {baseUrl}/api/capture/stop`
+
+#### `POST /api/orchestrator/clusters/{clusterUuid}/capture/start`
+
+Request (cluster format, wrapped):
+
+```json
+{ "body": { "intervalSeconds": 1.0 } }
+```
+
+#### `POST /api/orchestrator/clusters/{clusterUuid}/capture/stop`
+
+Response:
+
+```json
+{ "ok": true }
+```
+
 #### `POST /api/orchestrator/clusters/{clusterUuid}/decommission`
 
 Marks a cluster as decommissioned (soft-delete).

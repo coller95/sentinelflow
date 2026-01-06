@@ -406,6 +406,20 @@ async def ProxyAppClose(clusterUuid: UUID) -> Any:
     return await _proxy_json("POST", base, "/api/app/close")
 
 
+@app.post("/api/orchestrator/clusters/{clusterUuid}/capture/start")
+async def ProxyCaptureStart(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    return await _proxy_json("POST", base, "/api/capture/start", body=dict(req.body))
+
+
+@app.post("/api/orchestrator/clusters/{clusterUuid}/capture/stop")
+async def ProxyCaptureStop(clusterUuid: UUID) -> Any:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    return await _proxy_json("POST", base, "/api/capture/stop")
+
+
 @app.post("/api/orchestrator/clusters/{clusterUuid}/actions/upsert")
 async def ProxyActionsUpsert(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
     svc = _get_services()
