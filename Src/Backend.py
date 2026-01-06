@@ -5,6 +5,7 @@ from fastapi.responses import Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import sys
+import os
 import time
 import asyncio
 from pathlib import Path
@@ -28,28 +29,122 @@ services: Optional[ControllerServices] = None
 def _state_root() -> Path:
     """Where to store persistent state.
 
+    Policy:
     - In dev: project root
-    - In packaged exe: folder next to the executable
+    - In packaged exe: prefer the EXE folder *if writable*, otherwise fall back to a per-user folder
+
+    You can override the directory with `SENTINELFLOW_STATE_DIR`.
     """
-    if bool(getattr(sys, "frozen", False)):
+
+    def is_writable_dir(p: Path) -> bool:
         try:
-            return Path(sys.executable).resolve().parent
+            p.mkdir(parents=True, exist_ok=True)
+            probe = p / ".sentinelflow_write_test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return True
         except Exception:
-            return Path.cwd()
+            return False
+
+    if bool(getattr(sys, "frozen", False)):
+        override = (os.getenv("SENTINELFLOW_STATE_DIR") or "").strip()
+        candidates: List[Path] = []
+        if override:
+            candidates.append(Path(override))
+
+        try:
+            candidates.append(Path(sys.executable).resolve().parent)
+        except Exception:
+            candidates.append(Path.cwd())
+
+        appdata = (os.getenv("LOCALAPPDATA") or os.getenv("APPDATA") or "").strip()
+        if appdata:
+            candidates.append(Path(appdata) / "SentinelFlow")
+
+        candidates.append(Path.home() / ".sentinelflow")
+
+        for c in candidates:
+            if is_writable_dir(c):
+                return c
+
+        # Last resort.
+        return Path.cwd()
+
     return Path(__file__).resolve().parents[1]
 
 
 _STATE_PATH = _state_root() / "state.json"
 
 
+def _candidate_state_paths() -> List[Path]:
+    """Possible locations for reading state.
+
+    `_STATE_PATH` is the primary write location; this list also includes
+    legacy/alternate locations so packaged builds can find existing state.
+    """
+    paths: List[Path] = [_STATE_PATH]
+
+    if bool(getattr(sys, "frozen", False)):
+        # Also try the EXE folder explicitly (even if we fell back due to permissions).
+        try:
+            exe_dir = Path(sys.executable).resolve().parent
+            exe_path = exe_dir / "state.json"
+            if exe_path not in paths:
+                paths.append(exe_path)
+        except Exception:
+            pass
+
+    # In dev, also try CWD as a convenience.
+    try:
+        cwd_path = Path.cwd() / "state.json"
+        if cwd_path not in paths:
+            paths.append(cwd_path)
+    except Exception:
+        pass
+
+    return paths
+
+
+def _find_existing_state_path() -> Optional[Path]:
+    for p in _candidate_state_paths():
+        try:
+            if p.exists():
+                return p
+        except Exception:
+            continue
+    return None
+
+
 def _try_load_state(svc: ControllerServices) -> None:
     try:
-        svc.LoadState(_STATE_PATH)
+        existing = _find_existing_state_path()
+        if existing is None:
+            return
+
+        svc.LoadState(existing)
+
+        # If we loaded from a non-primary location, migrate by saving to the primary.
+        if existing != _STATE_PATH:
+            try:
+                svc.SaveState(_STATE_PATH)
+                print(f"[state] Migrated state.json from {existing} -> {_STATE_PATH}")
+            except Exception as exc:
+                print(f"[state] Migration save failed: {exc}")
     except FileNotFoundError:
         return
     except Exception as exc:
         # Don't block startup on corrupted state; operator can delete state.json.
         print(f"[state] Load failed: {exc}")
+
+
+def _ensure_state_file(svc: ControllerServices) -> None:
+    """Ensure `state.json` exists so serverUuid/defaults persist even without edits."""
+    try:
+        if not _STATE_PATH.exists():
+            svc.SaveState(_STATE_PATH)
+            print(f"[state] Initialized new state at {_STATE_PATH}")
+    except Exception as exc:
+        print(f"[state] Init save failed: {exc}")
 
 
 def _try_save_state(svc: ControllerServices) -> None:
@@ -81,6 +176,7 @@ def _get_services() -> ControllerServices:
     if svc is not None:
         if not bool(getattr(app.state, "stateLoaded", False)):
             _try_load_state(svc)
+            _ensure_state_file(svc)
             app.state.stateLoaded = True
         return svc
 
@@ -88,6 +184,7 @@ def _get_services() -> ControllerServices:
     if services is None:
         services = ControllerServices()
         _try_load_state(services)
+        _ensure_state_file(services)
     return services
 
 
@@ -103,6 +200,12 @@ def GetServerInfo() -> Dict[str, Any]:
 def ExportState(includeServerUuid: bool = False) -> Dict[str, Any]:
     svc = _get_services()
     return svc.ExportStateDict(includeServerUuid=bool(includeServerUuid))
+
+
+@app.get("/api/state/path")
+def GetStatePath() -> Dict[str, Any]:
+    """Return the resolved path where this node reads/writes `state.json`."""
+    return {"path": str(_STATE_PATH)}
 
 
 class StateImportRequest(BaseModel):

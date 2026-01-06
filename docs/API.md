@@ -349,6 +349,11 @@ Reloads `orchestrator_state.json` from disk.
 
 State is stored in `state.json` (written atomically as `state.json.tmp` then replaced).
 
+Location rules:
+- In development: project root.
+- In PyInstaller packaged builds: prefers the folder next to the EXE **if writable**; otherwise falls back to a per-user folder (e.g. `%LOCALAPPDATA%/SentinelFlow`).
+- Override with environment variable `SENTINELFLOW_STATE_DIR`.
+
 ### `GET /api/state/export?includeServerUuid=false`
 
 Exports the node configuration as a JSON object.
@@ -412,6 +417,16 @@ Response:
 Errors:
 - `404` if `state.json` does not exist
 - `400` if parsing/import fails
+
+### `GET /api/state/path`
+
+Returns the resolved absolute path the node uses for `state.json`.
+
+Response:
+
+```json
+{ "path": "C:/.../state.json" }
+```
 
 ## App Window Management
 
