@@ -57,6 +57,7 @@ const btnTriggerDelete = document.getElementById('btnTriggerDelete');
 const btnTriggerSave = document.getElementById('btnTriggerSave');
 const triggerNameEl = document.getElementById('triggerName');
 const triggerEnabledEl = document.getElementById('triggerEnabled');
+const triggerRetriggerMsEl = document.getElementById('triggerRetriggerMs');
 const triggerActionEl = document.getElementById('triggerAction');
 const triggerCriteriaBody = document.getElementById('triggerCriteriaBody');
 const btnTriggerAddCriteria = document.getElementById('btnTriggerAddCriteria');
@@ -236,6 +237,7 @@ function _clearTriggerEditor() {
   selectedTriggerUuid = null;
   if (triggerNameEl) triggerNameEl.value = '';
   if (triggerEnabledEl) triggerEnabledEl.checked = false;
+  if (triggerRetriggerMsEl) triggerRetriggerMsEl.value = '0';
   _triggerCriteria = [];
   _renderTriggerCriteriaRows();
 }
@@ -261,6 +263,7 @@ function _applyTriggerToEditor(t) {
   selectedTriggerUuid = String(t.uuid ?? '');
   if (triggerNameEl) triggerNameEl.value = String(t.name ?? '');
   if (triggerEnabledEl) triggerEnabledEl.checked = !!t.enabled;
+  if (triggerRetriggerMsEl) triggerRetriggerMsEl.value = String(t.retriggerMs ?? 0);
   if (triggerActionEl) triggerActionEl.value = String(t.action ?? '');
   _triggerCriteria = Array.isArray(t.triggerCiterias) ? t.triggerCiterias.map((c) => ({
     conditionUuid: String(c.conditionUuid ?? ''),
@@ -571,6 +574,13 @@ if (btnTriggerSave) {
 
       const enabled = triggerEnabledEl ? !!triggerEnabledEl.checked : false;
 
+      let retriggerMs = 0;
+      if (triggerRetriggerMsEl) {
+        const n = Number(triggerRetriggerMsEl.value);
+        if (!Number.isFinite(n) || n < 0) throw new Error('Retrigger (ms) must be a non-negative number');
+        retriggerMs = Math.floor(n);
+      }
+
       // Source of truth: read from DOM so async select-population can't drop rows.
       const citerias = _readTriggerCriteriaFromDom();
       _triggerCriteria = citerias;
@@ -580,7 +590,7 @@ if (btnTriggerSave) {
         throw new Error('Criteria rows exist but no Condition is selected. Create/refresh Conditions first, then select a Condition for each criteria.');
       }
 
-      const payload = { name, enabled, action: actionUuid, triggerCiterias: citerias };
+      const payload = { name, enabled, retriggerMs, action: actionUuid, triggerCiterias: citerias };
       if (selectedTriggerUuid) payload.uuid = selectedTriggerUuid;
 
       const res = await postJson('/api/triggers/upsert', payload);

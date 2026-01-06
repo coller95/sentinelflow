@@ -128,6 +128,7 @@ class TriggerItemDto(BaseModel):
     uuid: str
     name: str
     enabled: bool = False
+    retriggerMs: int = 0
     triggerCiterias: List[TriggerCiteriaDto] = []
     action: str
 
@@ -136,6 +137,7 @@ class TriggerUpsertRequest(BaseModel):
     uuid: Optional[UUID] = None
     name: str
     enabled: bool = False
+    retriggerMs: int = 0
     triggerCiterias: List[TriggerCiteriaDto] = []
     action: UUID
 
@@ -423,6 +425,7 @@ def GetTriggers() -> List[TriggerItemDto]:
                 uuid=str(t.uuid),
                 name=t.name,
                 enabled=bool(getattr(t, "enabled", False)),
+                retriggerMs=int(getattr(t, "retriggerMs", 0) or 0),
                 triggerCiterias=citerias,
                 action=str(t.action),
             )
@@ -460,6 +463,7 @@ def UpsertTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
             triggerCiterias=citerias,
             action=req.action,
             enabled=bool(req.enabled),
+            retriggerMs=int(getattr(req, "retriggerMs", 0) or 0),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

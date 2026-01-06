@@ -88,6 +88,7 @@ class TriggerItem:
     triggerCiterias: List[TriggerCiteria]  # List of ConditionItem UUIDs
     action: UUID            # ActionItem UUID
     enabled: bool = False
+    retriggerMs: int = 0
 
 class ControllerServices:
     def __init__(self):
@@ -164,6 +165,7 @@ class ControllerServices:
         self._trigger_last_match: Dict[UUID, bool] = {}
         self._trigger_fire_count: Dict[UUID, int] = {}
         self._trigger_last_fire_unix: Dict[UUID, float] = {}
+        self._trigger_last_fire_mono: Dict[UUID, float] = {}
         self._trigger_last_eval: Dict[UUID, List[Dict[str, Any]]] = {}
         self._trigger_status_seq: int = 0
         self._trigger_thread = threading.Thread(
@@ -196,10 +198,15 @@ class ControllerServices:
         triggerCiterias: List[TriggerCiteria],
         action: UUID,
         enabled: bool = False,
+        retriggerMs: int = 0,
     ) -> TriggerItem:
         clean_name = (name or "").strip()
         if not clean_name:
             raise ValueError("name cannot be empty")
+
+        retrigger_ms_int = int(retriggerMs or 0)
+        if retrigger_ms_int < 0:
+            raise ValueError("retriggerMs cannot be negative")
 
         with self._state_lock:
             if action not in self._actionItemList:
@@ -217,6 +224,7 @@ class ControllerServices:
                 triggerCiterias=list(triggerCiterias or []),
                 action=action,
                 enabled=bool(enabled),
+                retriggerMs=retrigger_ms_int,
             )
             self._triggerItemList[trig_uuid] = item
             return item
@@ -232,6 +240,7 @@ class ControllerServices:
                 triggerCiterias=list(existing.triggerCiterias or []),
                 action=existing.action,
                 enabled=bool(enabled),
+                retriggerMs=int(getattr(existing, "retriggerMs", 0) or 0),
             )
             self._triggerItemList[uuid] = updated
             return updated
@@ -266,6 +275,7 @@ class ControllerServices:
                 "uuid": str(t.uuid),
                 "name": t.name,
                 "enabled": bool(t.enabled),
+                "retriggerMs": int(getattr(t, "retriggerMs", 0) or 0),
                 "isMet": bool(last_match.get(t.uuid, False)),
                 "fireCount": int(fire_count.get(t.uuid, 0)),
                 "lastFireUnix": (float(lf) if lf is not None else None),
@@ -292,6 +302,7 @@ class ControllerServices:
             self._trigger_last_match.pop(uuid, None)
             self._trigger_fire_count.pop(uuid, None)
             self._trigger_last_fire_unix.pop(uuid, None)
+            self._trigger_last_fire_mono.pop(uuid, None)
             self._trigger_last_eval.pop(uuid, None)
 
     def GetLastTriggerError(self) -> Optional[BaseException]:
@@ -407,15 +418,35 @@ class ControllerServices:
                         self._trigger_last_match[t.uuid] = bool(matched)
                         self._trigger_last_eval[t.uuid] = eval_rows
 
-                    # Rising edge triggers execution.
-                    if matched and not prev:
+                    # Fire policy:
+                    # - retriggerMs <= 0: rising-edge only (prevents spamming)
+                    # - retriggerMs  > 0: allow periodic fire while still matched
+                    should_fire = False
+                    retrigger_ms = int(getattr(t, "retriggerMs", 0) or 0)
+                    if matched:
+                        if retrigger_ms > 0:
+                            now_mono = float(time.monotonic())
+                            with self._state_lock:
+                                last_mono = self._trigger_last_fire_mono.get(t.uuid)
+                            if last_mono is None:
+                                should_fire = True
+                            else:
+                                if (now_mono - float(last_mono)) >= (float(retrigger_ms) / 1000.0):
+                                    should_fire = True
+                        else:
+                            if not prev:
+                                should_fire = True
+
+                    if should_fire:
                         try:
                             self.EnqueueRunActionByUuid(t.action)
+                            now_unix = float(time.time())
+                            now_mono = float(time.monotonic())
                             with self._state_lock:
                                 self._trigger_fire_count[t.uuid] = int(self._trigger_fire_count.get(t.uuid, 0)) + 1
-                                self._trigger_last_fire_unix[t.uuid] = float(time.time())
+                                self._trigger_last_fire_unix[t.uuid] = now_unix
+                                self._trigger_last_fire_mono[t.uuid] = now_mono
                         except Exception as exc:
-                            # Record enqueue errors for debugging.
                             with self._state_lock:
                                 self._trigger_last_error = exc
 
