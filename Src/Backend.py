@@ -109,6 +109,46 @@ class ActionUuidRequest(BaseModel):
     uuid: UUID
 
 
+class TriggerComparatorDto(str, Enum):
+    Equals = "Equals"
+    NotEquals = "NotEquals"
+    GreaterThan = "GreaterThan"
+    LessThan = "LessThan"
+    GreaterThanOrEqual = "GreaterThanOrEqual"
+    LessThanOrEqual = "LessThanOrEqual"
+
+
+class TriggerCiteriaDto(BaseModel):
+    conditionUuid: UUID
+    expectedValue: Any
+    comparator: TriggerComparatorDto
+
+
+class TriggerItemDto(BaseModel):
+    uuid: str
+    name: str
+    enabled: bool = False
+    triggerCiterias: List[TriggerCiteriaDto] = []
+    action: str
+
+
+class TriggerUpsertRequest(BaseModel):
+    uuid: Optional[UUID] = None
+    name: str
+    enabled: bool = False
+    triggerCiterias: List[TriggerCiteriaDto] = []
+    action: UUID
+
+
+class TriggerUuidRequest(BaseModel):
+    uuid: UUID
+
+
+class TriggerSetEnabledRequest(BaseModel):
+    uuid: UUID
+    enabled: bool
+
+
 class ConditionTypeDto(str, Enum):
     ImageMatchRoi = "ImageMatchRoi"
     ProgressBar = "ProgressBar"
@@ -363,6 +403,155 @@ def GetActions() -> List[ActionItemDto]:
     return out
 
 
+@app.get("/api/triggers")
+def GetTriggers() -> List[TriggerItemDto]:
+    svc = _get_services()
+    out: List[TriggerItemDto] = []
+    for t in svc.GetTriggerItems():
+        citerias: List[TriggerCiteriaDto] = []
+        for c in t.triggerCiterias or []:
+            citerias.append(
+                TriggerCiteriaDto(
+                    conditionUuid=c.conditionUuid,
+                    expectedValue=c.expectedValue,
+                    comparator=TriggerComparatorDto[c.comparator.name],
+                )
+            )
+
+        out.append(
+            TriggerItemDto(
+                uuid=str(t.uuid),
+                name=t.name,
+                enabled=bool(getattr(t, "enabled", False)),
+                triggerCiterias=citerias,
+                action=str(t.action),
+            )
+        )
+
+    return out
+
+
+@app.post("/api/triggers/upsert")
+def UpsertTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    from Src.ControllerServices import TriggerComparator, TriggerCiteria
+
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name cannot be empty")
+
+    citerias: List[TriggerCiteria] = []
+    for c in req.triggerCiterias or []:
+        try:
+            citerias.append(
+                TriggerCiteria(
+                    conditionUuid=c.conditionUuid,
+                    expectedValue=c.expectedValue,
+                    comparator=TriggerComparator[c.comparator.value],
+                )
+            )
+        except KeyError:
+            raise HTTPException(status_code=400, detail=f"Invalid comparator: {c.comparator}")
+
+    try:
+        item = svc.UpsertTriggerItem(
+            req.uuid,
+            name=name,
+            triggerCiterias=citerias,
+            action=req.action,
+            enabled=bool(req.enabled),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except KeyError as exc:
+        # Could be missing action or condition UUID.
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    return {"ok": True, "uuid": str(item.uuid)}
+
+
+@app.post("/api/triggers/remove_uuid")
+def RemoveTriggerByUuid(req: TriggerUuidRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.RemoveTriggerItemByUuid(req.uuid)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Trigger uuid not found")
+    return {"ok": True}
+
+
+@app.post("/api/triggers/set_enabled")
+def SetTriggerEnabled(req: TriggerSetEnabledRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        item = svc.SetTriggerEnabled(req.uuid, bool(req.enabled))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Trigger uuid not found")
+    return {"ok": True, "uuid": str(item.uuid), "enabled": bool(item.enabled)}
+
+
+@app.get("/api/triggers/status")
+def GetTriggerStatus() -> Dict[str, Any]:
+    svc = _get_services()
+    return {
+        "items": svc.GetTriggerStatusSnapshot(),
+        "lastError": (repr(svc.GetLastTriggerError()) if svc.GetLastTriggerError() is not None else None),
+        "macro": svc.GetMacroState(),
+    }
+
+
+@app.get("/api/triggers/status/stream")
+async def TriggerStatusStream(request: Request):
+    svc = _get_services()
+
+    async def event_stream():
+        yield "retry: 1000\n\n"
+
+        last_seq = svc.GetTriggerStatusSequence()
+        last_keepalive = time.monotonic()
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            seq = svc.GetTriggerStatusSequence()
+            if seq != last_seq:
+                last_seq = seq
+                payload: Dict[str, Any] = {
+                    "seq": int(seq),
+                    "items": svc.GetTriggerStatusSnapshot(),
+                    "lastError": (repr(svc.GetLastTriggerError()) if svc.GetLastTriggerError() is not None else None),
+                    "macro": svc.GetMacroState(),
+                }
+                yield f"event: status\ndata: {json.dumps(payload)}\n\n"
+
+            now = time.monotonic()
+            if now - last_keepalive >= 10.0:
+                yield ": keepalive\n\n"
+                last_keepalive = now
+
+            await asyncio.sleep(0.2)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.get("/api/triggers/debug")
+def GetTriggerDebug() -> Dict[str, Any]:
+    svc = _get_services()
+
+    last_err = svc.GetLastTriggerError()
+    last_match = svc.GetTriggerLastMatchDict()
+    fire_count = svc.GetTriggerFireCountDict()
+    last_fire = svc.GetTriggerLastFireUnixDict()
+
+    return {
+        "lastError": (repr(last_err) if last_err is not None else None),
+        "lastMatchByUuid": {str(k): bool(v) for k, v in (last_match or {}).items()},
+        "fireCountByUuid": {str(k): int(v) for k, v in (fire_count or {}).items()},
+        "lastFireUnixByUuid": {str(k): float(v) for k, v in (last_fire or {}).items()},
+    }
+
+
 @app.post("/api/actions/upsert")
 def UpsertAction(req: ActionUpsertRequest) -> Dict[str, Any]:
     svc = _get_services()
@@ -405,6 +594,16 @@ def RunAction(req: ActionUuidRequest) -> Dict[str, Any]:
     except KeyError:
         raise HTTPException(status_code=404, detail="Action uuid not found")
     return {"ok": True}
+
+
+@app.get("/api/actions/debug")
+def GetActionDebug() -> Dict[str, Any]:
+    svc = _get_services()
+    last_err = svc.GetLastMacroError()
+    return {
+        "lastError": (repr(last_err) if last_err is not None else None),
+        "macroQueueSize": int(svc.GetMacroQueueSize()),
+    }
 
 
 @app.get("/api/conditions")

@@ -51,6 +51,8 @@
             <button data-tab="capture">Capture</button>
             <button data-tab="input">Input</button>
             <button data-tab="actions">Actions</button>
+            <button data-tab="triggers">Triggers</button>
+            <button data-tab="triggerStatus">Trigger Status</button>
             <button data-tab="conditions">Conditions</button>
             </nav>
 
@@ -215,6 +217,106 @@
                     <div class="buttons">
                         <button id="btnActionSave" class="primary" type="button">Save</button>
                     </div>
+                </div>
+            </fieldset>
+        </section>
+
+        <section id="tab-triggers" class="tabPanel">
+            <fieldset>
+                <legend>Triggers</legend>
+
+                <div class="condToolbar">
+                    <button id="btnTriggerNew" class="primary" type="button">New</button>
+                    <button id="btnTriggerDelete" type="button">Delete</button>
+                    <span class="condSpacer"></span>
+                    <button id="btnRefreshTriggers" class="primary" type="button">Refresh</button>
+                </div>
+
+                <div class="condTableWrap">
+                    <table class="condTable" aria-label="Triggers table">
+                        <thead>
+                            <tr>
+                                <th>Trigger</th>
+                                <th>Enabled</th>
+                                <th>Action</th>
+                                <th>Criterias</th>
+                            </tr>
+                        </thead>
+                        <tbody id="triggerTableBody"></tbody>
+                    </table>
+                </div>
+
+                <div class="condBottom">
+                    <div class="row">
+                        <label for="triggerName">Name</label>
+                        <input id="triggerName" type="text" placeholder="Example: Low HP -> Heal" />
+                    </div>
+
+                    <div class="row">
+                        <label>
+                            <input id="triggerEnabled" type="checkbox" />
+                            Enabled
+                        </label>
+                    </div>
+
+                    <div class="row">
+                        <label for="triggerAction">Action</label>
+                        <select id="triggerAction" class="selectLike"></select>
+                    </div>
+
+                    <div class="row">
+                        <label>Criterias</label>
+                        <div class="condTableWrap" style="max-height: 220px;">
+                            <table class="condTable" aria-label="Trigger criterias">
+                                <thead>
+                                    <tr>
+                                        <th>Condition</th>
+                                        <th>Comparator</th>
+                                        <th>Expected</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="triggerCriteriaBody"></tbody>
+                            </table>
+                        </div>
+                        <div class="buttons">
+                            <button id="btnTriggerAddCriteria" class="primary" type="button">Add Criteria</button>
+                        </div>
+                    </div>
+
+                    <div class="buttons">
+                        <button id="btnTriggerSave" class="primary" type="button">Save</button>
+                    </div>
+                </div>
+            </fieldset>
+        </section>
+
+        <section id="tab-triggerStatus" class="tabPanel">
+            <fieldset>
+                <legend>Trigger Status</legend>
+
+                <div class="condToolbar">
+                    <button id="btnRefreshTriggerStatus" class="primary" type="button">Refresh</button>
+                </div>
+
+                <div class="condTableWrap">
+                    <table class="condTable" aria-label="Trigger status table">
+                        <thead>
+                            <tr>
+                                <th>Trigger</th>
+                                <th>Enabled</th>
+                                <th>Met</th>
+                                <th>Logic</th>
+                                <th>Action</th>
+                                <th>Action Running</th>
+                                <th>Action Runs</th>
+                                <th>Trigger Fires</th>
+                                <th>Last Fire</th>
+                                <th>Action Last Done</th>
+                            </tr>
+                        </thead>
+                        <tbody id="triggerStatusTableBody"></tbody>
+                    </table>
                 </div>
             </fieldset>
         </section>

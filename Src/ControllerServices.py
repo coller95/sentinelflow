@@ -67,6 +67,27 @@ class ActionItem:
     name: str
     steps: List[MacroStep]
 
+class TriggerComparator(Enum):
+    Equals = auto()
+    NotEquals = auto()
+    GreaterThan = auto()
+    LessThan = auto()
+    GreaterThanOrEqual = auto()
+    LessThanOrEqual = auto()
+
+@dataclass(frozen=True)
+class TriggerCiteria:
+    conditionUuid: UUID
+    expectedValue: Any
+    comparator: TriggerComparator
+
+@dataclass(frozen=True)
+class TriggerItem:
+    uuid: UUID
+    name: str
+    triggerCiterias: List[TriggerCiteria]  # List of ConditionItem UUIDs
+    action: UUID            # ActionItem UUID
+    enabled: bool = False
 
 class ControllerServices:
     def __init__(self):
@@ -105,6 +126,15 @@ class ControllerServices:
         self._actionItemList: Dict[UUID, ActionItem] = {}
         self._macro_queue: queue.Queue[UUID] = queue.Queue(maxsize=64)
         self._macro_last_error: Optional[BaseException] = None
+        self._macro_current_action_uuid: Optional[UUID] = None
+        self._macro_current_started_unix: Optional[float] = None
+        self._macro_last_enqueued_action_uuid: Optional[UUID] = None
+        self._macro_last_enqueued_unix: Optional[float] = None
+        self._macro_last_completed_action_uuid: Optional[UUID] = None
+        self._macro_last_completed_unix: Optional[float] = None
+        self._action_run_count: Dict[UUID, int] = {}
+        self._action_last_started_unix: Dict[UUID, float] = {}
+        self._action_last_completed_unix: Dict[UUID, float] = {}
         self._macro_thread = threading.Thread(
             target=self._macro_worker,
             name="SentinelFlowMacro",
@@ -127,6 +157,22 @@ class ControllerServices:
         )
         self._condition_status_thread.start()
 
+        # Trigger definitions and evaluation.
+        self._triggerItemList: Dict[UUID, TriggerItem] = {}
+        self._trigger_last_error: Optional[BaseException] = None
+        self._trigger_interval_seconds = 0.2
+        self._trigger_last_match: Dict[UUID, bool] = {}
+        self._trigger_fire_count: Dict[UUID, int] = {}
+        self._trigger_last_fire_unix: Dict[UUID, float] = {}
+        self._trigger_last_eval: Dict[UUID, List[Dict[str, Any]]] = {}
+        self._trigger_status_seq: int = 0
+        self._trigger_thread = threading.Thread(
+            target=self._trigger_worker,
+            name="SentinelFlowTrigger",
+            daemon=True,
+        )
+        self._trigger_thread.start()
+
     def GetConditionItems(self) -> List[ConditionItem]:
         with self._state_lock:
             return list(self._conditionItemList.values())
@@ -134,6 +180,254 @@ class ControllerServices:
     def GetActionItems(self) -> List[ActionItem]:
         with self._state_lock:
             return list(self._actionItemList.values())
+
+    def GetTriggerItems(self) -> List[TriggerItem]:
+        with self._state_lock:
+            return list(self._triggerItemList.values())
+
+    def GetTriggerItemByUuid(self, uuid: UUID) -> Optional[TriggerItem]:
+        with self._state_lock:
+            return self._triggerItemList.get(uuid)
+
+    def UpsertTriggerItem(
+        self,
+        uuid: Optional[UUID],
+        name: str,
+        triggerCiterias: List[TriggerCiteria],
+        action: UUID,
+        enabled: bool = False,
+    ) -> TriggerItem:
+        clean_name = (name or "").strip()
+        if not clean_name:
+            raise ValueError("name cannot be empty")
+
+        with self._state_lock:
+            if action not in self._actionItemList:
+                raise KeyError("Action uuid not found")
+
+            # Best-effort validation: criteria condition UUIDs must exist.
+            for c in triggerCiterias or []:
+                if c.conditionUuid not in self._conditionItemList:
+                    raise KeyError("Condition uuid not found")
+
+            trig_uuid = uuid or uuid4()
+            item = TriggerItem(
+                uuid=trig_uuid,
+                name=clean_name,
+                triggerCiterias=list(triggerCiterias or []),
+                action=action,
+                enabled=bool(enabled),
+            )
+            self._triggerItemList[trig_uuid] = item
+            return item
+
+    def SetTriggerEnabled(self, uuid: UUID, enabled: bool) -> TriggerItem:
+        with self._state_lock:
+            existing = self._triggerItemList.get(uuid)
+            if existing is None:
+                raise KeyError("Trigger uuid not found")
+            updated = TriggerItem(
+                uuid=existing.uuid,
+                name=existing.name,
+                triggerCiterias=list(existing.triggerCiterias or []),
+                action=existing.action,
+                enabled=bool(enabled),
+            )
+            self._triggerItemList[uuid] = updated
+            return updated
+
+    def GetTriggerStatusSnapshot(self) -> List[Dict[str, Any]]:
+        with self._state_lock:
+            triggers = list(self._triggerItemList.values())
+            actions_by_uuid = {a.uuid: a for a in self._actionItemList.values()}
+            last_match = dict(self._trigger_last_match)
+            fire_count = dict(self._trigger_fire_count)
+            last_fire = dict(self._trigger_last_fire_unix)
+            last_eval = dict(self._trigger_last_eval)
+
+        # Pull action execution stats outside the lock (it locks internally).
+        action_stats = self.GetActionExecutionStats()
+
+        out: List[Dict[str, Any]] = []
+        for t in triggers:
+            a = actions_by_uuid.get(t.action)
+            a_name = a.name if a is not None else str(t.action)
+            a_stat = action_stats.get(t.action, {
+                "runCount": 0,
+                "lastStartedUnix": None,
+                "lastCompletedUnix": None,
+                "isRunning": False,
+            })
+
+            lf = last_fire.get(t.uuid)
+            eval_rows = last_eval.get(t.uuid, [])
+
+            out.append({
+                "uuid": str(t.uuid),
+                "name": t.name,
+                "enabled": bool(t.enabled),
+                "isMet": bool(last_match.get(t.uuid, False)),
+                "fireCount": int(fire_count.get(t.uuid, 0)),
+                "lastFireUnix": (float(lf) if lf is not None else None),
+                "eval": eval_rows,
+                "actionUuid": str(t.action),
+                "actionName": a_name,
+                "actionIsRunning": bool(a_stat.get("isRunning", False)),
+                "actionRunCount": int(a_stat.get("runCount", 0)),
+                "actionLastStartedUnix": a_stat.get("lastStartedUnix", None),
+                "actionLastCompletedUnix": a_stat.get("lastCompletedUnix", None),
+            })
+
+        return out
+
+    def GetTriggerStatusSequence(self) -> int:
+        with self._state_lock:
+            return int(self._trigger_status_seq)
+
+    def RemoveTriggerItemByUuid(self, uuid: UUID) -> None:
+        with self._state_lock:
+            if uuid not in self._triggerItemList:
+                raise KeyError("Trigger uuid not found")
+            del self._triggerItemList[uuid]
+            self._trigger_last_match.pop(uuid, None)
+            self._trigger_fire_count.pop(uuid, None)
+            self._trigger_last_fire_unix.pop(uuid, None)
+            self._trigger_last_eval.pop(uuid, None)
+
+    def GetLastTriggerError(self) -> Optional[BaseException]:
+        with self._state_lock:
+            return self._trigger_last_error
+
+    def GetTriggerLastMatchDict(self) -> Dict[UUID, bool]:
+        with self._state_lock:
+            return dict(self._trigger_last_match)
+
+    def GetTriggerFireCountDict(self) -> Dict[UUID, int]:
+        with self._state_lock:
+            return dict(self._trigger_fire_count)
+
+    def GetTriggerLastFireUnixDict(self) -> Dict[UUID, float]:
+        with self._state_lock:
+            return dict(self._trigger_last_fire_unix)
+
+    def GetMacroQueueSize(self) -> int:
+        try:
+            return int(self._macro_queue.qsize())
+        except Exception:
+            return 0
+
+    def _trigger_worker(self) -> None:
+        def to_float(v: Any) -> Optional[float]:
+            try:
+                if v is None:
+                    return None
+                return float(v)
+            except Exception:
+                return None
+
+        def eval_one(last_value: Optional[float], expected: Any, comp: TriggerComparator) -> bool:
+            if last_value is None:
+                return False
+
+            lv = float(last_value)
+
+            if comp in (TriggerComparator.GreaterThan, TriggerComparator.LessThan,
+                        TriggerComparator.GreaterThanOrEqual, TriggerComparator.LessThanOrEqual):
+                ev = to_float(expected)
+                if ev is None:
+                    return False
+                if comp == TriggerComparator.GreaterThan:
+                    return lv > ev
+                if comp == TriggerComparator.LessThan:
+                    return lv < ev
+                if comp == TriggerComparator.GreaterThanOrEqual:
+                    return lv >= ev
+                if comp == TriggerComparator.LessThanOrEqual:
+                    return lv <= ev
+                return False
+
+            # Equals / NotEquals: prefer numeric comparison if possible.
+            evf = to_float(expected)
+            if evf is not None:
+                ok = (lv == evf)
+            else:
+                ok = (str(lv) == str(expected))
+
+            if comp == TriggerComparator.Equals:
+                return ok
+            if comp == TriggerComparator.NotEquals:
+                return not ok
+
+            return False
+
+        while True:
+            try:
+                # Clear stale errors after we successfully enter the loop.
+                with self._state_lock:
+                    self._trigger_last_error = None
+
+                with self._state_lock:
+                    interval = float(self._trigger_interval_seconds)
+                    triggers = list(self._triggerItemList.values())
+
+                # Snapshot condition names.
+                with self._state_lock:
+                    cond_name_by_uuid: Dict[UUID, str] = {k: v.name for k, v in self._conditionItemList.items()}
+
+                # Snapshot last values by condition UUID.
+                with self._condition_status_lock:
+                    last_by_uuid: Dict[UUID, Optional[float]] = {k: v.last for k, v in self._condition_status.items()}
+
+                for t in triggers:
+                    eval_rows: List[Dict[str, Any]] = []
+                    if not bool(t.enabled):
+                        with self._state_lock:
+                            self._trigger_last_match[t.uuid] = False
+                            self._trigger_last_eval[t.uuid] = []
+                        continue
+
+                    matched = True
+                    for c in (t.triggerCiterias or []):
+                        last_val = last_by_uuid.get(c.conditionUuid)
+                        ok = eval_one(last_val, c.expectedValue, c.comparator)
+                        eval_rows.append({
+                            "conditionUuid": str(c.conditionUuid),
+                            "conditionName": cond_name_by_uuid.get(c.conditionUuid, str(c.conditionUuid)),
+                            "comparator": c.comparator.name,
+                            "expected": c.expectedValue,
+                            "last": last_val,
+                            "ok": bool(ok),
+                        })
+                        if not ok:
+                            matched = False
+                            break
+
+                    with self._state_lock:
+                        prev = bool(self._trigger_last_match.get(t.uuid, False))
+                        self._trigger_last_match[t.uuid] = bool(matched)
+                        self._trigger_last_eval[t.uuid] = eval_rows
+
+                    # Rising edge triggers execution.
+                    if matched and not prev:
+                        try:
+                            self.EnqueueRunActionByUuid(t.action)
+                            with self._state_lock:
+                                self._trigger_fire_count[t.uuid] = int(self._trigger_fire_count.get(t.uuid, 0)) + 1
+                                self._trigger_last_fire_unix[t.uuid] = float(time.time())
+                        except Exception as exc:
+                            # Record enqueue errors for debugging.
+                            with self._state_lock:
+                                self._trigger_last_error = exc
+
+                with self._state_lock:
+                    self._trigger_status_seq += 1
+
+                time.sleep(max(0.05, interval))
+
+            except BaseException as exc:
+                with self._state_lock:
+                    self._trigger_last_error = exc
+                time.sleep(0.5)
 
     def GetActionItemByUuid(self, uuid: UUID) -> Optional[ActionItem]:
         with self._state_lock:
@@ -160,6 +454,8 @@ class ControllerServices:
         with self._state_lock:
             if uuid not in self._actionItemList:
                 raise KeyError("Action uuid not found")
+            self._macro_last_enqueued_action_uuid = uuid
+            self._macro_last_enqueued_unix = float(time.time())
 
         try:
             self._macro_queue.put_nowait(uuid)
@@ -179,12 +475,47 @@ class ControllerServices:
         with self._state_lock:
             return self._macro_last_error
 
+    def GetMacroState(self) -> Dict[str, Any]:
+        with self._state_lock:
+            return {
+                "currentActionUuid": (str(self._macro_current_action_uuid) if self._macro_current_action_uuid else None),
+                "currentStartedUnix": (float(self._macro_current_started_unix) if self._macro_current_started_unix else None),
+                "lastEnqueuedActionUuid": (str(self._macro_last_enqueued_action_uuid) if self._macro_last_enqueued_action_uuid else None),
+                "lastEnqueuedUnix": (float(self._macro_last_enqueued_unix) if self._macro_last_enqueued_unix else None),
+                "lastCompletedActionUuid": (str(self._macro_last_completed_action_uuid) if self._macro_last_completed_action_uuid else None),
+                "lastCompletedUnix": (float(self._macro_last_completed_unix) if self._macro_last_completed_unix else None),
+            }
+
+    def GetActionExecutionStats(self) -> Dict[UUID, Dict[str, Any]]:
+        with self._state_lock:
+            out: Dict[UUID, Dict[str, Any]] = {}
+            for au in set(
+                list(self._actionItemList.keys())
+                + list(self._action_run_count.keys())
+                + list(self._action_last_started_unix.keys())
+                + list(self._action_last_completed_unix.keys())
+            ):
+                last_started = self._action_last_started_unix.get(au)
+                last_completed = self._action_last_completed_unix.get(au)
+                out[au] = {
+                    "runCount": int(self._action_run_count.get(au, 0)),
+                    "lastStartedUnix": (float(last_started) if last_started is not None else None),
+                    "lastCompletedUnix": (float(last_completed) if last_completed is not None else None),
+                    "isRunning": bool(self._macro_current_action_uuid == au),
+                }
+            return out
+
     def _macro_worker(self) -> None:
         while True:
             action_uuid = self._macro_queue.get()
             try:
                 with self._state_lock:
                     action = self._actionItemList.get(action_uuid)
+                    self._macro_current_action_uuid = action_uuid
+                    now = float(time.time())
+                    self._macro_current_started_unix = now
+                    self._action_run_count[action_uuid] = int(self._action_run_count.get(action_uuid, 0)) + 1
+                    self._action_last_started_unix[action_uuid] = now
 
                 if action is None:
                     continue
@@ -209,6 +540,13 @@ class ControllerServices:
                 with self._state_lock:
                     self._macro_last_error = exc
             finally:
+                with self._state_lock:
+                    self._macro_last_completed_action_uuid = action_uuid
+                    now2 = float(time.time())
+                    self._macro_last_completed_unix = now2
+                    self._action_last_completed_unix[action_uuid] = now2
+                    self._macro_current_action_uuid = None
+                    self._macro_current_started_unix = None
                 try:
                     self._macro_queue.task_done()
                 except ValueError:
