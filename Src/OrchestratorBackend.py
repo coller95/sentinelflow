@@ -378,6 +378,27 @@ class ProxyBodyRequest(BaseModel):
     body: Dict[str, Any]
 
 
+@app.post("/api/orchestrator/clusters/{clusterUuid}/app/launch")
+async def ProxyAppLaunch(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    return await _proxy_json("POST", base, "/api/app/launch", body=dict(req.body))
+
+
+@app.post("/api/orchestrator/clusters/{clusterUuid}/app/attach")
+async def ProxyAppAttach(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    return await _proxy_json("POST", base, "/api/app/attach", body=dict(req.body))
+
+
+@app.post("/api/orchestrator/clusters/{clusterUuid}/app/close")
+async def ProxyAppClose(clusterUuid: UUID) -> Any:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    return await _proxy_json("POST", base, "/api/app/close")
+
+
 @app.post("/api/orchestrator/clusters/{clusterUuid}/actions/upsert")
 async def ProxyActionsUpsert(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
     svc = _get_services()

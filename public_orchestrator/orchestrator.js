@@ -12,6 +12,16 @@ const editClusterBaseUrlEl = document.getElementById('editClusterBaseUrl');
 const btnClusterSaveEl = document.getElementById('btnClusterSave');
 const btnClusterRemoveEl = document.getElementById('btnClusterRemove');
 
+const appLaunchPathEl = document.getElementById('appLaunchPath');
+const appAttachTitleEl = document.getElementById('appAttachTitle');
+const appLeftEl = document.getElementById('appLeft');
+const appTopEl = document.getElementById('appTop');
+const appWidthEl = document.getElementById('appWidth');
+const appHeightEl = document.getElementById('appHeight');
+const btnAppLaunchEl = document.getElementById('btnAppLaunch');
+const btnAppAttachEl = document.getElementById('btnAppAttach');
+const btnAppCloseEl = document.getElementById('btnAppClose');
+
 const manageStatusEl = document.getElementById('manageStatus');
 
 const btnActionsFetchEl = document.getElementById('btnActionsFetch');
@@ -229,6 +239,62 @@ async function removeSelectedCluster() {
     await refreshClusters(null);
   } catch (err) {
     _setManageStatus(`Remove failed: ${err?.message ?? err}`);
+  }
+}
+
+function _numOrDefault(el, d) {
+  const raw = String(el?.value ?? '').trim();
+  if (!raw) return d;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.floor(n) : d;
+}
+
+function _appGeometryPayload() {
+  return {
+    left: _numOrDefault(appLeftEl, 0),
+    top: _numOrDefault(appTopEl, 0),
+    width: _numOrDefault(appWidthEl, 640),
+    height: _numOrDefault(appHeightEl, 480),
+  };
+}
+
+async function appLaunch() {
+  const cu = _selectedClusterUuid();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  const app_path = String(appLaunchPathEl?.value || '').trim();
+  if (!app_path) return _setManageStatus('App path is required.');
+  _setManageStatus('Launching app on cluster...');
+  try {
+    await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/app/launch', { app_path, ..._appGeometryPayload() });
+    _setManageStatus('App launched.');
+  } catch (err) {
+    _setManageStatus(`Launch failed: ${err?.message ?? err}`);
+  }
+}
+
+async function appAttach() {
+  const cu = _selectedClusterUuid();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  const window_title = String(appAttachTitleEl?.value || '').trim();
+  if (!window_title) return _setManageStatus('Window title is required.');
+  _setManageStatus('Attaching app window on cluster...');
+  try {
+    await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/app/attach', { window_title, ..._appGeometryPayload() });
+    _setManageStatus('App attached.');
+  } catch (err) {
+    _setManageStatus(`Attach failed: ${err?.message ?? err}`);
+  }
+}
+
+async function appClose() {
+  const cu = _selectedClusterUuid();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  _setManageStatus('Closing app on cluster...');
+  try {
+    await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/app/close`, {});
+    _setManageStatus('App closed.');
+  } catch (err) {
+    _setManageStatus(`Close failed: ${err?.message ?? err}`);
   }
 }
 
@@ -535,6 +601,9 @@ if (clusterSelectEl) {
 
 if (btnClusterSaveEl) btnClusterSaveEl.addEventListener('click', () => saveSelectedCluster());
 if (btnClusterRemoveEl) btnClusterRemoveEl.addEventListener('click', () => removeSelectedCluster());
+if (btnAppLaunchEl) btnAppLaunchEl.addEventListener('click', () => appLaunch());
+if (btnAppAttachEl) btnAppAttachEl.addEventListener('click', () => appAttach());
+if (btnAppCloseEl) btnAppCloseEl.addEventListener('click', () => appClose());
 
 if (btnActionsFetchEl) btnActionsFetchEl.addEventListener('click', () => actionsFetch());
 if (btnActionRunEl) btnActionRunEl.addEventListener('click', () => actionRunRemove('run'));

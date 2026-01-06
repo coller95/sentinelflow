@@ -181,6 +181,39 @@ Response:
 }
 ```
 
+### App control (launch / attach)
+
+The orchestrator can proxy “app” control calls to a specific cluster (launching or attaching the target program window on that cluster machine).
+
+These map directly to the cluster server endpoints:
+- `POST {baseUrl}/api/app/launch`
+- `POST {baseUrl}/api/app/attach`
+- `POST {baseUrl}/api/app/close`
+
+#### `POST /api/orchestrator/clusters/{clusterUuid}/app/launch`
+
+Request (cluster format, wrapped):
+
+```json
+{ "body": { "app_path": "C:/Path/To/App.exe", "left": 0, "top": 0, "width": 640, "height": 480 } }
+```
+
+#### `POST /api/orchestrator/clusters/{clusterUuid}/app/attach`
+
+Request (cluster format, wrapped):
+
+```json
+{ "body": { "window_title": "Exact Window Title", "left": 0, "top": 0, "width": 640, "height": 480 } }
+```
+
+#### `POST /api/orchestrator/clusters/{clusterUuid}/app/close`
+
+Response:
+
+```json
+{ "ok": true }
+```
+
 #### `POST /api/orchestrator/clusters/{clusterUuid}/decommission`
 
 Marks a cluster as decommissioned (soft-delete).

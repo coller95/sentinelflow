@@ -69,7 +69,39 @@
                 <button class="active" data-tab="actions" type="button">Actions</button>
                 <button data-tab="conditions" type="button">Conditions</button>
                 <button data-tab="triggers" type="button">Triggers</button>
+                <button data-tab="app" type="button">App</button>
             </nav>
+
+            <section id="tab-app" class="orchPanel">
+                <div class="row">
+                    <label for="appLaunchPath">Launch app path</label>
+                    <input id="appLaunchPath" type="text" placeholder="Example: C:\\Games\\MyGame.exe" />
+                </div>
+
+                <div class="row">
+                    <label>Window position/size</label>
+                    <div class="buttons">
+                        <input id="appLeft" type="number" placeholder="left" />
+                        <input id="appTop" type="number" placeholder="top" />
+                        <input id="appWidth" type="number" placeholder="width" />
+                        <input id="appHeight" type="number" placeholder="height" />
+                    </div>
+                </div>
+
+                <div class="buttons">
+                    <button id="btnAppLaunch" class="primary" type="button">Launch</button>
+                </div>
+
+                <div class="row">
+                    <label for="appAttachTitle">Attach window title</label>
+                    <input id="appAttachTitle" type="text" placeholder="Exact window title" />
+                </div>
+
+                <div class="buttons">
+                    <button id="btnAppAttach" class="primary" type="button">Attach</button>
+                    <button id="btnAppClose" type="button">Close</button>
+                </div>
+            </section>
 
             <section id="tab-actions" class="orchPanel active">
                 <div class="buttons">
