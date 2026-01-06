@@ -378,6 +378,9 @@ function _renderTriggerStatusFromPayload(payload) {
     const tdMet = document.createElement('td');
     tdMet.textContent = it.isMet ? 'Yes' : 'No';
 
+    const tdRetrigger = document.createElement('td');
+    tdRetrigger.textContent = String(it.retriggerMs ?? 0);
+
     const tdLogic = document.createElement('td');
     tdLogic.style.whiteSpace = 'pre-line';
     const evalRows = Array.isArray(it.eval) ? it.eval : [];
@@ -442,6 +445,7 @@ function _renderTriggerStatusFromPayload(payload) {
 
     tr.appendChild(tdName);
     tr.appendChild(tdEnabled);
+    tr.appendChild(tdRetrigger);
     tr.appendChild(tdMet);
     tr.appendChild(tdLogic);
     tr.appendChild(tdAction);
