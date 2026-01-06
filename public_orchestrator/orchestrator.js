@@ -180,6 +180,25 @@ function _setClusterEditorFromSelected() {
   if (editClusterBaseUrlEl) editClusterBaseUrlEl.value = String(selected.baseUrl ?? '');
 }
 
+async function _loadAppDefaultsForSelectedCluster() {
+  const cu = _selectedClusterUuid();
+  if (!cu) return;
+
+  try {
+    const data = await _getJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/app/defaults`);
+    const d = (data && typeof data === 'object') ? data : {};
+
+    const defaultAppPath = String(d.defaultAppPath ?? d.appPath ?? d.path ?? '');
+    const defaultWindowTitle = String(d.defaultWindowTitle ?? d.programName ?? d.windowTitle ?? '');
+
+    if (appLaunchPathEl) appLaunchPathEl.value = defaultAppPath;
+    if (appAttachTitleEl) appAttachTitleEl.value = defaultWindowTitle;
+  } catch (err) {
+    // Not fatal; cluster might be offline or older version.
+    _setManageStatus(`App defaults unavailable: ${err?.message ?? err}`);
+  }
+}
+
 async function refreshClusters(selectUuid = null) {
   if (!clusterSelectEl) return;
   _setManageStatus('Loading clusters...');
@@ -201,6 +220,7 @@ async function refreshClusters(selectUuid = null) {
     }
 
     _setClusterEditorFromSelected();
+    await _loadAppDefaultsForSelectedCluster();
     _setManageStatus('Ready.');
   } catch (err) {
     _setManageStatus(`Failed to load clusters: ${err?.message ?? err}`);
@@ -596,6 +616,7 @@ if (btnRefreshClustersEl) {
 if (clusterSelectEl) {
   clusterSelectEl.addEventListener('change', () => {
     _setClusterEditorFromSelected();
+    _loadAppDefaultsForSelectedCluster();
   });
 }
 

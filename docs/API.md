@@ -214,6 +214,21 @@ Response:
 { "ok": true }
 ```
 
+### App defaults (query path / program name)
+
+Fetch the cluster's saved defaults for app launch path and window title.
+
+Maps directly to the cluster server endpoint:
+- `GET {baseUrl}/api/app/defaults`
+
+#### `GET /api/orchestrator/clusters/{clusterUuid}/app/defaults`
+
+Response:
+
+```json
+{ "defaultAppPath": "C:/Path/To/App.exe", "defaultWindowTitle": "Exact Window Title" }
+```
+
 #### `POST /api/orchestrator/clusters/{clusterUuid}/decommission`
 
 Marks a cluster as decommissioned (soft-delete).

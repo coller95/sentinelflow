@@ -378,6 +378,13 @@ class ProxyBodyRequest(BaseModel):
     body: Dict[str, Any]
 
 
+@app.get("/api/orchestrator/clusters/{clusterUuid}/app/defaults")
+async def ProxyAppDefaults(clusterUuid: UUID) -> Any:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    return await _proxy_json("GET", base, "/api/app/defaults")
+
+
 @app.post("/api/orchestrator/clusters/{clusterUuid}/app/launch")
 async def ProxyAppLaunch(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
     svc = _get_services()
