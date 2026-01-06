@@ -122,6 +122,25 @@ def ImportState(req: StateImportRequest) -> Dict[str, Any]:
     return {"ok": True}
 
 
+@app.post("/api/state/reload")
+def ReloadState() -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.LoadState(_STATE_PATH)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="state.json not found")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Reload failed: {exc}")
+
+    # Mark loaded for app.state-backed services.
+    try:
+        app.state.stateLoaded = True
+    except Exception:
+        pass
+
+    return {"ok": True, "serverUuid": str(svc.GetServerUuid())}
+
+
 class LaunchRequest(BaseModel):
     app_path: str
     left: int = 0
