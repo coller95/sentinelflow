@@ -12,6 +12,9 @@ async function _loadActionsForSelect(selectEl, selectedUuid) {
     if (selectedUuid) selectEl.value = String(selectedUuid);
 }
 
+let _triggerStatusHoverPaused = false;
+let _triggerStatusQueuedPayload = null;
+
 function _makePlaceholderName(prefix) {
     const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '-');
     return `${prefix} ${stamp}`;
@@ -186,13 +189,14 @@ function _renderTriggerStatusFromPayload(payload) {
         const tr = document.createElement('tr');
         const uuid = String(it.uuid ?? '');
         tr.dataset.uuid = uuid;
-        const tdName = document.createElement('td');
-        tdName.textContent = String(it.name ?? '');
         const tdEnabled = document.createElement('td');
+        tdEnabled.classList.add('stickyEnabled');
         const chk = document.createElement('input');
         chk.type = 'checkbox';
         chk.checked = !!it.enabled;
         tdEnabled.appendChild(chk);
+        const tdName = document.createElement('td');
+        tdName.textContent = String(it.name ?? '');
         const tdMet = document.createElement('td');
         tdMet.textContent = it.isMet ? 'Yes' : 'No';
         const tdRetrigger = document.createElement('td');
@@ -250,8 +254,8 @@ function _renderTriggerStatusFromPayload(payload) {
                 chk.checked = !!it.enabled;
             }
         });
-        tr.appendChild(tdName);
         tr.appendChild(tdEnabled);
+        tr.appendChild(tdName);
         tr.appendChild(tdRetrigger);
         tr.appendChild(tdMet);
         tr.appendChild(tdLogic);
@@ -277,6 +281,24 @@ function _renderTriggerStatusFromPayload(payload) {
     }
 }
 
+function _renderTriggerStatusMaybe(payload) {
+    if (_triggerStatusHoverPaused) {
+        _triggerStatusQueuedPayload = payload;
+        return;
+    }
+    _triggerStatusQueuedPayload = null;
+    _renderTriggerStatusFromPayload(payload);
+}
+
+function _setTriggerStatusHoverPaused(paused) {
+    _triggerStatusHoverPaused = paused;
+    if (!paused && _triggerStatusQueuedPayload) {
+        const payload = _triggerStatusQueuedPayload;
+        _triggerStatusQueuedPayload = null;
+        _renderTriggerStatusFromPayload(payload);
+    }
+}
+
 async function refreshTriggerStatus() {
     if (!triggerStatusTableBody) return;
     const payload = await getJson('/api/triggers/status');
@@ -285,6 +307,8 @@ async function refreshTriggerStatus() {
 
 function startTriggerStatusSse() {
     stopTriggerStatusSse();
+    _triggerStatusQueuedPayload = null;
+    _triggerStatusHoverPaused = !!(triggerStatusHoverTarget && triggerStatusHoverTarget.matches(':hover'));
     refreshTriggerStatus().catch(() => {});
     try {
         const es = new EventSource('/api/triggers/status/stream');
@@ -292,7 +316,7 @@ function startTriggerStatusSse() {
         es.addEventListener('status', (ev) => {
             try {
                 const payload = JSON.parse(String(ev.data || '{}'));
-                _renderTriggerStatusFromPayload(payload);
+                _renderTriggerStatusMaybe(payload);
             } catch {
                 // ignore malformed frames
             }
@@ -314,6 +338,16 @@ function stopTriggerStatusSse() {
         try { _triggerStatusEventSource.close(); } catch { }
         _triggerStatusEventSource = null;
     }
+}
+
+const triggerStatusHoverTarget = triggerStatusTableBody ? triggerStatusTableBody.closest('.condTableWrap') : null;
+if (triggerStatusHoverTarget) {
+    triggerStatusHoverTarget.addEventListener('mouseenter', () => {
+        _setTriggerStatusHoverPaused(true);
+    });
+    triggerStatusHoverTarget.addEventListener('mouseleave', () => {
+        _setTriggerStatusHoverPaused(false);
+    });
 }
 
 if (btnRefreshTriggerStatus) {

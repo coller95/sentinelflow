@@ -517,6 +517,38 @@ input:focus {
     background: rgba(10, 122, 107, 0.12);
 }
 
+#tab-triggerStatus .condTable {
+    --trigger-status-enabled-width: 96px;
+}
+
+#tab-triggerStatus .condTable .stickyEnabled {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    min-width: var(--trigger-status-enabled-width);
+    width: var(--trigger-status-enabled-width);
+    max-width: var(--trigger-status-enabled-width);
+    text-align: center;
+    background: var(--panel);
+    box-shadow: 2px 0 0 var(--border);
+}
+
+#tab-triggerStatus .condTable thead .stickyEnabled {
+    z-index: 3;
+}
+
+#tab-triggerStatus .condTable .stickyEnabled input[type="checkbox"] {
+    margin: 0;
+}
+
+#tab-triggerStatus .condTable tbody tr:hover .stickyEnabled {
+    background: rgba(10, 122, 107, 0.08);
+}
+
+#tab-triggerStatus .condTable tr.selected .stickyEnabled {
+    background: rgba(10, 122, 107, 0.12);
+}
+
 #tab-triggerStatus .condTableWrap {
     max-height: none;
 }
@@ -827,6 +859,14 @@ button.danger:hover {
     }
 
     .condTable tr.selected {
+        background: rgba(63, 183, 165, 0.18);
+    }
+
+    #tab-triggerStatus .condTable tbody tr:hover .stickyEnabled {
+        background: rgba(63, 183, 165, 0.14);
+    }
+
+    #tab-triggerStatus .condTable tr.selected .stickyEnabled {
         background: rgba(63, 183, 165, 0.18);
     }
 
