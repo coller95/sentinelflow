@@ -172,7 +172,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
     if (tabToggleBtn && controlWorkspace) {
-        setTabsOpen(false);
+        setTabsOpen(true);
         tabToggleBtn.addEventListener("click", () => {
             const isOpen = controlWorkspace.classList.contains("tabsOpen");
             setTabsOpen(!isOpen);
