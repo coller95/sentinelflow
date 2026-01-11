@@ -46,8 +46,19 @@ async function refreshConditions() {
     if (!condTableBody) return;
     const payload = await getJson('/api/conditions/status');
     const items = coerceConditionStatusItems(payload);
+    _renderConditionsTable(items);
+}
+
+let _conditionEditorLoadSeq = 0;
+let _conditionsLastItems = [];
+let _conditionsHoverPaused = false;
+let _conditionsQueuedPayload = null;
+
+function _renderConditionsTable(items) {
+    if (!condTableBody) return;
     condTableBody.textContent = '';
     const safeItems = Array.isArray(items) ? items : [];
+    _conditionsLastItems = safeItems;
     for (const it of safeItems) {
         const tr = document.createElement('tr');
         tr.dataset.uuid = String(it.uuid ?? '');
@@ -79,23 +90,27 @@ async function refreshConditions() {
         tr.appendChild(tdTpl);
         tr.appendChild(tdCrop);
         tr.appendChild(tdLast);
-        tr.addEventListener('click', () => {
-            const uuid = String(it.uuid ?? '');
-            if (selectedConditionUuid && uuid && String(selectedConditionUuid) === uuid) {
-                selectedConditionUuid = null;
-                clearSelectedConditionEditor();
-                refreshConditions().catch(() => {});
-                return;
-            }
-            selectedConditionUuid = uuid;
-            refreshConditions().catch(() => {});
-            loadSelectedConditionIntoEditor().catch(() => {});
-        });
         condTableBody.appendChild(tr);
     }
 }
 
-let _conditionEditorLoadSeq = 0;
+function _renderConditionsMaybe(items) {
+    if (_conditionsHoverPaused) {
+        _conditionsQueuedPayload = items;
+        return;
+    }
+    _conditionsQueuedPayload = null;
+    _renderConditionsTable(items);
+}
+
+function _setConditionsHoverPaused(paused) {
+    _conditionsHoverPaused = paused;
+    if (!paused && _conditionsQueuedPayload) {
+        const payload = _conditionsQueuedPayload;
+        _conditionsQueuedPayload = null;
+        _renderConditionsTable(payload);
+    }
+}
 
 function clearSelectedConditionEditor() {
     if (conditionNameEl) conditionNameEl.value = '';
@@ -155,62 +170,7 @@ function startConditionsEventSource() {
             const payload = JSON.parse(ev.data || '{}');
             const items = coerceConditionStatusItems(payload);
             if (!Array.isArray(items)) return;
-            condTableBody.textContent = '';
-            for (const it of items) {
-                const tr = document.createElement('tr');
-                tr.dataset.uuid = String(it.uuid ?? '');
-                if (selectedConditionUuid && String(it.uuid) === String(selectedConditionUuid)) {
-                    tr.classList.add('selected');
-                }
-                const tdName = document.createElement('td');
-                tdName.textContent = String(it.name ?? '');
-                const tdType = document.createElement('td');
-                tdType.textContent = String(it.type ?? '');
-                const tdTpl = document.createElement('td');
-                const tplImg = document.createElement('img');
-                tplImg.className = 'thumb';
-                if (it.templateThumbBase64) {
-                    tplImg.src = `data:image/jpeg;base64,${it.templateThumbBase64}`;
-                }
-                tdTpl.appendChild(tplImg);
-                const tdCrop = document.createElement('td');
-                const cropImg = document.createElement('img');
-                cropImg.className = 'thumb';
-                if (it.cropThumbBase64) {
-                    cropImg.src = `data:image/jpeg;base64,${it.cropThumbBase64}`;
-                }
-                tdCrop.appendChild(cropImg);
-                const tdLast = document.createElement('td');
-                tdLast.textContent = (it.last === null || it.last === undefined) ? '' : String(it.last);
-                tr.appendChild(tdName);
-                tr.appendChild(tdType);
-                tr.appendChild(tdTpl);
-                tr.appendChild(tdCrop);
-                tr.appendChild(tdLast);
-                tr.addEventListener('click', () => {
-                    const uuid = String(it.uuid ?? '');
-                    if (selectedConditionUuid && uuid && String(selectedConditionUuid) === uuid) {
-                        selectedConditionUuid = null;
-                        clearSelectedConditionEditor();
-                        try {
-                            tr.classList.remove('selected');
-                        } catch {
-                            // ignore
-                        }
-                        return;
-                    }
-                    selectedConditionUuid = uuid;
-                    try {
-                        const rows = condTableBody.querySelectorAll('tr');
-                        rows.forEach(r => r.classList.remove('selected'));
-                        tr.classList.add('selected');
-                    } catch {
-                        // ignore
-                    }
-                    loadSelectedConditionIntoEditor().catch(() => {});
-                });
-                condTableBody.appendChild(tr);
-            }
+            _renderConditionsMaybe(items);
         } catch {
             // ignore
         }
@@ -222,6 +182,37 @@ function stopConditionsEventSource() {
         conditionsEvents.close();
         conditionsEvents = null;
     }
+}
+
+if (condTableBody && !condTableBody.dataset.clickBound) {
+    condTableBody.dataset.clickBound = '1';
+    condTableBody.addEventListener('click', (ev) => {
+        const target = ev.target;
+        if (!(target instanceof Element)) return;
+        const row = target.closest('tr');
+        if (!row || !condTableBody.contains(row)) return;
+        const uuid = String(row.dataset.uuid || '').trim();
+        if (!uuid) return;
+        if (selectedConditionUuid && String(selectedConditionUuid) === uuid) {
+            selectedConditionUuid = null;
+            clearSelectedConditionEditor();
+            _renderConditionsTable(_conditionsLastItems);
+            return;
+        }
+        selectedConditionUuid = uuid;
+        _renderConditionsTable(_conditionsLastItems);
+        loadSelectedConditionIntoEditor().catch(() => {});
+    });
+}
+
+const conditionsHoverTarget = condTableBody ? condTableBody.closest('.condTableWrap') : null;
+if (conditionsHoverTarget) {
+    conditionsHoverTarget.addEventListener('mouseenter', () => {
+        _setConditionsHoverPaused(true);
+    });
+    conditionsHoverTarget.addEventListener('mouseleave', () => {
+        _setConditionsHoverPaused(false);
+    });
 }
 
 if (btnRefreshConditions) {
