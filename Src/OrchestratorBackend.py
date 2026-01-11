@@ -18,6 +18,10 @@ from Src.OrchestratorServices import OrchestratorServices
 app = FastAPI()
 
 
+# -----------------------------------------------------------------------------
+# Runtime paths + persistence
+# -----------------------------------------------------------------------------
+
 def _resource_root() -> Path:
     """Return the runtime root directory.
 
@@ -83,11 +87,19 @@ def _get_services() -> OrchestratorServices:
     return svc
 
 
+# -----------------------------------------------------------------------------
+# UI
+# -----------------------------------------------------------------------------
+
 @app.get("/")
 def GetOrchestratorUi() -> FileResponse:
     ui_path = _public_dir / "orchestrator.html"
     return FileResponse(str(ui_path), media_type="text/html")
 
+
+# -----------------------------------------------------------------------------
+# Cluster proxy helpers
+# -----------------------------------------------------------------------------
 
 def _require_cluster_base_url(svc: OrchestratorServices, clusterUuid: UUID) -> str:
     record = svc.GetCluster(clusterUuid)
@@ -140,11 +152,19 @@ async def _proxy_json(method: str, baseUrl: str, path: str, body: Optional[Dict[
     return res.text
 
 
+# -----------------------------------------------------------------------------
+# Orchestrator info
+# -----------------------------------------------------------------------------
+
 @app.get("/api/orchestrator/info")
 def GetOrchestratorInfo() -> Dict[str, Any]:
     svc = _get_services()
     return {"orchestratorUuid": str(svc.GetOrchestratorUuid())}
 
+
+# -----------------------------------------------------------------------------
+# Cluster management models
+# -----------------------------------------------------------------------------
 
 class CommissionClusterRequest(BaseModel):
     clusterUuid: UUID
@@ -204,6 +224,10 @@ class UpdateClusterRequest(BaseModel):
     label: Optional[str] = None
     baseUrl: Optional[str] = None
 
+
+# -----------------------------------------------------------------------------
+# Cluster management routes
+# -----------------------------------------------------------------------------
 
 @app.post("/api/orchestrator/clusters/commission")
 def CommissionCluster(req: CommissionClusterRequest) -> Dict[str, Any]:
@@ -315,6 +339,10 @@ def RemoveCluster(clusterUuid: UUID) -> Dict[str, Any]:
     return {"ok": True}
 
 
+# -----------------------------------------------------------------------------
+# Orchestrator state
+# -----------------------------------------------------------------------------
+
 class OrchestratorImportRequest(BaseModel):
     state: Dict[str, Any]
 
@@ -356,9 +384,11 @@ def ReloadOrchestratorState() -> Dict[str, Any]:
 
 
 # -----------------------------------------------------------------------------
-# Cluster management proxies (Actions / Conditions / Triggers)
+# Cluster proxies
 # -----------------------------------------------------------------------------
 
+
+# --- Server info ---
 
 @app.get("/api/orchestrator/clusters/{clusterUuid}/server/info")
 async def ProxyServerInfo(clusterUuid: UUID) -> Any:
@@ -367,6 +397,8 @@ async def ProxyServerInfo(clusterUuid: UUID) -> Any:
     return await _proxy_json("GET", base, "/api/server/info")
 
 
+# --- Actions (list) ---
+
 @app.get("/api/orchestrator/clusters/{clusterUuid}/actions")
 async def ProxyActionsList(clusterUuid: UUID) -> Any:
     svc = _get_services()
@@ -374,9 +406,13 @@ async def ProxyActionsList(clusterUuid: UUID) -> Any:
     return await _proxy_json("GET", base, "/api/actions")
 
 
+# --- Proxy body wrapper ---
+
 class ProxyBodyRequest(BaseModel):
     body: Dict[str, Any]
 
+
+# --- App window + capture ---
 
 @app.get("/api/orchestrator/clusters/{clusterUuid}/app/defaults")
 async def ProxyAppDefaults(clusterUuid: UUID) -> Any:
@@ -420,6 +456,8 @@ async def ProxyCaptureStop(clusterUuid: UUID) -> Any:
     return await _proxy_json("POST", base, "/api/capture/stop")
 
 
+# --- Actions (mutations) ---
+
 @app.post("/api/orchestrator/clusters/{clusterUuid}/actions/upsert")
 async def ProxyActionsUpsert(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
     svc = _get_services()
@@ -447,6 +485,8 @@ async def ProxyActionsRun(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
     base = _require_cluster_base_url(svc, clusterUuid)
     return await _proxy_json("POST", base, "/api/actions/run", body=dict(req.body))
 
+
+# --- Conditions ---
 
 @app.get("/api/orchestrator/clusters/{clusterUuid}/conditions")
 async def ProxyConditionsList(clusterUuid: UUID) -> Any:
@@ -489,6 +529,8 @@ async def ProxyConditionsRemove(clusterUuid: UUID, req: ProxyBodyRequest) -> Any
     base = _require_cluster_base_url(svc, clusterUuid)
     return await _proxy_json("POST", base, "/api/conditions/remove_uuid", body=dict(req.body))
 
+
+# --- Triggers ---
 
 @app.get("/api/orchestrator/clusters/{clusterUuid}/triggers")
 async def ProxyTriggersList(clusterUuid: UUID) -> Any:
