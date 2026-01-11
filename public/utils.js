@@ -147,6 +147,24 @@ function rgbaFromComputedColor(alpha) {
 function normalizeKeyNameFromEvent(ev) {
     const key = String(ev.key || '');
     const code = String(ev.code || '');
+    const location = Number(ev.location || 0);
+
+    if (location === 3 && code.startsWith('Numpad')) {
+        const numpadMap = {
+            NumpadAdd: 'NumpadAdd',
+            NumpadSubtract: 'NumpadSubtract',
+            NumpadMultiply: 'NumpadMultiply',
+            NumpadDivide: 'NumpadDivide',
+            NumpadDecimal: 'NumpadDecimal',
+            NumpadComma: 'NumpadComma',
+            NumpadEnter: 'NumpadEnter',
+            NumpadEqual: 'NumpadEqual',
+            NumpadClear: 'NumpadClear'
+        };
+        if (numpadMap[code]) return numpadMap[code];
+        const digit = code.slice('Numpad'.length);
+        if (/^\d$/.test(digit)) return `Numpad${digit}`;
+    }
 
     if (key.length === 1) {
         const ch = key;
@@ -173,6 +191,10 @@ function normalizeKeyNameFromEvent(ev) {
         ArrowRight: 'ArrowRight',
         ArrowUp: 'ArrowUp',
         ArrowDown: 'ArrowDown',
+        Left: 'ArrowLeft',
+        Right: 'ArrowRight',
+        Up: 'ArrowUp',
+        Down: 'ArrowDown',
         Shift: ev.location === 2 ? 'RShift' : 'LShift',
         Control: ev.location === 2 ? 'RCtrl' : 'LCtrl',
         Alt: ev.location === 2 ? 'RAlt' : 'LAlt',

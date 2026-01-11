@@ -297,7 +297,30 @@ def VkFromKeyName(keyName: str) -> VirtualKey:
         "rshift": 0xA1,
         "lalt": 0xA4,
         "ralt": 0xA5,
+        "numlock": win32con.VK_NUMLOCK,
+        "numpad0": win32con.VK_NUMPAD0,
+        "numpad1": win32con.VK_NUMPAD1,
+        "numpad2": win32con.VK_NUMPAD2,
+        "numpad3": win32con.VK_NUMPAD3,
+        "numpad4": win32con.VK_NUMPAD4,
+        "numpad5": win32con.VK_NUMPAD5,
+        "numpad6": win32con.VK_NUMPAD6,
+        "numpad7": win32con.VK_NUMPAD7,
+        "numpad8": win32con.VK_NUMPAD8,
+        "numpad9": win32con.VK_NUMPAD9,
+        "numpadadd": win32con.VK_ADD,
+        "numpadsubtract": win32con.VK_SUBTRACT,
+        "numpadmultiply": win32con.VK_MULTIPLY,
+        "numpaddivide": win32con.VK_DIVIDE,
+        "numpaddecimal": win32con.VK_DECIMAL,
+        "numpadcomma": win32con.VK_DECIMAL,
+        "numpadclear": win32con.VK_CLEAR,
+        "numpadenter": win32con.VK_RETURN,
     }
+
+    oem_equal = getattr(win32con, "VK_OEM_NEC_EQUAL", None)
+    if isinstance(oem_equal, int):
+        named["numpadequal"] = oem_equal
 
     if norm in named:
         return VirtualKey(named[norm])
