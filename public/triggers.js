@@ -181,6 +181,11 @@ async function refreshTriggers() {
     _loadActionsForSelect(triggerActionEl, triggerActionEl ? triggerActionEl.value : '').catch(() => {});
 }
 
+async function moveSelectedTrigger(direction) {
+    if (!selectedTriggerUuid) throw new Error('Select a trigger first');
+    await postJson('/api/triggers/move', { uuid: selectedTriggerUuid, direction });
+}
+
 function _renderTriggerStatusFromPayload(payload) {
     if (!triggerStatusTableBody) return;
     const items = payload && Array.isArray(payload.items) ? payload.items : [];
@@ -407,6 +412,32 @@ if (btnTriggerNew) {
             setStatus('New trigger created.', 'ok');
         } catch (e) {
             setStatus(`Create trigger failed: ${e.message}`, 'err');
+        }
+    });
+}
+
+if (btnTriggerMoveUp) {
+    btnTriggerMoveUp.addEventListener('click', async () => {
+        setStatus('Moving trigger up...', null);
+        try {
+            await moveSelectedTrigger('up');
+            await refreshTriggers();
+            setStatus('Trigger moved.', 'ok');
+        } catch (e) {
+            setStatus(`Move failed: ${e.message}`, 'err');
+        }
+    });
+}
+
+if (btnTriggerMoveDown) {
+    btnTriggerMoveDown.addEventListener('click', async () => {
+        setStatus('Moving trigger down...', null);
+        try {
+            await moveSelectedTrigger('down');
+            await refreshTriggers();
+            setStatus('Trigger moved.', 'ok');
+        } catch (e) {
+            setStatus(`Move failed: ${e.message}`, 'err');
         }
     });
 }

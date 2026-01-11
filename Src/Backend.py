@@ -352,6 +352,11 @@ class ActionUuidRequest(BaseModel):
     uuid: UUID
 
 
+class ActionMoveRequest(BaseModel):
+    uuid: UUID
+    direction: str  # 'up' | 'down'
+
+
 class TriggerComparatorDto(str, Enum):
     Equals = "Equals"
     NotEquals = "NotEquals"
@@ -387,6 +392,11 @@ class TriggerUpsertRequest(BaseModel):
 
 class TriggerUuidRequest(BaseModel):
     uuid: UUID
+
+
+class TriggerMoveRequest(BaseModel):
+    uuid: UUID
+    direction: str  # 'up' | 'down'
 
 
 class TriggerSetEnabledRequest(BaseModel):
@@ -731,6 +741,19 @@ def RemoveTriggerByUuid(req: TriggerUuidRequest) -> Dict[str, Any]:
     return {"ok": True}
 
 
+@app.post("/api/triggers/move")
+def MoveTrigger(req: TriggerMoveRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.MoveTriggerItemByUuid(req.uuid, str(req.direction))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Trigger uuid not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    _try_save_state(svc)
+    return {"ok": True}
+
+
 @app.post("/api/triggers/set_enabled")
 def SetTriggerEnabled(req: TriggerSetEnabledRequest) -> Dict[str, Any]:
     svc = _get_services()
@@ -836,6 +859,19 @@ def RemoveActionByUuid(req: ActionUuidRequest) -> Dict[str, Any]:
         svc.RemoveActionItemByUuid(req.uuid)
     except KeyError:
         raise HTTPException(status_code=404, detail="Action uuid not found")
+    _try_save_state(svc)
+    return {"ok": True}
+
+
+@app.post("/api/actions/move")
+def MoveAction(req: ActionMoveRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.MoveActionItemByUuid(req.uuid, str(req.direction))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Action uuid not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     _try_save_state(svc)
     return {"ok": True}
 

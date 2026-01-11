@@ -327,6 +327,7 @@ Notes:
 - `GET /api/orchestrator/clusters/{clusterUuid}/actions` → proxies `GET {baseUrl}/api/actions`
 - `POST /api/orchestrator/clusters/{clusterUuid}/actions/upsert`
 - `POST /api/orchestrator/clusters/{clusterUuid}/actions/remove_uuid`
+- `POST /api/orchestrator/clusters/{clusterUuid}/actions/move`
 - `POST /api/orchestrator/clusters/{clusterUuid}/actions/run`
 
 For the POST endpoints, send the cluster request JSON inside a wrapper object:
@@ -356,6 +357,7 @@ POST body wrapper example:
 - `GET /api/orchestrator/clusters/{clusterUuid}/triggers/status`
 - `POST /api/orchestrator/clusters/{clusterUuid}/triggers/upsert`
 - `POST /api/orchestrator/clusters/{clusterUuid}/triggers/remove_uuid`
+- `POST /api/orchestrator/clusters/{clusterUuid}/triggers/move`
 - `POST /api/orchestrator/clusters/{clusterUuid}/triggers/set_enabled`
 
 POST body wrapper example:
@@ -859,6 +861,7 @@ Events:
 ### `GET /api/actions`
 
 Returns all actions.
+List order is persisted and can be adjusted via `POST /api/actions/move`.
 
 Response:
 
@@ -918,6 +921,24 @@ Response:
 { "ok": true }
 ```
 
+### `POST /api/actions/move`
+
+Moves an action up/down in display order.
+
+Request:
+
+```json
+{ "uuid": "...", "direction": "up" }
+```
+
+`direction` must be `up` or `down`.
+
+Response:
+
+```json
+{ "ok": true }
+```
+
 ### `POST /api/actions/run`
 
 Enqueues an action for execution.
@@ -954,6 +975,7 @@ A trigger ties a set of criteria (condition comparisons) to an action.
 ### `GET /api/triggers`
 
 Returns trigger definitions.
+List order is persisted and can be adjusted via `POST /api/triggers/move`.
 
 Response:
 
@@ -1013,6 +1035,24 @@ Request:
 ```json
 { "uuid": "..." }
 ```
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+### `POST /api/triggers/move`
+
+Moves a trigger up/down in display order.
+
+Request:
+
+```json
+{ "uuid": "...", "direction": "up" }
+```
+
+`direction` must be `up` or `down`.
 
 Response:
 

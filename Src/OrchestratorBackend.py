@@ -434,6 +434,13 @@ async def ProxyActionsRemove(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
     return await _proxy_json("POST", base, "/api/actions/remove_uuid", body=dict(req.body))
 
 
+@app.post("/api/orchestrator/clusters/{clusterUuid}/actions/move")
+async def ProxyActionsMove(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    return await _proxy_json("POST", base, "/api/actions/move", body=dict(req.body))
+
+
 @app.post("/api/orchestrator/clusters/{clusterUuid}/actions/run")
 async def ProxyActionsRun(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
     svc = _get_services()
@@ -509,6 +516,13 @@ async def ProxyTriggersRemove(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
     svc = _get_services()
     base = _require_cluster_base_url(svc, clusterUuid)
     return await _proxy_json("POST", base, "/api/triggers/remove_uuid", body=dict(req.body))
+
+
+@app.post("/api/orchestrator/clusters/{clusterUuid}/triggers/move")
+async def ProxyTriggersMove(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    return await _proxy_json("POST", base, "/api/triggers/move", body=dict(req.body))
 
 
 @app.post("/api/orchestrator/clusters/{clusterUuid}/triggers/set_enabled")

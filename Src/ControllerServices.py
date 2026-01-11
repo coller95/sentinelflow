@@ -593,6 +593,12 @@ class ControllerServices:
         with self._state_lock:
             return self._triggerItemList.get(uuid)
 
+    def _trigger_keys_in_order(self) -> List[UUID]:
+        return list(self._triggerItemList.keys())
+
+    def _reorder_triggers_by_keys(self, keys: List[UUID]) -> None:
+        self._triggerItemList = {k: self._triggerItemList[k] for k in keys}
+
     def UpsertTriggerItem(
         self,
         uuid: Optional[UUID],
@@ -706,6 +712,32 @@ class ControllerServices:
             self._trigger_last_fire_unix.pop(uuid, None)
             self._trigger_last_fire_mono.pop(uuid, None)
             self._trigger_last_eval.pop(uuid, None)
+
+    def MoveTriggerItemByUuid(self, uuid: UUID, direction: str) -> None:
+        dir_norm = (direction or "").strip().lower()
+        with self._state_lock:
+            keys = self._trigger_keys_in_order()
+            if uuid not in self._triggerItemList:
+                raise KeyError("Trigger uuid not found")
+
+            index = keys.index(uuid)
+            n = len(keys)
+
+            if dir_norm == "up":
+                if index == 0:
+                    return
+                keys[index - 1], keys[index] = keys[index], keys[index - 1]
+                self._reorder_triggers_by_keys(keys)
+                return
+
+            if dir_norm == "down":
+                if index >= n - 1:
+                    return
+                keys[index + 1], keys[index] = keys[index], keys[index + 1]
+                self._reorder_triggers_by_keys(keys)
+                return
+
+            raise ValueError("direction must be 'up' or 'down'")
 
     def GetLastTriggerError(self) -> Optional[BaseException]:
         with self._state_lock:
@@ -866,6 +898,12 @@ class ControllerServices:
         with self._state_lock:
             return self._actionItemList.get(uuid)
 
+    def _action_keys_in_order(self) -> List[UUID]:
+        return list(self._actionItemList.keys())
+
+    def _reorder_actions_by_keys(self, keys: List[UUID]) -> None:
+        self._actionItemList = {k: self._actionItemList[k] for k in keys}
+
     def UpsertActionItem(self, uuid: Optional[UUID], name: str, steps: List[MacroStep]) -> ActionItem:
         clean_name = (name or "").strip()
         if not clean_name:
@@ -882,6 +920,35 @@ class ControllerServices:
             if uuid not in self._actionItemList:
                 raise KeyError("Action uuid not found")
             del self._actionItemList[uuid]
+            self._action_run_count.pop(uuid, None)
+            self._action_last_started_unix.pop(uuid, None)
+            self._action_last_completed_unix.pop(uuid, None)
+
+    def MoveActionItemByUuid(self, uuid: UUID, direction: str) -> None:
+        dir_norm = (direction or "").strip().lower()
+        with self._state_lock:
+            keys = self._action_keys_in_order()
+            if uuid not in self._actionItemList:
+                raise KeyError("Action uuid not found")
+
+            index = keys.index(uuid)
+            n = len(keys)
+
+            if dir_norm == "up":
+                if index == 0:
+                    return
+                keys[index - 1], keys[index] = keys[index], keys[index - 1]
+                self._reorder_actions_by_keys(keys)
+                return
+
+            if dir_norm == "down":
+                if index >= n - 1:
+                    return
+                keys[index + 1], keys[index] = keys[index], keys[index + 1]
+                self._reorder_actions_by_keys(keys)
+                return
+
+            raise ValueError("direction must be 'up' or 'down'")
 
     def EnqueueRunActionByUuid(self, uuid: UUID) -> None:
         with self._state_lock:

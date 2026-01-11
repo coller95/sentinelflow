@@ -165,6 +165,11 @@ async function refreshActions() {
     }
 }
 
+async function moveSelectedAction(direction) {
+    if (!selectedActionUuid) throw new Error('Select an action first');
+    await postJson('/api/actions/move', { uuid: selectedActionUuid, direction });
+}
+
 document.addEventListener('keydown', (ev) => {
     if (!_actionKeyCaptureArmed) return;
     ev.preventDefault();
@@ -265,6 +270,32 @@ if (btnActionNew) {
             setStatus('New action created.', 'ok');
         } catch (e) {
             setStatus(`Create action failed: ${e.message}`, 'err');
+        }
+    });
+}
+
+if (btnActionMoveUp) {
+    btnActionMoveUp.addEventListener('click', async () => {
+        setStatus('Moving action up...', null);
+        try {
+            await moveSelectedAction('up');
+            await refreshActions();
+            setStatus('Action moved.', 'ok');
+        } catch (e) {
+            setStatus(`Move failed: ${e.message}`, 'err');
+        }
+    });
+}
+
+if (btnActionMoveDown) {
+    btnActionMoveDown.addEventListener('click', async () => {
+        setStatus('Moving action down...', null);
+        try {
+            await moveSelectedAction('down');
+            await refreshActions();
+            setStatus('Action moved.', 'ok');
+        } catch (e) {
+            setStatus(`Move failed: ${e.message}`, 'err');
         }
     });
 }
