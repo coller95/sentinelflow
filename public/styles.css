@@ -561,6 +561,42 @@ input:focus {
     min-height: 0;
 }
 
+@media (min-width: 1101px) {
+    #tab-actions.active,
+    #tab-conditions.active,
+    #tab-triggers.active {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    #tab-actions > fieldset,
+    #tab-conditions > fieldset,
+    #tab-triggers > fieldset {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        margin-bottom: 0;
+    }
+
+    #tab-actions .panelSplit,
+    #tab-conditions .panelSplit,
+    #tab-triggers .panelSplit {
+        flex: 1;
+        min-height: 0;
+        align-items: stretch;
+        grid-template-rows: minmax(0, 1fr);
+    }
+
+    #tab-actions .editorPane,
+    #tab-conditions .editorPane,
+    #tab-triggers .editorPane {
+        overflow-y: auto;
+        min-height: 0;
+    }
+}
+
 .formSection {
     padding: 12px;
     border: 1px solid var(--border);
