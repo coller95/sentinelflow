@@ -107,7 +107,7 @@ function clearSelectedConditionEditor() {
     if (roiHEl) roiHEl.value = '0';
     _lastRoi = null;
     _activeRoiHandle = null;
-    drawOverlayRoi(null);
+    renderLiveOverlay();
 }
 
 function applyConditionItemToEditor(item) {
@@ -125,7 +125,7 @@ function applyConditionItemToEditor(item) {
     _lastRoi = roi;
     _activeRoiHandle = null;
     setRoiInputsFromNormalized(roi);
-    drawOverlayRoi(roi);
+    renderLiveOverlay();
 }
 
 async function loadSelectedConditionIntoEditor() {
@@ -280,7 +280,7 @@ async function createConditionPlaceholder() {
     _lastRoi = { x: xNormalized, y: yNormalized, w: widthNormalized, h: heightNormalized };
     _activeRoiHandle = null;
     setRoiInputsFromNormalized(_lastRoi);
-    drawOverlayRoi(_lastRoi);
+    renderLiveOverlay();
 
     const res = await postJson('/api/conditions', {
         name,

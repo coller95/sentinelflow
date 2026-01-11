@@ -5,6 +5,12 @@ let _liveZoom = 1.0;
 let _livePan = { x: 0, y: 0 };
 let _panMode = false;
 let _panDrag = null;
+const LIVE_OVERLAY_MODES = {
+    NONE: 'none',
+    CLICK: 'click',
+    ROI: 'roi',
+};
+let _liveOverlayMode = LIVE_OVERLAY_MODES.NONE;
 
 function ensureOverlayCanvasSize() {
     if (!roiOverlay) return;
@@ -12,6 +18,14 @@ function ensureOverlayCanvasSize() {
     const h = Math.max(1, Math.floor(roiOverlay.clientHeight));
     if (roiOverlay.width !== w) roiOverlay.width = w;
     if (roiOverlay.height !== h) roiOverlay.height = h;
+}
+
+function clearOverlayCanvas() {
+    if (!roiOverlay) return;
+    ensureOverlayCanvasSize();
+    const ctx = roiOverlay.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, roiOverlay.width, roiOverlay.height);
 }
 
 function getRenderedImageBox() {
@@ -101,6 +115,76 @@ function drawOverlayRoi(roi) {
     for (const h of handles) {
         drawHandle(h.x, h.y, _activeRoiHandle === h.key);
     }
+}
+
+function drawClickMarker(pt) {
+    if (!roiOverlay) return;
+    ensureOverlayCanvasSize();
+    const ctx = roiOverlay.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, roiOverlay.width, roiOverlay.height);
+    if (!pt) return;
+    const { renderWidth, renderHeight, offsetX, offsetY } = getRenderedImageBox();
+    if (renderWidth <= 0 || renderHeight <= 0) return;
+    const x = offsetX + pt.x * renderWidth;
+    const y = offsetY + pt.y * renderHeight;
+    const stroke = rgbaFromComputedColor(0.95);
+    const glow = rgbaFromComputedColor(0.5);
+    const size = 12;
+    ctx.save();
+    ctx.strokeStyle = glow;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(x - size, y);
+    ctx.lineTo(x + size, y);
+    ctx.moveTo(x, y - size);
+    ctx.lineTo(x, y + size);
+    ctx.stroke();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - size, y);
+    ctx.lineTo(x + size, y);
+    ctx.moveTo(x, y - size);
+    ctx.lineTo(x, y + size);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawOverlayLabel(text) {
+    if (!roiOverlay || !text) return;
+    ensureOverlayCanvasSize();
+    const ctx = roiOverlay.getContext('2d');
+    if (!ctx) return;
+    ctx.save();
+    ctx.font = '12px "Aptos", "Segoe UI Variable Text", "Bahnschrift", "Trebuchet MS", sans-serif';
+    ctx.textBaseline = 'top';
+    const padX = 8;
+    const padY = 6;
+    const metrics = ctx.measureText(text);
+    const textW = Math.ceil(metrics.width);
+    const textH = 12;
+    const boxW = textW + padX * 2;
+    const boxH = textH + padY * 2;
+    const x = 12;
+    const y = 12;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(x, y, boxW, boxH, 6);
+    } else {
+        ctx.rect(x, y, boxW, boxH);
+    }
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillText(text, x + padX, y + padY);
+    ctx.restore();
 }
 
 function getNormalizedPointFromMouseEvent(ev) {
@@ -270,26 +354,63 @@ function setRoiInputsFromNormalized(roi) {
     roiHEl.value = roi.h.toFixed(3);
 }
 
-function finalizeRoiOrClick(startPt, endPt) {
+function renderLiveOverlay() {
+    if (_liveOverlayMode === LIVE_OVERLAY_MODES.ROI) {
+        drawOverlayRoi(_lastRoi);
+        drawOverlayLabel('ROI mode');
+        return;
+    }
+    if (_liveOverlayMode === LIVE_OVERLAY_MODES.CLICK) {
+        drawClickMarker(_lastLiveSelectedPoint);
+        drawOverlayLabel('Click mode');
+        return;
+    }
+    clearOverlayCanvas();
+}
+
+function setLiveOverlayMode(mode) {
+    const next = (mode === LIVE_OVERLAY_MODES.ROI || mode === LIVE_OVERLAY_MODES.CLICK)
+        ? mode
+        : LIVE_OVERLAY_MODES.NONE;
+    _liveOverlayMode = next;
+    if (_liveOverlayMode !== LIVE_OVERLAY_MODES.ROI) {
+        _roiDrag = null;
+        _activeRoiHandle = null;
+        setPanMode(false);
+        _panDrag = null;
+        if (livePreviewFrameEl) livePreviewFrameEl.classList.remove('panning');
+    }
+    if (btnPanToggle) btnPanToggle.disabled = _liveOverlayMode !== LIVE_OVERLAY_MODES.ROI;
+    if (btnZoomIn) btnZoomIn.disabled = _liveOverlayMode !== LIVE_OVERLAY_MODES.ROI;
+    if (btnZoomOut) btnZoomOut.disabled = _liveOverlayMode !== LIVE_OVERLAY_MODES.ROI;
+    if (livePreviewFrameEl) {
+        livePreviewFrameEl.classList.toggle('roiMode', _liveOverlayMode === LIVE_OVERLAY_MODES.ROI);
+        livePreviewFrameEl.classList.toggle('clickMode', _liveOverlayMode === LIVE_OVERLAY_MODES.CLICK);
+    }
+    renderLiveOverlay();
+}
+
+function setClickInputsFromPoint(pt) {
+    if (!pt) return;
+    if (clickXEl) clickXEl.value = pt.x.toFixed(3);
+    if (clickYEl) clickYEl.value = pt.y.toFixed(3);
+    _lastLiveSelectedPoint = { x: Number(pt.x), y: Number(pt.y) };
+    drawClickMarker(_lastLiveSelectedPoint);
+    setStatus(`Selected (${pt.x.toFixed(3)}, ${pt.y.toFixed(3)})`, 'ok');
+}
+
+function finalizeRoi(startPt, endPt) {
     const x = Math.min(startPt.x, endPt.x);
     const y = Math.min(startPt.y, endPt.y);
     const w = Math.abs(endPt.x - startPt.x);
     const h = Math.abs(endPt.y - startPt.y);
 
-    if (w < 0.005 && h < 0.005) {
-        clickXEl.value = startPt.x.toFixed(3);
-        clickYEl.value = startPt.y.toFixed(3);
-        _lastLiveSelectedPoint = { x: Number(startPt.x), y: Number(startPt.y) };
-        setStatus(`Selected (${startPt.x.toFixed(3)}, ${startPt.y.toFixed(3)})`, 'ok');
-        return;
-    }
-
-    const roi = { x, y, w, h };
+    const roi = normalizeRoi({ x, y, w, h });
     _lastRoi = roi;
     _activeRoiHandle = 'se';
     setRoiInputsFromNormalized(roi);
     drawOverlayRoi(roi);
-    setStatus(`ROI set: (${x.toFixed(3)}, ${y.toFixed(3)}) ${w.toFixed(3)}×${h.toFixed(3)}`, 'ok');
+    setStatus(`ROI set: (${roi.x.toFixed(3)}, ${roi.y.toFixed(3)}) ${roi.w.toFixed(3)}×${roi.h.toFixed(3)}`, 'ok');
 }
 
 function applyLiveViewTransform() {
@@ -318,11 +439,11 @@ function applyLiveViewTransform() {
     livePreviewViewportEl.style.height = `${scale * 100}%`;
     livePreviewViewportEl.style.left = `${left}px`;
     livePreviewViewportEl.style.top = `${top}px`;
-    ensureOverlayCanvasSize();
-    if (_lastRoi) drawOverlayRoi(_lastRoi);
+    renderLiveOverlay();
 }
 
 function setPanMode(enabled) {
+    if (enabled && _liveOverlayMode !== LIVE_OVERLAY_MODES.ROI) return;
     _panMode = !!enabled;
     if (livePreviewFrameEl) {
         livePreviewFrameEl.classList.toggle('panMode', _panMode);
@@ -333,6 +454,7 @@ function setPanMode(enabled) {
 }
 
 function zoomBy(factor) {
+    if (_liveOverlayMode !== LIVE_OVERLAY_MODES.ROI) return;
     const prev = _liveZoom;
     const next = clamp(prev * factor, 1.0, 8.0);
     if (next === prev) return;
@@ -372,6 +494,15 @@ roiEventTarget.addEventListener('mousedown', (ev) => {
             return;
         }
 
+        if (_liveOverlayMode === LIVE_OVERLAY_MODES.CLICK) {
+            const pt = getNormalizedPointFromMouseEvent(ev);
+            setClickInputsFromPoint(pt);
+            ev.preventDefault();
+            return;
+        }
+
+        if (_liveOverlayMode !== LIVE_OVERLAY_MODES.ROI) return;
+
         if (_panMode) {
             _panDrag = {
                 sx: ev.clientX,
@@ -406,6 +537,7 @@ roiEventTarget.addEventListener('mousedown', (ev) => {
 });
 
 roiEventTarget.addEventListener('mousemove', (ev) => {
+    if (_liveOverlayMode !== LIVE_OVERLAY_MODES.ROI) return;
     if (_panDrag) {
         const dx = ev.clientX - _panDrag.sx;
         const dy = ev.clientY - _panDrag.sy;
@@ -435,10 +567,10 @@ function endDrag(ev) {
         if (livePreviewFrameEl) livePreviewFrameEl.classList.remove('panning');
         return;
     }
-    if (!_roiDrag) return;
+    if (!_roiDrag || _liveOverlayMode !== LIVE_OVERLAY_MODES.ROI) return;
     try {
         const pt = getNormalizedPointFromMouseEvent(ev);
-        finalizeRoiOrClick(_roiDrag.start, pt);
+        finalizeRoi(_roiDrag.start, pt);
     } catch (e) {
         setStatus(`ROI select failed: ${e.message}`, 'err');
     } finally {
@@ -453,18 +585,16 @@ roiEventTarget.addEventListener('mouseleave', (ev) => {
 
 captureImage.addEventListener('load', () => {
     applyLiveViewTransform();
-    ensureOverlayCanvasSize();
-    if (_lastRoi) drawOverlayRoi(_lastRoi);
+    renderLiveOverlay();
 });
 
 window.addEventListener('resize', () => {
     applyLiveViewTransform();
-    ensureOverlayCanvasSize();
-    if (_lastRoi) drawOverlayRoi(_lastRoi);
+    renderLiveOverlay();
 });
 
 document.addEventListener('keydown', (ev) => {
-    if (!_lastRoi || !_activeRoiHandle) return;
+    if (_liveOverlayMode !== LIVE_OVERLAY_MODES.ROI || !_lastRoi || !_activeRoiHandle) return;
     const tag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : '';
     if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
     const nw = captureImage.naturalWidth || 0;

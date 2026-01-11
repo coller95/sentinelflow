@@ -157,6 +157,18 @@ window.addEventListener('beforeunload', () => {
 document.addEventListener("DOMContentLoaded", () => {
     const tabToggleBtn = document.getElementById("btnToggleTabs");
     const controlWorkspace = document.querySelector(".controlWorkspace");
+    const setOverlayForTab = (target) => {
+        if (typeof setLiveOverlayMode !== 'function') return;
+        if (target === 'conditions') {
+            setLiveOverlayMode('roi');
+            return;
+        }
+        if (target === 'input' || target === 'actions') {
+            setLiveOverlayMode('click');
+            return;
+        }
+        setLiveOverlayMode('none');
+    };
     const setTabsOpen = (open) => {
         if (!controlWorkspace || !tabToggleBtn) return;
         if (open) {
@@ -207,7 +219,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 _loadActionsForSelect(triggerActionEl, triggerActionEl ? triggerActionEl.value : '').catch(() => {});
                 refreshTriggers().catch(() => {});
             }
+            setOverlayForTab(target);
         });
     });
+    const activeTab = document.querySelector(".controlTabs button.active");
+    if (activeTab) {
+        const target = activeTab.dataset.tab;
+        setOverlayForTab(target);
+    }
     tryLoadAppDefaults();
 });
