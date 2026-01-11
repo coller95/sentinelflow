@@ -55,6 +55,7 @@ const btnTriggerSave = document.getElementById('btnTriggerSave');
 const triggerNameEl = document.getElementById('triggerName');
 const triggerEnabledEl = document.getElementById('triggerEnabled');
 const triggerRetriggerMsEl = document.getElementById('triggerRetriggerMs');
+const triggerCriteriaModeEl = document.getElementById('triggerCriteriaMode');
 const triggerActionEl = document.getElementById('triggerAction');
 const triggerCriteriaBody = document.getElementById('triggerCriteriaBody');
 const btnTriggerAddCriteria = document.getElementById('btnTriggerAddCriteria');

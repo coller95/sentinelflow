@@ -363,7 +363,7 @@ POST body wrapper example:
 POST body wrapper example:
 
 ```json
-{ "body": { "uuid": null, "name": "Auto Heal", "enabled": true, "retriggerMs": 2000, "triggerCiterias": [], "action": "00000000-0000-0000-0000-000000000000" } }
+{ "body": { "uuid": null, "name": "Auto Heal", "enabled": true, "retriggerMs": 2000, "criteriaMode": "All", "triggerCiterias": [], "action": "00000000-0000-0000-0000-000000000000" } }
 ```
 
 ### Orchestrator state (persistence)
@@ -986,6 +986,7 @@ Response:
     "name": "Auto Heal",
     "enabled": true,
     "retriggerMs": 5000,
+    "criteriaMode": "All",
     "triggerCiterias": [
       { "conditionUuid": "...", "expectedValue": 0.3, "comparator": "LessThanOrEqual" }
     ],
@@ -1006,6 +1007,7 @@ Request:
   "name": "Auto Heal",
   "enabled": true,
   "retriggerMs": 5000,
+  "criteriaMode": "All",
   "triggerCiterias": [
     { "conditionUuid": "...", "expectedValue": 0.3, "comparator": "LessThanOrEqual" }
   ],
@@ -1017,6 +1019,7 @@ Notes:
 - `retriggerMs`:
   - `<= 0`: rising-edge only (fires once when criteria becomes true)
   - `> 0`: can fire again every `retriggerMs` while criteria remains true
+- `criteriaMode`: `All` (default) requires every criteria to pass; `Any` allows any single criteria to pass.
 
 Response:
 

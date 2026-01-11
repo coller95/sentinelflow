@@ -77,6 +77,10 @@ class TriggerComparator(Enum):
     GreaterThanOrEqual = auto()
     LessThanOrEqual = auto()
 
+class TriggerCriteriaMode(Enum):
+    All = auto()
+    Any = auto()
+
 @dataclass(frozen=True)
 class TriggerCiteria:
     conditionUuid: UUID
@@ -91,6 +95,7 @@ class TriggerItem:
     action: UUID            # ActionItem UUID
     enabled: bool = False
     retriggerMs: int = 0
+    criteriaMode: TriggerCriteriaMode = TriggerCriteriaMode.All
 
 class ControllerServices:
     def __init__(self):
@@ -327,6 +332,7 @@ class ControllerServices:
                     "expectedValue": c.expectedValue,
                     "comparator": c.comparator.name,
                 })
+            mode = getattr(t, "criteriaMode", TriggerCriteriaMode.All)
             data["triggers"].append({
                 "uuid": str(t.uuid),
                 "name": t.name,
@@ -334,6 +340,7 @@ class ControllerServices:
                 "retriggerMs": int(getattr(t, "retriggerMs", 0) or 0),
                 "action": str(t.action),
                 "triggerCiterias": crit_out,
+                "criteriaMode": mode.name,
             })
 
         return data
@@ -534,6 +541,12 @@ class ControllerServices:
                             comparator=comp,
                         ))
 
+                mode_name = str(t.get("criteriaMode", "") or "").strip() or "All"
+                try:
+                    mode = TriggerCriteriaMode[mode_name]
+                except Exception:
+                    mode = TriggerCriteriaMode.All
+
                 loaded_triggers[tu] = TriggerItem(
                     uuid=tu,
                     name=name,
@@ -541,6 +554,7 @@ class ControllerServices:
                     action=action_uuid,
                     enabled=enabled,
                     retriggerMs=retrigger_ms,
+                    criteriaMode=mode,
                 )
 
         with self._state_lock:
@@ -607,6 +621,7 @@ class ControllerServices:
         action: UUID,
         enabled: bool = False,
         retriggerMs: int = 0,
+        criteriaMode: TriggerCriteriaMode = TriggerCriteriaMode.All,
     ) -> TriggerItem:
         clean_name = (name or "").strip()
         if not clean_name:
@@ -633,6 +648,7 @@ class ControllerServices:
                 action=action,
                 enabled=bool(enabled),
                 retriggerMs=retrigger_ms_int,
+                criteriaMode=criteriaMode,
             )
             self._triggerItemList[trig_uuid] = item
             return item
@@ -649,6 +665,7 @@ class ControllerServices:
                 action=existing.action,
                 enabled=bool(enabled),
                 retriggerMs=int(getattr(existing, "retriggerMs", 0) or 0),
+                criteriaMode=getattr(existing, "criteriaMode", TriggerCriteriaMode.All),
             )
             self._triggerItemList[uuid] = updated
             return updated
@@ -831,8 +848,12 @@ class ControllerServices:
                             self._trigger_last_eval[t.uuid] = []
                         continue
 
-                    matched = True
+                    mode = getattr(t, "criteriaMode", TriggerCriteriaMode.All)
+                    mode_is_any = (mode == TriggerCriteriaMode.Any)
+                    matched = False if mode_is_any else True
+                    has_criteria = False
                     for c in (t.triggerCiterias or []):
+                        has_criteria = True
                         last_val = last_by_uuid.get(c.conditionUuid)
                         ok = eval_one(last_val, c.expectedValue, c.comparator)
                         eval_rows.append({
@@ -843,9 +864,16 @@ class ControllerServices:
                             "last": last_val,
                             "ok": bool(ok),
                         })
-                        if not ok:
-                            matched = False
-                            break
+                        if ok:
+                            if mode_is_any:
+                                matched = True
+                        else:
+                            if not mode_is_any:
+                                matched = False
+                                break
+
+                    if mode_is_any and not has_criteria:
+                        matched = False
 
                     with self._state_lock:
                         prev = bool(self._trigger_last_match.get(t.uuid, False))

@@ -365,6 +365,10 @@ class TriggerComparatorDto(str, Enum):
     GreaterThanOrEqual = "GreaterThanOrEqual"
     LessThanOrEqual = "LessThanOrEqual"
 
+class TriggerCriteriaModeDto(str, Enum):
+    All = "All"
+    Any = "Any"
+
 
 class TriggerCiteriaDto(BaseModel):
     conditionUuid: UUID
@@ -378,6 +382,7 @@ class TriggerItemDto(BaseModel):
     enabled: bool = False
     retriggerMs: int = 0
     triggerCiterias: List[TriggerCiteriaDto] = []
+    criteriaMode: TriggerCriteriaModeDto = TriggerCriteriaModeDto.All
     action: str
 
 
@@ -387,6 +392,7 @@ class TriggerUpsertRequest(BaseModel):
     enabled: bool = False
     retriggerMs: int = 0
     triggerCiterias: List[TriggerCiteriaDto] = []
+    criteriaMode: Optional[TriggerCriteriaModeDto] = None
     action: UUID
 
 
@@ -675,6 +681,9 @@ def GetTriggers() -> List[TriggerItemDto]:
                 )
             )
 
+        mode = getattr(t, "criteriaMode", None)
+        mode_name = mode.name if mode is not None else "All"
+
         out.append(
             TriggerItemDto(
                 uuid=str(t.uuid),
@@ -682,6 +691,7 @@ def GetTriggers() -> List[TriggerItemDto]:
                 enabled=bool(getattr(t, "enabled", False)),
                 retriggerMs=int(getattr(t, "retriggerMs", 0) or 0),
                 triggerCiterias=citerias,
+                criteriaMode=TriggerCriteriaModeDto[mode_name],
                 action=str(t.action),
             )
         )
@@ -692,7 +702,7 @@ def GetTriggers() -> List[TriggerItemDto]:
 @app.post("/api/triggers/upsert")
 def UpsertTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
     svc = _get_services()
-    from Src.ControllerServices import TriggerComparator, TriggerCiteria
+    from Src.ControllerServices import TriggerComparator, TriggerCiteria, TriggerCriteriaMode
 
     name = (req.name or "").strip()
     if not name:
@@ -711,6 +721,13 @@ def UpsertTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
         except KeyError:
             raise HTTPException(status_code=400, detail=f"Invalid comparator: {c.comparator}")
 
+    mode = TriggerCriteriaMode.All
+    if req.criteriaMode is not None:
+        try:
+            mode = TriggerCriteriaMode[req.criteriaMode.value]
+        except KeyError:
+            raise HTTPException(status_code=400, detail=f"Invalid criteriaMode: {req.criteriaMode}")
+
     try:
         item = svc.UpsertTriggerItem(
             req.uuid,
@@ -719,6 +736,7 @@ def UpsertTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
             action=req.action,
             enabled=bool(req.enabled),
             retriggerMs=int(getattr(req, "retriggerMs", 0) or 0),
+            criteriaMode=mode,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

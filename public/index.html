@@ -407,6 +407,14 @@
                                         <input id="triggerRetriggerMs" type="number" min="0" step="100" value="0" />
                                     </div>
                                 </div>
+
+                                <div class="row">
+                                    <label for="triggerCriteriaMode">Criteria match</label>
+                                    <select id="triggerCriteriaMode" class="selectLike">
+                                        <option value="All">All must pass</option>
+                                        <option value="Any">Any can pass</option>
+                                    </select>
+                                </div>
                             </div>
 
                             <div class="formSection">
@@ -423,7 +431,7 @@
                             <div class="formSection">
                                 <div class="sectionHead">
                                     <div class="sectionTitle">3. Conditions</div>
-                                    <p class="helpText">Add one or more criteria. All must pass.</p>
+                                    <p class="helpText">Add criteria, then choose All or Any to control matching.</p>
                                 </div>
                                 <div class="condTableWrap" style="max-height: 220px;">
                                     <table class="condTable" aria-label="Trigger criteria">
