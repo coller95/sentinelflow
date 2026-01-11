@@ -3,6 +3,11 @@ function _setDelayRowVisible(visible) {
     actionDelayRowEl.style.display = visible ? '' : 'none';
 }
 
+function _makePlaceholderName(prefix) {
+    const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '-');
+    return `${prefix} ${stamp}`;
+}
+
 function _getDelayMsFromInput() {
     const raw = actionDelayMsEl ? String(actionDelayMsEl.value || '').trim() : '';
     const ms = Number(raw);
@@ -147,6 +152,12 @@ async function refreshActions() {
         tr.appendChild(tdName);
         tr.appendChild(tdSteps);
         tr.addEventListener('click', () => {
+            const uuid = String(it.uuid ?? '');
+            if (selectedActionUuid && uuid && String(selectedActionUuid) === uuid) {
+                clearActionEditor();
+                refreshActions().catch(() => {});
+                return;
+            }
             applyActionToEditor(it);
             refreshActions().catch(() => {});
         });
@@ -241,9 +252,20 @@ if (btnRefreshActions) {
 }
 
 if (btnActionNew) {
-    btnActionNew.addEventListener('click', () => {
-        clearActionEditor();
-        setStatus('New action.', 'ok');
+    btnActionNew.addEventListener('click', async () => {
+        setStatus('Creating action...', null);
+        try {
+            const name = _makePlaceholderName('New Action');
+            const payload = { name, steps: [] };
+            const res = await postJson('/api/actions/upsert', payload);
+            const uuid = res && res.uuid ? String(res.uuid) : '';
+            if (!uuid) throw new Error('Action created without uuid');
+            applyActionToEditor({ uuid, name, steps: [] });
+            await refreshActions();
+            setStatus('New action created.', 'ok');
+        } catch (e) {
+            setStatus(`Create action failed: ${e.message}`, 'err');
+        }
     });
 }
 
@@ -299,7 +321,7 @@ if (btnActionRemoveStep) {
         _actionSteps.splice(i, 1);
         _syncHiddenActionStepsTextarea();
         _selectActionStep(Math.min(i, _actionSteps.length - 1));
-        setStatus('Step removed.', 'ok');
+        setStatus('Step deleted.', 'ok');
     });
 }
 

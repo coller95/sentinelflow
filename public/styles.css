@@ -4,6 +4,25 @@
 
 :root {
     color-scheme: light dark;
+    --bg: #f7f3ee;
+    --bg-2: #efe9e1;
+    --panel: #ffffff;
+    --panel-2: #f8f6f2;
+    --ink: #1e1c17;
+    --muted: rgba(30, 28, 23, 0.65);
+    --border: rgba(30, 28, 23, 0.18);
+    --shadow: 0 10px 24px rgba(30, 28, 23, 0.12);
+    --accent: #0a7a6b;
+    --accent-strong: #0b6156;
+    --danger: #b4232a;
+    --radius: 12px;
+    --radius-sm: 8px;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
 }
 
 html, body {
@@ -13,9 +32,14 @@ html, body {
 }
 
 body {
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: Canvas;
-    color: CanvasText;
+    font-family: "Aptos", "Segoe UI Variable Text", "Bahnschrift", "Trebuchet MS", sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    background:
+        radial-gradient(circle at 12% 10%, rgba(10, 122, 107, 0.18), transparent 38%),
+        radial-gradient(circle at 85% 0%, rgba(180, 101, 60, 0.15), transparent 42%),
+        linear-gradient(180deg, var(--bg), var(--bg-2));
+    color: var(--ink);
 }
 
 
@@ -25,8 +49,7 @@ body {
 
 .appRoot {
     display: grid;
-    /* Live preview: half screen; controls: remaining */
-    grid-template-rows: 61.8vh 1fr;
+    grid-template-rows: minmax(260px, 58vh) 1fr;
     height: 100vh;
 }
 
@@ -36,18 +59,17 @@ body {
 /* ===================================================== */
 
 .livePreviewRoot {
-    /* CHANGED: Removed padding to maximize size */
     padding: 0;
-    background: #000; /* Dark background looks better for video/images */
+    background: #040404;
     display: flex;
     overflow: hidden;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.35);
 }
 
 .livePreviewFrame {
     width: 100%;
     height: 100%;
-    /* CHANGED: Removed border-radius/shadow for cleaner edge-to-edge look */
-    background: #000;
+    background: #040404;
     position: relative;
     display: flex;
     align-items: center;
@@ -57,21 +79,31 @@ body {
 
 .livePreviewToolbar {
     position: absolute;
-    top: 8px;
-    left: 8px;
+    top: 10px;
+    left: 10px;
     z-index: 5;
     display: flex;
     gap: 6px;
     align-items: center;
     padding: 6px;
-    border-radius: 8px;
-    background: rgba(0,0,0,0.35);
-    backdrop-filter: blur(6px);
+    border-radius: var(--radius-sm);
+    background: rgba(6, 10, 12, 0.55);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #f5f5f5;
 }
 
 .livePreviewToolbar button {
     padding: 6px 10px;
     min-width: 36px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #f5f5f5;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.livePreviewToolbar button:hover {
+    background: rgba(255, 255, 255, 0.22);
+    transform: none;
 }
 
 .livePreviewViewport {
@@ -114,9 +146,10 @@ body {
 .controlWorkspace {
     display: flex;
     flex-direction: column;
-    background: Canvas;
-    border-top: 1px solid rgba(0,0,0,0.1);
-    overflow: hidden; /* Ensure inner tabs scroll, not the workspace */
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    overflow: hidden;
+    box-shadow: var(--shadow);
 }
 
 
@@ -126,32 +159,34 @@ body {
 
 .controlTabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
-    padding: 10px 12px;
-    background: rgba(0,0,0,0.03);
-    border-bottom: 1px solid rgba(0,0,0,0.05);
+    padding: 10px 16px;
+    background: linear-gradient(90deg, rgba(10, 122, 107, 0.12), transparent);
+    border-bottom: 1px solid var(--border);
+    order: 1;
 }
 
 .controlTabs button {
     appearance: none;
     border: none;
     padding: 6px 12px;
-    border-radius: 6px;
+    border-radius: 999px;
     background: transparent;
     color: inherit;
     cursor: pointer;
-    font-size: 13px;
-    font-weight: 500;
-    transition: background 120ms ease;
+    font-size: 14px;
+    font-weight: 600;
+    transition: background 120ms ease, color 120ms ease;
 }
 
 .controlTabs button:hover {
-    background: rgba(0,0,0,0.08);
+    background: rgba(10, 122, 107, 0.15);
 }
 
 .controlTabs button.active {
-    background: rgba(0,0,0,0.15);
-    font-weight: 600;
+    background: rgba(10, 122, 107, 0.25);
+    color: #0b3d36;
 }
 
 
@@ -161,13 +196,54 @@ body {
 
 .tabPanel {
     display: none;
-    padding: 14px;
-    overflow-y: auto; /* Allows scrolling within the tab area */
+    padding: 16px;
+    overflow-y: auto;
     flex: 1;
+    background: var(--panel);
+    order: 2;
+    min-height: 0;
 }
 
 .tabPanel.active {
     display: block;
+}
+
+@media (min-width: 1200px) {
+    .controlWorkspace {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        grid-template-rows: 1fr auto;
+    }
+
+    .controlTabs {
+        grid-column: 1;
+        grid-row: 1;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 16px 12px;
+        border-bottom: none;
+        border-right: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(10, 122, 107, 0.12), transparent);
+    }
+
+    .controlTabs button {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        text-align: left;
+        justify-content: flex-start;
+    }
+
+    .tabPanel {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .statusPanel {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
 }
 
 
@@ -176,30 +252,35 @@ body {
 /* ===================================================== */
 
 .statusPanel {
-    padding: 8px 14px;
-    background: rgba(0,0,0,0.05);
-    border-top: 1px solid rgba(0,0,0,0.1);
-    flex-shrink: 0; /* Prevents it from crushing when window is small */
+    padding: 10px 16px;
+    background: var(--panel-2);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    order: 3;
 }
 
 .statusPanel fieldset {
     margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
 }
 
 .status {
-    font-family: monospace;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
     font-size: 11px;
-    opacity: 0.8;
+    opacity: 0.75;
 }
 
 .monoBox {
     margin: 0;
     padding: 10px;
-    border-radius: 6px;
-    border: 1px solid rgba(0,0,0,0.2);
-    background: Canvas;
-    color: CanvasText;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--ink);
+    font-family: ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
     font-size: 12px;
     max-height: 220px;
     overflow: auto;
@@ -212,18 +293,27 @@ body {
 /* ===================================================== */
 
 fieldset {
-    border: none;
-    padding: 0;
-    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    padding: 14px;
+    margin-bottom: 14px;
+    border-radius: var(--radius);
+    background: var(--panel);
+    box-shadow: 0 6px 16px rgba(30, 28, 23, 0.06);
 }
 
 legend {
     font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    opacity: 0.5;
+    letter-spacing: 0.6px;
+    color: var(--muted);
     margin-bottom: 8px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    display: inline-flex;
+    align-items: center;
 }
 
 .row {
@@ -231,41 +321,54 @@ legend {
     flex-direction: column;
     gap: 4px;
     margin-bottom: 10px;
+    min-width: 0;
 }
 
 label {
     font-size: 12px;
-    opacity: 0.8;
+    color: var(--muted);
+    font-weight: 600;
 }
 
 input {
-    padding: 6px 8px;
-    border-radius: 6px;
-    border: 1px solid rgba(0,0,0,0.2);
-    background: Canvas;
-    color: CanvasText;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--ink);
     outline: none;
     font-size: 13px;
+}
+
+input:not([type="checkbox"]):not([type="radio"]) {
+    width: 100%;
+}
+
+input[type="checkbox"] {
+    width: auto;
+    margin-right: 6px;
+    accent-color: var(--accent);
 }
 
 .selectLike {
-    padding: 6px 8px;
-    border-radius: 6px;
-    border: 1px solid rgba(0,0,0,0.2);
-    background: Canvas;
-    color: CanvasText;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--ink);
     outline: none;
     font-size: 13px;
+    width: 100%;
 }
 
 input:focus {
-    border-color: #0078d4;
-    box-shadow: 0 0 0 2px rgba(0,120,212,0.2);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(10, 122, 107, 0.2);
 }
 
 .selectLike:focus {
-    border-color: #0078d4;
-    box-shadow: 0 0 0 2px rgba(0,120,212,0.2);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(10, 122, 107, 0.2);
 }
 
 
@@ -276,7 +379,7 @@ input:focus {
 .grid2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    gap: 12px;
 }
 
 
@@ -286,12 +389,15 @@ input:focus {
 
 .buttons {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
     margin-top: 12px;
+    align-items: center;
 }
 
 .condToolbar {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: center;
     margin-bottom: 10px;
@@ -307,10 +413,11 @@ input:focus {
 }
 
 .condTableWrap {
-    border: 1px solid rgba(0,0,0,0.2);
-    border-radius: 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     overflow: auto;
-    max-height: 260px;
+    max-height: clamp(220px, 36vh, 420px);
+    background: var(--panel);
 }
 
 .condTable {
@@ -319,36 +426,139 @@ input:focus {
     font-size: 13px;
 }
 
+.condTable th {
+    font-weight: 600;
+    color: var(--muted);
+}
+
 .condTable th,
 .condTable td {
     padding: 8px 10px;
-    border-bottom: 1px solid rgba(0,0,0,0.1);
+    border-bottom: 1px solid rgba(30, 28, 23, 0.08);
     vertical-align: middle;
 }
 
 .condTable thead th {
     position: sticky;
     top: 0;
-    background: Canvas;
+    background: var(--panel);
     z-index: 1;
     text-align: left;
 }
 
+.condTable tbody tr:hover {
+    background: rgba(10, 122, 107, 0.08);
+}
+
+.condTable tbody tr {
+    transition: background 120ms ease;
+}
+
 .condTable tr.selected {
-    background: rgba(0,0,0,0.08);
+    background: rgba(10, 122, 107, 0.12);
+}
+
+#tab-triggerStatus .condTableWrap {
+    max-height: none;
 }
 
 .thumb {
     width: 44px;
     height: 44px;
     object-fit: contain;
-    background: rgba(0,0,0,0.08);
-    border: 1px solid rgba(0,0,0,0.15);
-    border-radius: 4px;
+    background: rgba(10, 122, 107, 0.08);
+    border: 1px solid rgba(30, 28, 23, 0.15);
+    border-radius: 6px;
 }
 
 .condBottom {
-    margin-top: 10px;
+    margin-top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.panelSplit {
+    display: grid;
+    grid-template-columns: minmax(260px, 0.9fr) minmax(360px, 1.1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.panelSplit > * {
+    min-width: 0;
+}
+
+.listPane {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+}
+
+.listPane .condTableWrap {
+    flex: 1;
+}
+
+.listHint {
+    margin: 0 2px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.editorPane {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+}
+
+.formSection {
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--panel-2);
+}
+
+.formSection .buttons {
+    margin-top: 8px;
+}
+
+.sectionHead {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 8px;
+}
+
+.sectionTitle {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+}
+
+.helpText {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.checkRow {
+    margin-bottom: 0;
+}
+
+.checkLabel {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.checkLabel input {
+    margin-right: 0;
 }
 
 /* ===================================================== */
@@ -359,10 +569,10 @@ input:focus {
     display: grid;
     grid-template-columns: 1fr auto;
     gap: 10px;
-    border: 1px solid rgba(0,0,0,0.2);
-    border-radius: 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     overflow: hidden;
-    background: Canvas;
+    background: var(--panel);
 }
 
 .actionStepList {
@@ -373,7 +583,7 @@ input:focus {
 
 .actionStepItem {
     padding: 10px 12px;
-    border-bottom: 1px solid rgba(0,0,0,0.08);
+    border-bottom: 1px solid rgba(30, 28, 23, 0.08);
     cursor: pointer;
     user-select: none;
     font-size: 13px;
@@ -384,7 +594,7 @@ input:focus {
 }
 
 .actionStepItem.selected {
-    background: rgba(0,0,0,0.08);
+    background: rgba(10, 122, 107, 0.12);
     font-weight: 600;
 }
 
@@ -393,7 +603,7 @@ input:focus {
     flex-direction: column;
     gap: 10px;
     padding: 10px;
-    border-left: 1px solid rgba(0,0,0,0.08);
+    border-left: 1px solid rgba(30, 28, 23, 0.08);
     align-items: stretch;
     justify-content: center;
 }
@@ -406,33 +616,52 @@ button {
     appearance: none;
     border: none;
     padding: 8px 14px;
-    border-radius: 6px;
+    border-radius: 999px;
     cursor: pointer;
-    background: rgba(0,0,0,0.1);
+    background: rgba(30, 28, 23, 0.08);
     color: inherit;
     font-size: 13px;
+    font-weight: 600;
+    transition: transform 120ms ease, background 120ms ease;
 }
 
 button:hover {
-    background: rgba(0,0,0,0.2);
+    background: rgba(10, 122, 107, 0.16);
+    transform: translateY(-1px);
 }
 
 button.primary {
-    background: #0078d4;
+    background: var(--accent);
     color: white;
 }
 
 button.primary:hover {
-    background: #106ebe;
+    background: var(--accent-strong);
 }
 
 button.danger {
-    background: #d13438;
+    background: var(--danger);
     color: white;
 }
 
 button.danger:hover {
-    background: #a4262c;
+    background: #8f1d22;
+}
+
+@media (max-width: 900px) {
+    .appRoot {
+        grid-template-rows: minmax(220px, 45vh) 1fr;
+    }
+
+    .grid2 {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 1100px) {
+    .panelSplit {
+        grid-template-columns: 1fr;
+    }
 }
 
 
@@ -441,82 +670,107 @@ button.danger:hover {
 /* ===================================================== */
 
 @media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #12110f;
+        --bg-2: #0b0a09;
+        --panel: #141312;
+        --panel-2: #1b1917;
+        --ink: #f1ede6;
+        --muted: rgba(241, 237, 230, 0.65);
+        --border: rgba(241, 237, 230, 0.14);
+        --shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+        --accent: #3fb7a5;
+        --accent-strong: #2f8e80;
+        --danger: #d9534f;
+    }
+
     .controlWorkspace {
-        border-top-color: rgba(255,255,255,0.1);
+        border-top-color: rgba(241, 237, 230, 0.1);
     }
     
     .statusPanel {
-        background: rgba(255,255,255,0.03);
-        border-top-color: rgba(255,255,255,0.1);
+        background: rgba(255, 255, 255, 0.03);
+        border-top-color: rgba(241, 237, 230, 0.1);
     }
 
     .controlTabs {
-        background: rgba(0,0,0,0.2);
-        border-bottom-color: rgba(255,255,255,0.1);
+        background: linear-gradient(90deg, rgba(63, 183, 165, 0.2), transparent);
+        border-bottom-color: rgba(241, 237, 230, 0.1);
     }
 
     .controlTabs button:hover {
-        background: rgba(255,255,255,0.1);
+        background: rgba(63, 183, 165, 0.2);
     }
 
     .controlTabs button.active {
-        background: rgba(255,255,255,0.2);
+        background: rgba(63, 183, 165, 0.3);
+        color: #dcf7f2;
     }
 
     input {
-        border-color: rgba(255,255,255,0.2);
-        background: rgba(0,0,0,0.2);
+        border-color: rgba(241, 237, 230, 0.2);
+        background: rgba(0, 0, 0, 0.25);
     }
 
     .selectLike {
-        border-color: rgba(255,255,255,0.2);
-        background: rgba(0,0,0,0.2);
+        border-color: rgba(241, 237, 230, 0.2);
+        background: rgba(0, 0, 0, 0.25);
     }
 
     .monoBox {
-        border-color: rgba(255,255,255,0.2);
-        background: rgba(0,0,0,0.2);
+        border-color: rgba(241, 237, 230, 0.2);
+        background: rgba(0, 0, 0, 0.25);
     }
 
     .condTableWrap {
-        border-color: rgba(255,255,255,0.2);
+        border-color: rgba(241, 237, 230, 0.2);
     }
 
     .condTable th,
     .condTable td {
-        border-bottom-color: rgba(255,255,255,0.1);
+        border-bottom-color: rgba(241, 237, 230, 0.1);
     }
 
     .condTable tr.selected {
-        background: rgba(255,255,255,0.12);
+        background: rgba(63, 183, 165, 0.18);
+    }
+
+    .condTable tbody tr:hover {
+        background: rgba(63, 183, 165, 0.14);
     }
 
     .actionSequenceBox {
-        border-color: rgba(255,255,255,0.2);
+        border-color: rgba(241, 237, 230, 0.2);
     }
 
     .actionStepItem {
-        border-bottom-color: rgba(255,255,255,0.08);
+        border-bottom-color: rgba(241, 237, 230, 0.08);
     }
 
     .actionStepItem.selected {
-        background: rgba(255,255,255,0.12);
+        background: rgba(63, 183, 165, 0.18);
     }
 
     .actionStepReorder {
-        border-left-color: rgba(255,255,255,0.08);
+        border-left-color: rgba(241, 237, 230, 0.08);
     }
 
     .thumb {
-        background: rgba(255,255,255,0.06);
-        border-color: rgba(255,255,255,0.15);
+        background: rgba(63, 183, 165, 0.12);
+        border-color: rgba(241, 237, 230, 0.15);
     }
     
     button {
-        background: rgba(255,255,255,0.1);
+        background: rgba(241, 237, 230, 0.12);
     }
     
     button:hover {
-        background: rgba(255,255,255,0.2);
+        background: rgba(63, 183, 165, 0.2);
+    }
+}
+
+@media (prefers-color-scheme: dark) and (min-width: 1200px) {
+    .controlTabs {
+        background: linear-gradient(180deg, rgba(63, 183, 165, 0.2), transparent);
     }
 }

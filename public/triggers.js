@@ -12,6 +12,11 @@ async function _loadActionsForSelect(selectEl, selectedUuid) {
     if (selectedUuid) selectEl.value = String(selectedUuid);
 }
 
+function _makePlaceholderName(prefix) {
+    const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '-');
+    return `${prefix} ${stamp}`;
+}
+
 function _renderTriggerCriteriaRows() {
     if (!triggerCriteriaBody) return;
     triggerCriteriaBody.textContent = '';
@@ -41,7 +46,7 @@ function _renderTriggerCriteriaRows() {
         const tdDel = document.createElement('td');
         const btnDel = document.createElement('button');
         btnDel.type = 'button';
-        btnDel.textContent = 'X';
+        btnDel.textContent = 'Delete';
         tdDel.appendChild(btnDel);
         tr.appendChild(tdCond);
         tr.appendChild(tdComp);
@@ -85,6 +90,7 @@ function _clearTriggerEditor() {
     if (triggerNameEl) triggerNameEl.value = '';
     if (triggerEnabledEl) triggerEnabledEl.checked = false;
     if (triggerRetriggerMsEl) triggerRetriggerMsEl.value = '0';
+    if (triggerActionEl) triggerActionEl.value = '';
     _triggerCriteria = [];
     _renderTriggerCriteriaRows();
 }
@@ -155,6 +161,12 @@ async function refreshTriggers() {
         tr.appendChild(tdAction);
         tr.appendChild(tdCount);
         tr.addEventListener('click', async () => {
+            const uuid = String(it.uuid ?? '');
+            if (selectedTriggerUuid && uuid && String(selectedTriggerUuid) === uuid) {
+                _clearTriggerEditor();
+                refreshTriggers().catch(() => {});
+                return;
+            }
             try {
                 await _loadActionsForSelect(triggerActionEl, String(it.action ?? ''));
             } catch { }
@@ -331,11 +343,37 @@ if (btnRefreshTriggers) {
 
 if (btnTriggerNew) {
     btnTriggerNew.addEventListener('click', async () => {
-        _clearTriggerEditor();
+        setStatus('Creating trigger...', null);
         try {
-            await _loadActionsForSelect(triggerActionEl, null);
-        } catch { }
-        setStatus('New trigger.', 'ok');
+            const actions = await getJson('/api/actions');
+            const safeActions = Array.isArray(actions) ? actions : [];
+            const actionUuid = safeActions.length ? String(safeActions[0].uuid ?? '').trim() : '';
+            if (!actionUuid) throw new Error('Create an action first');
+            const name = _makePlaceholderName('New Trigger');
+            const payload = {
+                name,
+                enabled: false,
+                retriggerMs: 0,
+                action: actionUuid,
+                triggerCiterias: [],
+            };
+            const res = await postJson('/api/triggers/upsert', payload);
+            const uuid = res && res.uuid ? String(res.uuid) : '';
+            if (!uuid) throw new Error('Trigger created without uuid');
+            await _loadActionsForSelect(triggerActionEl, actionUuid);
+            _applyTriggerToEditor({
+                uuid,
+                name,
+                enabled: false,
+                retriggerMs: 0,
+                action: actionUuid,
+                triggerCiterias: [],
+            });
+            await refreshTriggers();
+            setStatus('New trigger created.', 'ok');
+        } catch (e) {
+            setStatus(`Create trigger failed: ${e.message}`, 'err');
+        }
     });
 }
 

@@ -15,6 +15,18 @@ async function _getConditionsCached(force = false) {
     return _cachedConditions;
 }
 
+function _makePlaceholderName(prefix) {
+    const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '-');
+    return `${prefix} ${stamp}`;
+}
+
+function _readOptional01(el, fallback) {
+    const raw = (el && el.value ? String(el.value) : '').trim();
+    const val = Number(raw);
+    if (!Number.isFinite(val)) return fallback;
+    return clamp01(val);
+}
+
 function _fillConditionsSelect(selectEl, items, selectedUuid) {
     if (!selectEl) return;
     const safeItems = Array.isArray(items) ? items : [];
@@ -68,7 +80,14 @@ async function refreshConditions() {
         tr.appendChild(tdCrop);
         tr.appendChild(tdLast);
         tr.addEventListener('click', () => {
-            selectedConditionUuid = String(it.uuid ?? '');
+            const uuid = String(it.uuid ?? '');
+            if (selectedConditionUuid && uuid && String(selectedConditionUuid) === uuid) {
+                selectedConditionUuid = null;
+                clearSelectedConditionEditor();
+                refreshConditions().catch(() => {});
+                return;
+            }
+            selectedConditionUuid = uuid;
             refreshConditions().catch(() => {});
             loadSelectedConditionIntoEditor().catch(() => {});
         });
@@ -169,7 +188,18 @@ function startConditionsEventSource() {
                 tr.appendChild(tdCrop);
                 tr.appendChild(tdLast);
                 tr.addEventListener('click', () => {
-                    selectedConditionUuid = String(it.uuid ?? '');
+                    const uuid = String(it.uuid ?? '');
+                    if (selectedConditionUuid && uuid && String(selectedConditionUuid) === uuid) {
+                        selectedConditionUuid = null;
+                        clearSelectedConditionEditor();
+                        try {
+                            tr.classList.remove('selected');
+                        } catch {
+                            // ignore
+                        }
+                        return;
+                    }
+                    selectedConditionUuid = uuid;
                     try {
                         const rows = condTableBody.querySelectorAll('tr');
                         rows.forEach(r => r.classList.remove('selected'));
@@ -235,35 +265,62 @@ async function addConditionFromInputs() {
     return res;
 }
 
+async function createConditionPlaceholder() {
+    const name = _makePlaceholderName('New Condition');
+    const type = (conditionTypeEl && conditionTypeEl.value ? conditionTypeEl.value : 'ImageMatchRoi');
+    let xNormalized = _readOptional01(roiXEl, 0.1);
+    let yNormalized = _readOptional01(roiYEl, 0.1);
+    let widthNormalized = _readOptional01(roiWEl, 0.2);
+    let heightNormalized = _readOptional01(roiHEl, 0.1);
+    if (widthNormalized <= 0) widthNormalized = 0.2;
+    if (heightNormalized <= 0) heightNormalized = 0.1;
+
+    if (conditionNameEl) conditionNameEl.value = name;
+    if (conditionTypeEl) conditionTypeEl.value = type;
+    _lastRoi = { x: xNormalized, y: yNormalized, w: widthNormalized, h: heightNormalized };
+    _activeRoiHandle = null;
+    setRoiInputsFromNormalized(_lastRoi);
+    drawOverlayRoi(_lastRoi);
+
+    const res = await postJson('/api/conditions', {
+        name,
+        type,
+        roi: { xNormalized, yNormalized, widthNormalized, heightNormalized },
+        templateImageBase64: null,
+        templateFromLive: true,
+    });
+    return res;
+}
+
 if (btnCondAddRow) {
     btnCondAddRow.addEventListener('click', async () => {
-        setStatus('Adding condition...', null);
+        setStatus('Creating condition...', null);
         try {
-            const res = await addConditionFromInputs();
+            const res = await createConditionPlaceholder();
             if (res && res.uuid) {
                 selectedConditionUuid = String(res.uuid);
             }
             await refreshConditions();
             await loadSelectedConditionIntoEditor();
-            setStatus('Condition added.', 'ok');
+            setStatus('New condition created.', 'ok');
         } catch (e) {
-            setStatus(`Add condition failed: ${e.message}`, 'err');
+            setStatus(`Create condition failed: ${e.message}`, 'err');
         }
     });
 }
 
 if (btnCondRemoveRow) {
     btnCondRemoveRow.addEventListener('click', async () => {
-        setStatus('Removing condition...', null);
+        setStatus('Deleting condition...', null);
         try {
             if (!selectedConditionUuid) throw new Error('Select a row first');
             await postJson('/api/conditions/remove_uuid', { uuid: selectedConditionUuid });
             selectedConditionUuid = null;
             await refreshConditions();
             clearSelectedConditionEditor();
-            setStatus('Condition removed.', 'ok');
+            setStatus('Condition deleted.', 'ok');
         } catch (e) {
-            setStatus(`Remove condition failed: ${e.message}`, 'err');
+            setStatus(`Delete condition failed: ${e.message}`, 'err');
         }
     });
 }
