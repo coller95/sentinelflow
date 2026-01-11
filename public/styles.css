@@ -150,6 +150,7 @@ body {
     border-top: 1px solid var(--border);
     overflow: hidden;
     box-shadow: var(--shadow);
+    position: relative;
 }
 
 
@@ -161,10 +162,47 @@ body {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    padding: 10px 16px;
+    padding: 0 16px;
     background: linear-gradient(90deg, rgba(10, 122, 107, 0.12), transparent);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid transparent;
     order: 1;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+    transform: translateY(-6px);
+    transition: opacity 160ms ease, max-height 200ms ease, transform 200ms ease, padding 200ms ease, border-color 200ms ease;
+}
+
+.controlWorkspace.tabsOpen .controlTabs {
+    max-height: 520px;
+    opacity: 1;
+    padding: 10px 16px;
+    pointer-events: auto;
+    transform: translateY(0);
+    border-bottom-color: var(--border);
+}
+
+.tabToggle {
+    position: absolute;
+    top: 50%;
+    left: 10px;
+    z-index: 4;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transform: translateY(-50%);
+}
+
+.controlWorkspace.tabsOpen .tabToggle {
+    background: var(--panel-2);
 }
 
 .controlTabs button {
@@ -211,8 +249,13 @@ body {
 @media (min-width: 1200px) {
     .controlWorkspace {
         display: grid;
-        grid-template-columns: 220px 1fr;
+        grid-template-columns: 0 1fr;
         grid-template-rows: 1fr auto;
+        transition: grid-template-columns 200ms ease;
+    }
+
+    .controlWorkspace.tabsOpen {
+        grid-template-columns: 220px 1fr;
     }
 
     .controlTabs {
@@ -221,10 +264,15 @@ body {
         flex-direction: column;
         align-items: stretch;
         gap: 8px;
-        padding: 16px 12px;
+        padding: 0 12px;
         border-bottom: none;
-        border-right: 1px solid var(--border);
+        border-right: 1px solid transparent;
         background: linear-gradient(180deg, rgba(10, 122, 107, 0.12), transparent);
+    }
+
+    .controlWorkspace.tabsOpen .controlTabs {
+        padding: 16px 12px;
+        border-right-color: var(--border);
     }
 
     .controlTabs button {
@@ -770,7 +818,7 @@ button.danger:hover {
 }
 
 @media (prefers-color-scheme: dark) and (min-width: 1200px) {
-    .controlTabs {
+    .controlWorkspace.tabsOpen .controlTabs {
         background: linear-gradient(180deg, rgba(63, 183, 165, 0.2), transparent);
     }
 }

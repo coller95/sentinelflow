@@ -155,6 +155,29 @@ window.addEventListener('beforeunload', () => {
 });
 
 document.addEventListener("DOMContentLoaded", () => {
+    const tabToggleBtn = document.getElementById("btnToggleTabs");
+    const controlWorkspace = document.querySelector(".controlWorkspace");
+    const setTabsOpen = (open) => {
+        if (!controlWorkspace || !tabToggleBtn) return;
+        if (open) {
+            controlWorkspace.classList.add("tabsOpen");
+            tabToggleBtn.setAttribute("aria-expanded", "true");
+            tabToggleBtn.setAttribute("aria-label", "Hide tabs");
+            tabToggleBtn.textContent = "<";
+        } else {
+            controlWorkspace.classList.remove("tabsOpen");
+            tabToggleBtn.setAttribute("aria-expanded", "false");
+            tabToggleBtn.setAttribute("aria-label", "Show tabs");
+            tabToggleBtn.textContent = ">";
+        }
+    };
+    if (tabToggleBtn && controlWorkspace) {
+        setTabsOpen(false);
+        tabToggleBtn.addEventListener("click", () => {
+            const isOpen = controlWorkspace.classList.contains("tabsOpen");
+            setTabsOpen(!isOpen);
+        });
+    }
     const tabs = document.querySelectorAll(".controlTabs button");
     const panels = document.querySelectorAll(".tabPanel");
     tabs.forEach(tab => {
