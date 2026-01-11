@@ -2,17 +2,109 @@ async function tryLoadAppDefaults() {
     try {
         const defaults = await getJson('/api/app/defaults');
         if (!defaults) return;
-        const defaultAppPath = (defaults.defaultAppPath || '').trim();
-        const defaultWindowTitle = (defaults.defaultWindowTitle || '').trim();
-        if (appPathEl && !((appPathEl.value || '').trim()) && defaultAppPath) {
+        const defaultAppPath = String(defaults.defaultAppPath ?? '').trim();
+        const defaultWindowTitle = String(defaults.defaultWindowTitle ?? '').trim();
+        const defaultWindowLeft = Number(defaults.defaultWindowLeft);
+        const defaultWindowTop = Number(defaults.defaultWindowTop);
+        const defaultWindowWidth = Number(defaults.defaultWindowWidth);
+        const defaultWindowHeight = Number(defaults.defaultWindowHeight);
+        if (appPathEl) {
             appPathEl.value = defaultAppPath;
         }
-        if (windowTitleEl && !((windowTitleEl.value || '').trim()) && defaultWindowTitle) {
+        if (windowTitleEl) {
             windowTitleEl.value = defaultWindowTitle;
         }
+        if (windowLeftEl && Number.isFinite(defaultWindowLeft)) {
+            windowLeftEl.value = String(Math.trunc(defaultWindowLeft));
+        }
+        if (windowTopEl && Number.isFinite(defaultWindowTop)) {
+            windowTopEl.value = String(Math.trunc(defaultWindowTop));
+        }
+        if (windowWidthEl && Number.isFinite(defaultWindowWidth)) {
+            windowWidthEl.value = String(Math.trunc(defaultWindowWidth));
+        }
+        if (windowHeightEl && Number.isFinite(defaultWindowHeight)) {
+            windowHeightEl.value = String(Math.trunc(defaultWindowHeight));
+        }
+        _lastSavedAppDefaults = _readAppDefaultsFromInputs();
     } catch {
         // Ignore: defaults are optional.
     }
+}
+
+let _appDefaultsSaveTimer = null;
+let _lastSavedAppDefaults = {
+    defaultAppPath: '',
+    defaultWindowTitle: '',
+    defaultWindowLeft: null,
+    defaultWindowTop: null,
+    defaultWindowWidth: null,
+    defaultWindowHeight: null
+};
+
+function _readIntInput(el) {
+    const raw = (el && el.value ? String(el.value) : '').trim();
+    if (!raw) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return null;
+    return Math.trunc(n);
+}
+
+function _readAppDefaultsFromInputs() {
+    return {
+        defaultAppPath: String(appPathEl && appPathEl.value ? appPathEl.value : '').trim(),
+        defaultWindowTitle: String(windowTitleEl && windowTitleEl.value ? windowTitleEl.value : '').trim(),
+        defaultWindowLeft: _readIntInput(windowLeftEl),
+        defaultWindowTop: _readIntInput(windowTopEl),
+        defaultWindowWidth: _readIntInput(windowWidthEl),
+        defaultWindowHeight: _readIntInput(windowHeightEl)
+    };
+}
+
+function _diffAppDefaults(next, prev) {
+    const payload = {};
+    if (next.defaultAppPath !== prev.defaultAppPath) payload.defaultAppPath = next.defaultAppPath;
+    if (next.defaultWindowTitle !== prev.defaultWindowTitle) payload.defaultWindowTitle = next.defaultWindowTitle;
+    if (next.defaultWindowLeft !== null && next.defaultWindowLeft !== prev.defaultWindowLeft) {
+        payload.defaultWindowLeft = next.defaultWindowLeft;
+    }
+    if (next.defaultWindowTop !== null && next.defaultWindowTop !== prev.defaultWindowTop) {
+        payload.defaultWindowTop = next.defaultWindowTop;
+    }
+    if (next.defaultWindowWidth !== null && next.defaultWindowWidth !== prev.defaultWindowWidth) {
+        payload.defaultWindowWidth = next.defaultWindowWidth;
+    }
+    if (next.defaultWindowHeight !== null && next.defaultWindowHeight !== prev.defaultWindowHeight) {
+        payload.defaultWindowHeight = next.defaultWindowHeight;
+    }
+    return payload;
+}
+
+async function _saveAppDefaultsNow() {
+    const next = _readAppDefaultsFromInputs();
+    const payload = _diffAppDefaults(next, _lastSavedAppDefaults);
+    const keys = Object.keys(payload);
+    if (keys.length === 0) return;
+    const res = await postJson('/api/app/defaults', payload);
+    const saved = {
+        defaultAppPath: String((res && res.defaultAppPath) ?? next.defaultAppPath ?? ''),
+        defaultWindowTitle: String((res && res.defaultWindowTitle) ?? next.defaultWindowTitle ?? ''),
+        defaultWindowLeft: Number.isFinite(Number(res && res.defaultWindowLeft)) ? Number(res.defaultWindowLeft) : next.defaultWindowLeft,
+        defaultWindowTop: Number.isFinite(Number(res && res.defaultWindowTop)) ? Number(res.defaultWindowTop) : next.defaultWindowTop,
+        defaultWindowWidth: Number.isFinite(Number(res && res.defaultWindowWidth)) ? Number(res.defaultWindowWidth) : next.defaultWindowWidth,
+        defaultWindowHeight: Number.isFinite(Number(res && res.defaultWindowHeight)) ? Number(res.defaultWindowHeight) : next.defaultWindowHeight
+    };
+    _lastSavedAppDefaults = saved;
+}
+
+function queueAppDefaultsSave() {
+    if (_appDefaultsSaveTimer) {
+        clearTimeout(_appDefaultsSaveTimer);
+    }
+    _appDefaultsSaveTimer = setTimeout(() => {
+        _appDefaultsSaveTimer = null;
+        _saveAppDefaultsNow().catch(() => {});
+    }, 350);
 }
 
 btnLaunch.addEventListener('click', async () => {
@@ -228,4 +320,29 @@ document.addEventListener("DOMContentLoaded", () => {
         setOverlayForTab(target);
     }
     tryLoadAppDefaults();
+    _lastSavedAppDefaults = _readAppDefaultsFromInputs();
+    if (appPathEl) {
+        appPathEl.addEventListener('input', queueAppDefaultsSave);
+        appPathEl.addEventListener('change', queueAppDefaultsSave);
+    }
+    if (windowTitleEl) {
+        windowTitleEl.addEventListener('input', queueAppDefaultsSave);
+        windowTitleEl.addEventListener('change', queueAppDefaultsSave);
+    }
+    if (windowLeftEl) {
+        windowLeftEl.addEventListener('input', queueAppDefaultsSave);
+        windowLeftEl.addEventListener('change', queueAppDefaultsSave);
+    }
+    if (windowTopEl) {
+        windowTopEl.addEventListener('input', queueAppDefaultsSave);
+        windowTopEl.addEventListener('change', queueAppDefaultsSave);
+    }
+    if (windowWidthEl) {
+        windowWidthEl.addEventListener('input', queueAppDefaultsSave);
+        windowWidthEl.addEventListener('change', queueAppDefaultsSave);
+    }
+    if (windowHeightEl) {
+        windowHeightEl.addEventListener('input', queueAppDefaultsSave);
+        windowHeightEl.addEventListener('change', queueAppDefaultsSave);
+    }
 });

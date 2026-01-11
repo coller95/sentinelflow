@@ -55,6 +55,7 @@
             <button data-tab="conditions">Conditions</button>
             <button data-tab="triggers">Triggers</button>
             <button data-tab="triggerStatus">Trigger Status</button>
+            <button data-tab="state">State</button>
             </nav>
 
         <section id="tab-launcher" class="tabPanel active">
@@ -478,6 +479,69 @@
             </fieldset>
         </section>
 
+        <section id="tab-state" class="tabPanel">
+            <fieldset>
+                <legend>State Import/Export</legend>
+
+                <div class="formSection">
+                    <div class="sectionHead">
+                        <div class="sectionTitle">1. State file</div>
+                        <p class="helpText">View the local state.json path and reload from disk.</p>
+                    </div>
+                    <div class="row">
+                        <label for="statePath">State path</label>
+                        <input id="statePath" type="text" readonly />
+                    </div>
+                    <div class="buttons">
+                        <button id="btnStatePath" class="primary" type="button">Refresh Path</button>
+                        <button id="btnStateReload" type="button">Reload from Disk</button>
+                    </div>
+                </div>
+
+                <div class="formSection">
+                    <div class="sectionHead">
+                        <div class="sectionTitle">2. Export</div>
+                        <p class="helpText">Export current state into the editor or download JSON.</p>
+                    </div>
+                    <div class="row checkRow">
+                        <label class="checkLabel">
+                            <input id="stateIncludeServerUuid" type="checkbox" checked />
+                            Include server UUID
+                        </label>
+                    </div>
+                    <div class="buttons">
+                        <button id="btnStateExport" class="primary" type="button">Export to Editor</button>
+                        <button id="btnStateDownload" type="button">Download JSON</button>
+                    </div>
+                </div>
+
+                <div class="formSection">
+                    <div class="sectionHead">
+                        <div class="sectionTitle">3. Import</div>
+                        <p class="helpText">Paste or load JSON, then import to replace current state.</p>
+                    </div>
+                    <div class="row checkRow">
+                        <label class="checkLabel">
+                            <input id="stateKeepServerUuid" type="checkbox" checked />
+                            Keep current server UUID
+                        </label>
+                    </div>
+                    <div class="row">
+                        <label for="stateFile">Import file</label>
+                        <input id="stateFile" type="file" accept="application/json" />
+                    </div>
+                    <div class="buttons">
+                        <button id="btnStateImport" class="primary" type="button">Import from Editor</button>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <label for="stateJson">State JSON</label>
+                    <textarea id="stateJson" class="monoBox" rows="12" style="width: 100%; min-height: 220px;"></textarea>
+                </div>
+            </fieldset>
+        </section>
+
 
     </section>
 
@@ -489,6 +553,7 @@
 <script src="/static/actions.js"></script>
 <script src="/static/triggers.js"></script>
 <script src="/static/conditions.js"></script>
+<script src="/static/state.js"></script>
 <script src="/static/mainApp.js"></script>
 </body>
 </html>

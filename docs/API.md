@@ -480,7 +480,46 @@ Response:
 ```json
 {
   "defaultAppPath": "C:/Path/To/App.exe",
-  "defaultWindowTitle": "My Game"
+  "defaultWindowTitle": "My Game",
+  "defaultWindowLeft": 0,
+  "defaultWindowTop": 0,
+  "defaultWindowWidth": 640,
+  "defaultWindowHeight": 480
+}
+```
+
+### `POST /api/app/defaults`
+
+Updates persisted operator defaults without launching or attaching.
+
+Request:
+
+```json
+{
+  "defaultAppPath": "C:/Path/To/App.exe",
+  "defaultWindowTitle": "My Game",
+  "defaultWindowLeft": 0,
+  "defaultWindowTop": 0,
+  "defaultWindowWidth": 640,
+  "defaultWindowHeight": 480
+}
+```
+
+Notes:
+- `defaultAppPath`, `defaultWindowTitle`, `defaultWindowLeft`, `defaultWindowTop`, `defaultWindowWidth`, and `defaultWindowHeight` are optional; send any subset.
+- For convenience, `app_path` and `window_title` are also accepted.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "defaultAppPath": "C:/Path/To/App.exe",
+  "defaultWindowTitle": "My Game",
+  "defaultWindowLeft": 0,
+  "defaultWindowTop": 0,
+  "defaultWindowWidth": 640,
+  "defaultWindowHeight": 480
 }
 ```
 
@@ -507,7 +546,7 @@ Response:
 ```
 
 Notes:
-- On success, the server updates and persists `defaultAppPath`.
+- On success, the server updates and persists `defaultAppPath` and window geometry defaults.
 
 ### `POST /api/app/attach`
 
@@ -532,7 +571,7 @@ Response:
 ```
 
 Notes:
-- On success, the server updates and persists `defaultWindowTitle`.
+- On success, the server updates and persists `defaultWindowTitle` and window geometry defaults.
 
 ### `POST /api/app/close`
 

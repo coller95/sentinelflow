@@ -68,6 +68,16 @@ const roiYEl = document.getElementById('roiY');
 const roiWEl = document.getElementById('roiW');
 const roiHEl = document.getElementById('roiH');
 const templateImageEl = document.getElementById('templateImage');
+const statePathEl = document.getElementById('statePath');
+const btnStatePath = document.getElementById('btnStatePath');
+const btnStateReload = document.getElementById('btnStateReload');
+const stateIncludeServerUuidEl = document.getElementById('stateIncludeServerUuid');
+const btnStateExport = document.getElementById('btnStateExport');
+const btnStateDownload = document.getElementById('btnStateDownload');
+const stateKeepServerUuidEl = document.getElementById('stateKeepServerUuid');
+const stateFileEl = document.getElementById('stateFile');
+const btnStateImport = document.getElementById('btnStateImport');
+const stateJsonEl = document.getElementById('stateJson');
 
 // --- Global Variables ---
 let _triggerStatusEventSource = null;

@@ -250,6 +250,52 @@ def GetAppDefaults() -> Dict[str, Any]:
     return svc.GetAppDefaults()
 
 
+class AppDefaultsUpdateRequest(BaseModel):
+    defaultAppPath: Optional[str] = None
+    defaultWindowTitle: Optional[str] = None
+    defaultWindowLeft: Optional[int] = None
+    defaultWindowTop: Optional[int] = None
+    defaultWindowWidth: Optional[int] = None
+    defaultWindowHeight: Optional[int] = None
+    app_path: Optional[str] = None
+    window_title: Optional[str] = None
+    left: Optional[int] = None
+    top: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+
+@app.post("/api/app/defaults")
+def SetAppDefaults(req: AppDefaultsUpdateRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    app_path = req.defaultAppPath if req.defaultAppPath is not None else req.app_path
+    window_title = req.defaultWindowTitle if req.defaultWindowTitle is not None else req.window_title
+    left = req.defaultWindowLeft if req.defaultWindowLeft is not None else req.left
+    top = req.defaultWindowTop if req.defaultWindowTop is not None else req.top
+    width = req.defaultWindowWidth if req.defaultWindowWidth is not None else req.width
+    height = req.defaultWindowHeight if req.defaultWindowHeight is not None else req.height
+    if (
+        app_path is None
+        and window_title is None
+        and left is None
+        and top is None
+        and width is None
+        and height is None
+    ):
+        raise HTTPException(status_code=400, detail="No defaults provided")
+
+    defaults = svc.SetAppDefaults(
+        default_app_path=app_path,
+        default_window_title=window_title,
+        default_window_left=left,
+        default_window_top=top,
+        default_window_width=width,
+        default_window_height=height,
+    )
+    _try_save_state(svc)
+    return {"ok": True, **defaults}
+
+
 class LaunchRequest(BaseModel):
     app_path: str
     left: int = 0

@@ -101,6 +101,10 @@ class ControllerServices:
         # Persisted UX defaults (so operators don't retype common values).
         self._default_app_path: str = ""
         self._default_window_title: str = ""
+        self._default_window_left: int = 0
+        self._default_window_top: int = 0
+        self._default_window_width: int = 640
+        self._default_window_height: int = 480
 
         self._pid: PID = 0
         self._hwnd: HWND = 0
@@ -189,11 +193,62 @@ class ControllerServices:
         with self._state_lock:
             return self._server_uuid
 
-    def GetAppDefaults(self) -> Dict[str, str]:
+    def GetAppDefaults(self) -> Dict[str, Any]:
         with self._state_lock:
             return {
                 "defaultAppPath": str(self._default_app_path or ""),
                 "defaultWindowTitle": str(self._default_window_title or ""),
+                "defaultWindowLeft": int(self._default_window_left),
+                "defaultWindowTop": int(self._default_window_top),
+                "defaultWindowWidth": int(self._default_window_width),
+                "defaultWindowHeight": int(self._default_window_height),
+            }
+
+    def SetAppDefaults(
+        self,
+        default_app_path: Optional[str] = None,
+        default_window_title: Optional[str] = None,
+        default_window_left: Optional[int] = None,
+        default_window_top: Optional[int] = None,
+        default_window_width: Optional[int] = None,
+        default_window_height: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        def _coerce_int(value: Optional[int], min_value: Optional[int] = None) -> Optional[int]:
+            if value is None:
+                return None
+            try:
+                n = int(value)
+            except Exception:
+                return None
+            if min_value is not None and n < min_value:
+                return None
+            return n
+
+        left = _coerce_int(default_window_left)
+        top = _coerce_int(default_window_top)
+        width = _coerce_int(default_window_width, min_value=1)
+        height = _coerce_int(default_window_height, min_value=1)
+
+        with self._state_lock:
+            if default_app_path is not None:
+                self._default_app_path = str(default_app_path or "").strip()
+            if default_window_title is not None:
+                self._default_window_title = str(default_window_title or "").strip()
+            if left is not None:
+                self._default_window_left = left
+            if top is not None:
+                self._default_window_top = top
+            if width is not None:
+                self._default_window_width = width
+            if height is not None:
+                self._default_window_height = height
+            return {
+                "defaultAppPath": str(self._default_app_path or ""),
+                "defaultWindowTitle": str(self._default_window_title or ""),
+                "defaultWindowLeft": int(self._default_window_left),
+                "defaultWindowTop": int(self._default_window_top),
+                "defaultWindowWidth": int(self._default_window_width),
+                "defaultWindowHeight": int(self._default_window_height),
             }
 
     def ExportStateDict(self, includeServerUuid: bool = True) -> Dict[str, Any]:
@@ -201,6 +256,10 @@ class ControllerServices:
             server_uuid = self._server_uuid
             default_app_path = self._default_app_path
             default_window_title = self._default_window_title
+            default_window_left = self._default_window_left
+            default_window_top = self._default_window_top
+            default_window_width = self._default_window_width
+            default_window_height = self._default_window_height
             conditions = list(self._conditionItemList.values())
             actions = list(self._actionItemList.values())
             triggers = list(self._triggerItemList.values())
@@ -221,6 +280,10 @@ class ControllerServices:
             "app": {
                 "defaultAppPath": str(default_app_path or ""),
                 "defaultWindowTitle": str(default_window_title or ""),
+                "defaultWindowLeft": int(default_window_left),
+                "defaultWindowTop": int(default_window_top),
+                "defaultWindowWidth": int(default_window_width),
+                "defaultWindowHeight": int(default_window_height),
             },
             "conditions": [],
             "actions": [],
@@ -298,8 +361,29 @@ class ControllerServices:
         imported_default_app_path = str(app_obj_t.get("defaultAppPath", "") or "").strip()
         imported_default_window_title = str(app_obj_t.get("defaultWindowTitle", "") or "").strip()
 
+        def _parse_int_field(key: str, min_value: Optional[int] = None) -> Optional[int]:
+            raw = app_obj_t.get(key, None)
+            if raw is None:
+                return None
+            try:
+                n = int(raw)
+            except Exception:
+                return None
+            if min_value is not None and n < min_value:
+                return None
+            return n
+
+        imported_window_left = _parse_int_field("defaultWindowLeft")
+        imported_window_top = _parse_int_field("defaultWindowTop")
+        imported_window_width = _parse_int_field("defaultWindowWidth", min_value=1)
+        imported_window_height = _parse_int_field("defaultWindowHeight", min_value=1)
+
         with self._state_lock:
             current_server_uuid = self._server_uuid
+            current_window_left = self._default_window_left
+            current_window_top = self._default_window_top
+            current_window_width = self._default_window_width
+            current_window_height = self._default_window_height
 
         new_server_uuid: UUID
         if keepServerUuid:
@@ -465,6 +549,10 @@ class ControllerServices:
             # Restore persisted operator defaults.
             self._default_app_path = imported_default_app_path
             self._default_window_title = imported_default_window_title
+            self._default_window_left = imported_window_left if imported_window_left is not None else current_window_left
+            self._default_window_top = imported_window_top if imported_window_top is not None else current_window_top
+            self._default_window_width = imported_window_width if imported_window_width is not None else current_window_width
+            self._default_window_height = imported_window_height if imported_window_height is not None else current_window_height
 
             # Replace config state atomically.
             self._conditionItemList = dict(loaded_conditions)
@@ -1160,6 +1248,12 @@ class ControllerServices:
     def LaunchApp(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
         with self._state_lock:
             self._default_app_path = str(app_path or "").strip()
+            self._default_window_left = int(left)
+            self._default_window_top = int(top)
+            if int(width) > 0:
+                self._default_window_width = int(width)
+            if int(height) > 0:
+                self._default_window_height = int(height)
         self.LaucnhApp(app_path, left=left, top=top, width=width, height=height)
 
     def LaucnhApp(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
@@ -1177,6 +1271,12 @@ class ControllerServices:
     def AttachApp(self, window_title: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
         with self._state_lock:
             self._default_window_title = str(window_title or "").strip()
+            self._default_window_left = int(left)
+            self._default_window_top = int(top)
+            if int(width) > 0:
+                self._default_window_width = int(width)
+            if int(height) > 0:
+                self._default_window_height = int(height)
         foundHwnd = FindHwndByTitle(window_title)
         if foundHwnd is None:
             raise Exception("Failed to find window handle for the specified title.")
