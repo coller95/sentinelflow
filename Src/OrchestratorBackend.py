@@ -105,6 +105,16 @@ def _require_cluster_base_url(svc: OrchestratorServices, clusterUuid: UUID) -> s
     record = svc.GetCluster(clusterUuid)
     if record is None:
         raise HTTPException(status_code=404, detail="cluster not found")
+
+    dupes = svc.FindClustersByServerUuid(record.serverUuid, includeDecommissioned=False)
+    if len(dupes) > 1:
+        base_urls = [str(c.baseUrl or "") for c in dupes if c.baseUrl]
+        suffix = f" ({', '.join(base_urls)})" if base_urls else ""
+        raise HTTPException(
+            status_code=409,
+            detail=f"duplicate serverUuid detected; resolve duplicates before proxying{suffix}",
+        )
+
     base = (record.baseUrl or "").strip()
     if not base:
         raise HTTPException(status_code=400, detail="cluster baseUrl is not set")
@@ -204,20 +214,40 @@ def _default_label_from_base_url(base_url: str) -> str:
 
 class ClusterItemDto(BaseModel):
     uuid: str
+    serverUuid: str
     label: str
     baseUrl: Optional[str]
     commissionedAtUnix: float
     decommissionedAtUnix: Optional[float] = None
+    duplicateCount: int = 0
+    isDuplicate: bool = False
 
 
-def _to_dto(r: Any) -> ClusterItemDto:
+def _to_dto(r: Any, duplicateCount: int = 0) -> ClusterItemDto:
     return ClusterItemDto(
         uuid=str(r.uuid),
+        serverUuid=str(r.serverUuid),
         label=str(r.label),
         baseUrl=(None if r.baseUrl is None else str(r.baseUrl)),
         commissionedAtUnix=float(r.commissionedAtUnix),
         decommissionedAtUnix=(None if r.decommissionedAtUnix is None else float(r.decommissionedAtUnix)),
+        duplicateCount=int(duplicateCount),
+        isDuplicate=int(duplicateCount) > 1,
     )
+
+
+def _duplicate_server_uuid_counts(clusters: list[Any]) -> Dict[UUID, int]:
+    counts: Dict[UUID, int] = {}
+    for c in clusters:
+        if c is None:
+            continue
+        if getattr(c, "decommissionedAtUnix", None) is not None:
+            continue
+        su = getattr(c, "serverUuid", None)
+        if su is None:
+            continue
+        counts[su] = counts.get(su, 0) + 1
+    return counts
 
 
 class UpdateClusterRequest(BaseModel):
@@ -237,8 +267,9 @@ def CommissionCluster(req: CommissionClusterRequest) -> Dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    dup_counts = _duplicate_server_uuid_counts(svc.ListClusters(includeDecommissioned=True))
     _try_save_state(svc)
-    return {"ok": True, "cluster": _to_dto(record).model_dump()}
+    return {"ok": True, "cluster": _to_dto(record, dup_counts.get(record.serverUuid, 0)).model_dump()}
 
 
 @app.post("/api/orchestrator/clusters/commission_from_url")
@@ -257,24 +288,30 @@ async def CommissionClusterFromUrl(req: CommissionClusterFromUrlRequest) -> Dict
         raise HTTPException(status_code=502, detail="cluster /api/server/info did not return serverUuid")
 
     try:
-        cluster_uuid = UUID(str(info.get("serverUuid") or "").strip())
+        server_uuid = UUID(str(info.get("serverUuid") or "").strip())
     except Exception:
         raise HTTPException(status_code=502, detail="cluster /api/server/info returned invalid serverUuid")
 
     try:
-        record = svc.CommissionCluster(cluster_uuid, label, base_url)
+        record = svc.CommissionCluster(server_uuid, label, base_url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    dup_counts = _duplicate_server_uuid_counts(svc.ListClusters(includeDecommissioned=True))
     _try_save_state(svc)
-    return {"ok": True, "cluster": _to_dto(record).model_dump(), "discovered": {"serverUuid": str(cluster_uuid)}}
+    return {
+        "ok": True,
+        "cluster": _to_dto(record, dup_counts.get(record.serverUuid, 0)).model_dump(),
+        "discovered": {"serverUuid": str(server_uuid)},
+    }
 
 
 @app.get("/api/orchestrator/clusters")
 def ListClusters(includeDecommissioned: bool = False) -> Dict[str, Any]:
     svc = _get_services()
     clusters = svc.ListClusters(includeDecommissioned=bool(includeDecommissioned))
-    return {"clusters": [_to_dto(c).model_dump() for c in clusters]}
+    dup_counts = _duplicate_server_uuid_counts(clusters)
+    return {"clusters": [_to_dto(c, dup_counts.get(c.serverUuid, 0)).model_dump() for c in clusters]}
 
 
 @app.get("/api/orchestrator/clusters/{clusterUuid}")
@@ -283,7 +320,8 @@ def GetCluster(clusterUuid: UUID) -> Dict[str, Any]:
     record = svc.GetCluster(clusterUuid)
     if record is None:
         raise HTTPException(status_code=404, detail="cluster not found")
-    return {"cluster": _to_dto(record).model_dump()}
+    dup_counts = _duplicate_server_uuid_counts(svc.ListClusters(includeDecommissioned=True))
+    return {"cluster": _to_dto(record, dup_counts.get(record.serverUuid, 0)).model_dump()}
 
 
 @app.post("/api/orchestrator/clusters/{clusterUuid}/update")
@@ -311,8 +349,9 @@ def UpdateCluster(clusterUuid: UUID, req: UpdateClusterRequest) -> Dict[str, Any
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    dup_counts = _duplicate_server_uuid_counts(svc.ListClusters(includeDecommissioned=True))
     _try_save_state(svc)
-    return {"ok": True, "cluster": _to_dto(record).model_dump()}
+    return {"ok": True, "cluster": _to_dto(record, dup_counts.get(record.serverUuid, 0)).model_dump()}
 
 
 @app.post("/api/orchestrator/clusters/{clusterUuid}/decommission")
@@ -323,8 +362,9 @@ def DecommissionCluster(clusterUuid: UUID) -> Dict[str, Any]:
     except KeyError:
         raise HTTPException(status_code=404, detail="cluster not found")
 
+    dup_counts = _duplicate_server_uuid_counts(svc.ListClusters(includeDecommissioned=True))
     _try_save_state(svc)
-    return {"ok": True, "cluster": _to_dto(record).model_dump()}
+    return {"ok": True, "cluster": _to_dto(record, dup_counts.get(record.serverUuid, 0)).model_dump()}
 
 
 @app.post("/api/orchestrator/clusters/{clusterUuid}/remove")

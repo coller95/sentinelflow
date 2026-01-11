@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 @dataclass(frozen=True)
 class ClusterRecord:
     uuid: UUID
+    serverUuid: UUID
     label: str
     baseUrl: Optional[str]
     commissionedAtUnix: float
@@ -37,22 +38,41 @@ class OrchestratorServices:
         with self._lock:
             return self._clusters.get(clusterUuid)
 
-    def CommissionCluster(self, clusterUuid: UUID, label: str, baseUrl: Optional[str]) -> ClusterRecord:
+    def FindClustersByServerUuid(self, serverUuid: UUID, includeDecommissioned: bool = False) -> List[ClusterRecord]:
+        with self._lock:
+            matches = [c for c in self._clusters.values() if c.serverUuid == serverUuid]
+        if includeDecommissioned:
+            return matches
+        return [c for c in matches if c.decommissionedAtUnix is None]
+
+    def CommissionCluster(
+        self,
+        serverUuid: UUID,
+        label: str,
+        baseUrl: Optional[str],
+        recordUuid: Optional[UUID] = None,
+    ) -> ClusterRecord:
         clean_label = (label or "").strip()
         if not clean_label:
             raise ValueError("label is required")
 
         clean_base = (baseUrl or "").strip() or None
         now = float(time.time())
-        record = ClusterRecord(
-            uuid=clusterUuid,
-            label=clean_label,
-            baseUrl=clean_base,
-            commissionedAtUnix=now,
-            decommissionedAtUnix=None,
-        )
+        record_uuid = recordUuid or serverUuid
         with self._lock:
-            self._clusters[clusterUuid] = record
+            if record_uuid in self._clusters:
+                record_uuid = uuid4()
+                while record_uuid in self._clusters:
+                    record_uuid = uuid4()
+            record = ClusterRecord(
+                uuid=record_uuid,
+                serverUuid=serverUuid,
+                label=clean_label,
+                baseUrl=clean_base,
+                commissionedAtUnix=now,
+                decommissionedAtUnix=None,
+            )
+            self._clusters[record.uuid] = record
         return record
 
     def UpdateCluster(self, clusterUuid: UUID, label: Optional[str] = None, baseUrl: Optional[str] = None) -> ClusterRecord:
@@ -71,6 +91,7 @@ class OrchestratorServices:
 
             record = ClusterRecord(
                 uuid=existing.uuid,
+                serverUuid=existing.serverUuid,
                 label=clean_label,
                 baseUrl=clean_base,
                 commissionedAtUnix=existing.commissionedAtUnix,
@@ -87,6 +108,7 @@ class OrchestratorServices:
                 raise KeyError("cluster not found")
             record = ClusterRecord(
                 uuid=existing.uuid,
+                serverUuid=existing.serverUuid,
                 label=existing.label,
                 baseUrl=existing.baseUrl,
                 commissionedAtUnix=existing.commissionedAtUnix,
@@ -113,6 +135,7 @@ class OrchestratorServices:
             "clusters": [
                 {
                     "uuid": str(c.uuid),
+                    "serverUuid": str(c.serverUuid),
                     "label": c.label,
                     "baseUrl": c.baseUrl,
                     "commissionedAtUnix": float(c.commissionedAtUnix),
@@ -142,14 +165,27 @@ class OrchestratorServices:
                 if not isinstance(item_any, dict):
                     continue
                 item = cast(Dict[str, Any], item_any)
+                cu: Optional[UUID] = None
                 try:
                     cu = UUID(str(item.get("uuid", "")))
                 except Exception:
-                    continue
+                    cu = None
 
                 label = str(item.get("label", "") or "").strip()
+
+                server_uuid: Optional[UUID] = None
+                try:
+                    raw_server_uuid = str(item.get("serverUuid", "") or "").strip()
+                    if raw_server_uuid:
+                        server_uuid = UUID(raw_server_uuid)
+                except Exception:
+                    server_uuid = None
+                if server_uuid is None and cu is not None:
+                    server_uuid = cu
+                if server_uuid is None:
+                    continue
                 if not label:
-                    label = str(cu)
+                    label = str(server_uuid)
 
                 base_url_raw = str(item.get("baseUrl", "") or "").strip()
                 base_url = base_url_raw or None
@@ -163,8 +199,12 @@ class OrchestratorServices:
                     except Exception:
                         decomm_at = None
 
-                clusters[cu] = ClusterRecord(
-                    uuid=cu,
+                record_uuid = cu or uuid4()
+                while record_uuid in clusters:
+                    record_uuid = uuid4()
+                clusters[record_uuid] = ClusterRecord(
+                    uuid=record_uuid,
+                    serverUuid=server_uuid,
                     label=label,
                     baseUrl=base_url,
                     commissionedAtUnix=commissioned_at if commissioned_at > 0 else float(time.time()),

@@ -58,6 +58,7 @@ let _cachedClusters = [];
 let _cachedActions = [];
 let _cachedConditions = [];
 let _cachedTriggers = [];
+let _dupCountByServerUuid = new Map();
 
 function _setStatus(text) {
   if (!regStatusEl) return;
@@ -165,8 +166,60 @@ function _fmtClusterMeta(c) {
   if (!c) return '';
   const label = c.label ? String(c.label) : '';
   const uuid = c.uuid ? String(c.uuid) : '';
+  const serverUuid = c.serverUuid ? String(c.serverUuid) : '';
   const baseUrl = c.baseUrl ? String(c.baseUrl) : '';
-  return `${label} | ${uuid}${baseUrl ? ` | ${baseUrl}` : ''}`;
+  const dupCount = _dupCountByServerUuid.get(serverUuid || uuid) || 0;
+  const dupTag = dupCount > 1 ? ` | DUPLICATE x${dupCount}` : '';
+  return `${label} | ${uuid}${serverUuid ? ` | ${serverUuid}` : ''}${baseUrl ? ` | ${baseUrl}` : ''}${dupTag}`;
+}
+
+function _serverUuidOf(cluster) {
+  return String(cluster?.serverUuid ?? cluster?.uuid ?? '').trim();
+}
+
+function _selectedClusterIsDuplicate() {
+  const cu = _selectedClusterUuid();
+  const selected = (Array.isArray(_cachedClusters) ? _cachedClusters : []).find(
+    x => String(x?.uuid ?? '') === String(cu)
+  ) || null;
+  if (!selected) return false;
+  const su = _serverUuidOf(selected);
+  if (!su) return false;
+  return (_dupCountByServerUuid.get(su) || 0) > 1;
+}
+
+function _setProxyControlsEnabled(enabled) {
+  const items = [
+    btnAppLaunchEl,
+    btnAppAttachEl,
+    btnAppCloseEl,
+    btnCaptureStartEl,
+    btnCaptureStopEl,
+    btnActionsFetchEl,
+    btnActionRunEl,
+    btnActionRemoveEl,
+    btnActionUpsertEl,
+    btnConditionsFetchEl,
+    btnConditionsStatusEl,
+    btnConditionsSendEl,
+    btnTriggersFetchEl,
+    btnTriggersStatusEl,
+    btnTriggersSendEl,
+    btnTriggerApplyEnabledEl,
+    btnTriggerRemoveEl,
+  ];
+  for (const el of items) {
+    if (!el) continue;
+    el.disabled = !enabled;
+  }
+}
+
+function _applyDuplicateUiState() {
+  const isDup = _selectedClusterIsDuplicate();
+  _setProxyControlsEnabled(!isDup);
+  if (isDup) {
+    _setManageStatus('Duplicate server UUID detected. Resolve duplicates to enable proxy actions.');
+  }
 }
 
 function _setClusterEditorFromSelected() {
@@ -185,6 +238,7 @@ function _setClusterEditorFromSelected() {
 async function _loadAppDefaultsForSelectedCluster() {
   const cu = _selectedClusterUuid();
   if (!cu) return;
+  if (_selectedClusterIsDuplicate()) return;
 
   try {
     const data = await _getJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/app/defaults`);
@@ -208,12 +262,21 @@ async function refreshClusters(selectUuid = null) {
     const resp = await _getJson('/api/orchestrator/clusters');
     const clusters = resp && Array.isArray(resp.clusters) ? resp.clusters : [];
     _cachedClusters = clusters;
+    _dupCountByServerUuid = new Map();
+    for (const c of clusters) {
+      const su = _serverUuidOf(c);
+      if (!su) continue;
+      _dupCountByServerUuid.set(su, (_dupCountByServerUuid.get(su) || 0) + 1);
+    }
 
     clusterSelectEl.textContent = '';
     for (const c of clusters) {
+      const su = _serverUuidOf(c);
+      const dupCount = su ? (_dupCountByServerUuid.get(su) || 0) : 0;
       const opt = document.createElement('option');
       opt.value = String(c.uuid ?? '');
-      opt.textContent = String(c.label ?? c.uuid ?? '');
+      const baseLabel = String(c.label ?? c.uuid ?? '');
+      opt.textContent = dupCount > 1 ? `${baseLabel} [DUP x${dupCount}]` : baseLabel;
       clusterSelectEl.appendChild(opt);
     }
 
@@ -224,6 +287,7 @@ async function refreshClusters(selectUuid = null) {
     _setClusterEditorFromSelected();
     await _loadAppDefaultsForSelectedCluster();
     _setManageStatus('Ready.');
+    _applyDuplicateUiState();
   } catch (err) {
     _setManageStatus(`Failed to load clusters: ${err?.message ?? err}`);
   }
@@ -283,6 +347,7 @@ function _appGeometryPayload() {
 async function appLaunch() {
   const cu = _selectedClusterUuid();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   const app_path = String(appLaunchPathEl?.value || '').trim();
   if (!app_path) return _setManageStatus('App path is required.');
   _setManageStatus('Launching app on cluster...');
@@ -297,6 +362,7 @@ async function appLaunch() {
 async function appAttach() {
   const cu = _selectedClusterUuid();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   const window_title = String(appAttachTitleEl?.value || '').trim();
   if (!window_title) return _setManageStatus('Window title is required.');
   _setManageStatus('Attaching app window on cluster...');
@@ -311,6 +377,7 @@ async function appAttach() {
 async function appClose() {
   const cu = _selectedClusterUuid();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   _setManageStatus('Closing app on cluster...');
   try {
     await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/app/close`, {});
@@ -323,6 +390,7 @@ async function appClose() {
 async function captureStart() {
   const cu = _selectedClusterUuid();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   _setManageStatus('Starting capture on cluster...');
   try {
     // Use the cluster default interval (1s) unless you later add an input.
@@ -336,6 +404,7 @@ async function captureStart() {
 async function captureStop() {
   const cu = _selectedClusterUuid();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   _setManageStatus('Stopping capture on cluster...');
   try {
     await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/capture/stop`, {});
@@ -370,6 +439,10 @@ async function actionsFetch() {
     _setManageStatus('Select a cluster first.');
     return;
   }
+  if (_selectedClusterIsDuplicate()) {
+    _setManageStatus('Duplicate server UUID detected.');
+    return;
+  }
   _setManageStatus('Fetching actions...');
   try {
     const data = await _getJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/actions`);
@@ -401,6 +474,7 @@ async function actionRunRemove(kind) {
   const cu = _selectedClusterUuid();
   const actionUuid = String(actionRunUuidEl?.value || '').trim();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   if (!actionUuid) return _setManageStatus('Action UUID is required.');
   const endpoint = kind === 'run'
     ? `/api/orchestrator/clusters/${encodeURIComponent(cu)}/actions/run`
@@ -418,6 +492,7 @@ async function actionRunRemove(kind) {
 async function actionUpsert() {
   const cu = _selectedClusterUuid();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   let payload;
   try {
     payload = _parseJsonFromTextArea(actionUpsertBodyEl);
@@ -438,6 +513,7 @@ async function actionUpsert() {
 async function conditionsFetch(kind) {
   const cu = _selectedClusterUuid();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   const url = kind === 'status'
     ? `/api/orchestrator/clusters/${encodeURIComponent(cu)}/conditions/status`
     : `/api/orchestrator/clusters/${encodeURIComponent(cu)}/conditions`;
@@ -484,6 +560,7 @@ function _onConditionSelected() {
 async function conditionsSend() {
   const cu = _selectedClusterUuid();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   const op = String(conditionsOpEl?.value || '').trim();
   if (!op) return _setManageStatus('Pick an operation.');
 
@@ -508,6 +585,7 @@ async function conditionsSend() {
 async function triggersFetch(kind) {
   const cu = _selectedClusterUuid();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   const url = kind === 'status'
     ? `/api/orchestrator/clusters/${encodeURIComponent(cu)}/triggers/status`
     : `/api/orchestrator/clusters/${encodeURIComponent(cu)}/triggers`;
@@ -549,6 +627,7 @@ async function triggerApplyEnabled() {
   const cu = _selectedClusterUuid();
   const tu = String(triggersSelectEl?.value || '').trim();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   if (!tu) return _setManageStatus('Select a trigger first.');
   const enabled = Boolean(triggerEnabledEl?.checked);
   _setManageStatus('Applying enabled...');
@@ -565,6 +644,7 @@ async function triggerRemoveSelected() {
   const cu = _selectedClusterUuid();
   const tu = String(triggersSelectEl?.value || '').trim();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   if (!tu) return _setManageStatus('Select a trigger first.');
   _setManageStatus('Removing trigger...');
   try {
@@ -579,6 +659,7 @@ async function triggerRemoveSelected() {
 async function triggersSend() {
   const cu = _selectedClusterUuid();
   if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
   const op = String(triggersOpEl?.value || '').trim();
   if (!op) return _setManageStatus('Pick an operation.');
 
@@ -644,6 +725,7 @@ if (clusterSelectEl) {
   clusterSelectEl.addEventListener('change', () => {
     _setClusterEditorFromSelected();
     _loadAppDefaultsForSelectedCluster();
+    _applyDuplicateUiState();
   });
 }
 
