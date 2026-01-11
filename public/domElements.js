@@ -23,6 +23,7 @@ const keyNameEl = document.getElementById('keyName');
 const btnSendKey = document.getElementById('btnSendKey');
 const clickXEl = document.getElementById('clickX');
 const clickYEl = document.getElementById('clickY');
+const inputInstantClickEl = document.getElementById('inputInstantClick');
 const btnSendClick = document.getElementById('btnSendClick');
 const btnRefreshConditions = document.getElementById('btnRefreshConditions');
 const condTableBody = document.getElementById('condTableBody');

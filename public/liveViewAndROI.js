@@ -187,6 +187,30 @@ function drawOverlayLabel(text) {
     ctx.restore();
 }
 
+function isInputTabActive() {
+    const tab = document.getElementById('tab-input');
+    return !!(tab && tab.classList.contains('active'));
+}
+
+function getInstantClickToggle() {
+    if (typeof inputInstantClickEl === 'undefined') return null;
+    return inputInstantClickEl;
+}
+
+function isInstantClickEnabled() {
+    const el = getInstantClickToggle();
+    return !!(el && el.checked && isInputTabActive());
+}
+
+async function sendInstantClick(pt) {
+    try {
+        await postJson('/api/control/click', { x: Number(pt.x), y: Number(pt.y) });
+        setStatus('Click enqueued.', 'ok');
+    } catch (e) {
+        setStatus(`Click failed: ${e.message}`, 'err');
+    }
+}
+
 function getNormalizedPointFromMouseEvent(ev) {
     const rect = (roiOverlay || captureImage).getBoundingClientRect();
     const nw = captureImage.naturalWidth;
@@ -362,7 +386,7 @@ function renderLiveOverlay() {
     }
     if (_liveOverlayMode === LIVE_OVERLAY_MODES.CLICK) {
         drawClickMarker(_lastLiveSelectedPoint);
-        drawOverlayLabel('Click mode');
+        drawOverlayLabel(isInstantClickEnabled() ? 'Click mode (instant)' : 'Click mode');
         return;
     }
     clearOverlayCanvas();
@@ -497,6 +521,9 @@ roiEventTarget.addEventListener('mousedown', (ev) => {
         if (_liveOverlayMode === LIVE_OVERLAY_MODES.CLICK) {
             const pt = getNormalizedPointFromMouseEvent(ev);
             setClickInputsFromPoint(pt);
+            if (isInstantClickEnabled()) {
+                sendInstantClick(pt);
+            }
             ev.preventDefault();
             return;
         }
