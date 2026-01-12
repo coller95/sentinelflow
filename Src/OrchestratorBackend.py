@@ -1113,6 +1113,13 @@ async def ProxyCaptureStop(clusterUuid: UUID) -> Any:
     return await _proxy_json("POST", base, "/api/capture/stop")
 
 
+@app.post("/api/orchestrator/clusters/{clusterUuid}/control/click")
+async def ProxyControlClick(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    return await _proxy_json("POST", base, "/api/control/click", body=dict(req.body))
+
+
 @app.get("/api/orchestrator/clusters/{clusterUuid}/capture/latest")
 async def ProxyCaptureLatest(clusterUuid: UUID, fmt: str = "jpg") -> Response:
     svc = _get_services()

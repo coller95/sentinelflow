@@ -510,6 +510,52 @@ function _cctvPillInfo(state) {
   }
 }
 
+function _computeImageNormalized(imgEl, ev) {
+  const rect = imgEl.getBoundingClientRect();
+  const clickX = ev.clientX - rect.left;
+  const clickY = ev.clientY - rect.top;
+  if (rect.width <= 0 || rect.height <= 0) return null;
+
+  const naturalW = imgEl.naturalWidth || 0;
+  const naturalH = imgEl.naturalHeight || 0;
+  if (naturalW > 0 && naturalH > 0) {
+    const scale = Math.min(rect.width / naturalW, rect.height / naturalH);
+    const drawnW = naturalW * scale;
+    const drawnH = naturalH * scale;
+    const offsetX = (rect.width - drawnW) / 2;
+    const offsetY = (rect.height - drawnH) / 2;
+    const dx = clickX - offsetX;
+    const dy = clickY - offsetY;
+    if (dx < 0 || dy < 0 || dx > drawnW || dy > drawnH) {
+      return null;
+    }
+    return { x: dx / drawnW, y: dy / drawnH };
+  }
+
+  return { x: clickX / rect.width, y: clickY / rect.height };
+}
+
+async function _sendCctvClick(cluster, imgEl, ev) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu) return;
+  if (!cluster?.baseUrl) return _setManageStatus('Cluster baseUrl is not set.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+
+  const norm = _computeImageNormalized(imgEl, ev);
+  if (!norm) return;
+
+  const x = Math.max(0, Math.min(1, Number(norm.x)));
+  const y = Math.max(0, Math.min(1, Number(norm.y)));
+
+  _setManageStatus(`Sending click to ${_clusterLabel(cluster)}...`);
+  try {
+    await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/control/click', { x, y });
+    _setManageStatus(`Click sent to ${_clusterLabel(cluster)} (${x.toFixed(3)}, ${y.toFixed(3)}).`);
+  } catch (err) {
+    _setManageStatus(`Click failed: ${err?.message ?? err}`);
+  }
+}
+
 function _ensureCctvCards() {
   if (!cctvGridEl) return;
   const clusters = Array.isArray(_cachedClusters) ? _cachedClusters : [];
@@ -555,6 +601,9 @@ function _ensureCctvCards() {
     const img = document.createElement('img');
     img.className = 'cctvImage';
     img.alt = `${_clusterLabel(cluster)} capture`;
+    img.addEventListener('click', (ev) => {
+      _sendCctvClick(cluster, img, ev);
+    });
 
     const status = document.createElement('div');
     status.className = 'cctvMeta';

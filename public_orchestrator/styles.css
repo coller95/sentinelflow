@@ -378,6 +378,7 @@ button:disabled {
     background: var(--panel-2);
     object-fit: contain;
     aspect-ratio: 16 / 9;
+    cursor: crosshair;
 }
 
 .orchBlock + .orchBlock {
