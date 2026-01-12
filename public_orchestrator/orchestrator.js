@@ -281,6 +281,35 @@ async function _appCloseCluster(cluster) {
   }
 }
 
+async function _appFocusCluster(cluster, windowTitle) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  const window_title = String(windowTitle || '').trim();
+  const payload = window_title ? { window_title } : {};
+  _setManageStatus(`Focusing app on ${_clusterLabel(cluster)}...`);
+  try {
+    await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/app/focus', payload);
+    _setManageStatus(`Focused app on ${_clusterLabel(cluster)}.`);
+  } catch (err) {
+    _setManageStatus(`Focus failed: ${err?.message ?? err}`);
+  }
+}
+
+async function _appResizeCluster(cluster, geometry) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  const payload = geometry || _defaultGeometryPayload();
+  _setManageStatus(`Resizing app on ${_clusterLabel(cluster)}...`);
+  try {
+    await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/app/resize', payload);
+    _setManageStatus(`Resized app on ${_clusterLabel(cluster)}.`);
+  } catch (err) {
+    _setManageStatus(`Resize failed: ${err?.message ?? err}`);
+  }
+}
+
 async function _removeCluster(cluster) {
   const cu = String(cluster?.uuid ?? '').trim();
   if (!cu) return;
@@ -547,6 +576,25 @@ function _ensureCctvCards() {
       _appAttachCluster(cluster, titleInput.value, geometry);
     });
     actionRow.appendChild(attachBtn);
+
+    const focusBtn = document.createElement('button');
+    focusBtn.type = 'button';
+    focusBtn.textContent = 'Focus';
+    focusBtn.disabled = !canProxy;
+    focusBtn.addEventListener('click', () => {
+      _appFocusCluster(cluster, titleInput.value);
+    });
+    actionRow.appendChild(focusBtn);
+
+    const resizeBtn = document.createElement('button');
+    resizeBtn.type = 'button';
+    resizeBtn.textContent = 'Resize';
+    resizeBtn.disabled = !canProxy;
+    resizeBtn.addEventListener('click', () => {
+      const geometry = _geometryPayloadFromInputs(leftInput, topInput, widthInput, heightInput);
+      _appResizeCluster(cluster, geometry);
+    });
+    actionRow.appendChild(resizeBtn);
 
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';

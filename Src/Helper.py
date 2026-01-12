@@ -230,6 +230,9 @@ def _TryFocusWindow(hwnd: HWND) -> None:
     except Exception:
         pass
 
+def TryFocusWindow(hwnd: HWND) -> None:
+    _TryFocusWindow(hwnd)
+
     try:
         win32gui.BringWindowToTop(hwnd)
     except Exception:

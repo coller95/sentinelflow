@@ -312,6 +312,17 @@ class AttachRequest(BaseModel):
     height: int = 480
 
 
+class FocusRequest(BaseModel):
+    window_title: Optional[str] = None
+
+
+class ResizeRequest(BaseModel):
+    left: int = 0
+    top: int = 0
+    width: int = 640
+    height: int = 480
+
+
 class CaptureStartRequest(BaseModel):
     intervalSeconds: float = 1.0
 
@@ -512,6 +523,27 @@ def AttachApp(req: AttachRequest):
 def CloseApp():
     svc = _get_services()
     svc.CloseApp()
+    return {"ok": True}
+
+
+@app.post("/api/app/focus")
+def FocusApp(req: FocusRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.FocusApp(window_title=req.window_title)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True}
+
+
+@app.post("/api/app/resize")
+def ResizeApp(req: ResizeRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.ResizeApp(left=req.left, top=req.top, width=req.width, height=req.height)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    _try_save_state(svc)
     return {"ok": True}
 
 

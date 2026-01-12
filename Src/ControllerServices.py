@@ -1403,6 +1403,71 @@ class ControllerServices:
         except queue.Empty:
             pass
 
+    def FocusApp(self, window_title: Optional[str] = None) -> None:
+        target_title = str(window_title or "").strip()
+        hwnd: HWND = 0
+
+        if target_title:
+            found = FindHwndByTitle(target_title)
+            if found is None:
+                raise Exception("Failed to find window handle for the specified title.")
+            hwnd = found
+        else:
+            with self._state_lock:
+                hwnd = self._hwnd
+                target_title = str(self._default_window_title or "").strip()
+
+            if hwnd == 0 and target_title:
+                found = FindHwndByTitle(target_title)
+                if found is None:
+                    raise Exception("Failed to find window handle for the default title.")
+                hwnd = found
+
+        if hwnd == 0:
+            raise Exception("No application is attached for focus.")
+
+        TryFocusWindow(hwnd)
+
+        with self._state_lock:
+            self._hwnd = hwnd
+            if hwnd:
+                try:
+                    self._pid = FindPidByHwnd(hwnd)
+                except Exception:
+                    pass
+
+    def ResizeApp(self, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
+        if int(width) <= 0 or int(height) <= 0:
+            raise ValueError("width and height must be > 0")
+
+        hwnd: HWND = 0
+        default_title = ""
+        with self._state_lock:
+            hwnd = self._hwnd
+            default_title = str(self._default_window_title or "").strip()
+
+        if hwnd == 0 and default_title:
+            found = FindHwndByTitle(default_title)
+            if found is None:
+                raise Exception("Failed to find window handle for the default title.")
+            hwnd = found
+
+        if hwnd == 0:
+            raise Exception("No application is attached for resize.")
+
+        ResizeAndRepositionWindow(hwnd, int(left), int(top), int(width), int(height))
+
+        with self._state_lock:
+            self._hwnd = hwnd
+            self._default_window_left = int(left)
+            self._default_window_top = int(top)
+            self._default_window_width = int(width)
+            self._default_window_height = int(height)
+            try:
+                self._pid = FindPidByHwnd(hwnd)
+            except Exception:
+                pass
+
     def _control_worker(self) -> None:
         while True:
             action = self._control_queue.get()
