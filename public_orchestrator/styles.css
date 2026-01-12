@@ -381,6 +381,36 @@ button:disabled {
     cursor: crosshair;
 }
 
+.cctvActions {
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.cctvControls {
+    border-top: 1px dashed var(--border);
+    padding-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cctvControls .row {
+    margin-bottom: 0;
+}
+
+.cctvControls input {
+    font-size: 12px;
+    padding: 6px 8px;
+}
+
+.cctvControls .buttons {
+    margin-top: 4px;
+}
+
+.cctvGeom input {
+    flex: 1 1 70px;
+}
+
 .orchBlock + .orchBlock {
     margin-top: 12px;
 }

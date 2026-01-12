@@ -29,29 +29,28 @@
 
         <nav class="orchTabs orchTabs--main">
             <button class="active" data-tab="dashboard" type="button">Dashboard</button>
-            <button data-tab="cctv" type="button">CCTV</button>
             <button data-tab="clusters" type="button">Clusters</button>
-            <button data-tab="launcher" type="button">Launcher</button>
             <button data-tab="screens" type="button">Screens</button>
             <button data-tab="configs" type="button">Configs</button>
         </nav>
 
         <section id="tab-dashboard" class="orchPanel active">
             <fieldset class="orchBlock">
-                <legend>Overview</legend>
+                <legend>Multi-Screen</legend>
 
                 <div class="buttons">
                     <button id="btnDashboardRefresh" class="primary" type="button">Refresh Dashboard</button>
                 </div>
-
-                <div class="row">
-                    <label>Cluster Health & Triggers</label>
-                    <div id="dashboardClusterCards" class="clusterGrid"></div>
-                </div>
+                <div class="orchSubHint">Use the control panel in each cluster card to launch/attach apps and start capture.</div>
             </fieldset>
 
+            <div class="row">
+                <label>Cluster Screens</label>
+                <div id="cctvGrid" class="cctvGrid"></div>
+            </div>
+
             <fieldset class="orchBlock">
-                <legend>Raw Data</legend>
+                <legend>Data</legend>
 
                 <div class="row">
                     <label for="dashboardClusters">Clusters (read-only)</label>
@@ -63,33 +62,6 @@
                     <textarea id="dashboardAssignments" class="monoBox" rows="6" readonly></textarea>
                 </div>
             </fieldset>
-        </section>
-
-        <section id="tab-cctv" class="orchPanel">
-            <fieldset class="orchBlock">
-                <legend>CCTV</legend>
-
-                <div class="row">
-                    <label for="cctvInterval">Capture Interval (seconds)</label>
-                    <input id="cctvInterval" type="number" min="0.1" step="0.1" value="0.5" />
-                    <div class="orchSubHint">Set how often each cluster captures a frame.</div>
-                </div>
-
-                <div class="buttons">
-                    <button id="btnCctvStart" class="primary" type="button">Start CCTV</button>
-                    <button id="btnCctvStop" type="button">Stop CCTV</button>
-                </div>
-
-                <div class="row">
-                    <label>Status</label>
-                    <div id="cctvStatus" class="status" aria-live="polite"></div>
-                </div>
-            </fieldset>
-
-            <div class="row">
-                <label>Cluster Screens</label>
-                <div id="cctvGrid" class="cctvGrid"></div>
-            </div>
         </section>
 
         <section id="tab-clusters" class="orchPanel">
@@ -133,49 +105,6 @@
                 <div class="buttons">
                     <button id="btnClusterSave" class="primary" type="button">Save</button>
                     <button id="btnClusterRemove" type="button">Remove</button>
-                </div>
-            </fieldset>
-        </section>
-
-        <section id="tab-launcher" class="orchPanel">
-            <fieldset>
-                <legend>Launcher</legend>
-
-                <div class="row">
-                    <label for="appLaunchPath">Launch app path</label>
-                    <input id="appLaunchPath" type="text" placeholder="Example: C:\\Games\\MyGame.exe" />
-                </div>
-
-                <div class="row">
-                    <label>Window position/size</label>
-                    <div class="buttons">
-                        <input id="appLeft" type="number" placeholder="left" />
-                        <input id="appTop" type="number" placeholder="top" />
-                        <input id="appWidth" type="number" placeholder="width" />
-                        <input id="appHeight" type="number" placeholder="height" />
-                    </div>
-                </div>
-
-                <div class="buttons">
-                    <button id="btnAppLaunch" class="primary" type="button">Launch</button>
-                </div>
-
-                <div class="row">
-                    <label for="appAttachTitle">Attach window title</label>
-                    <input id="appAttachTitle" type="text" placeholder="Exact window title" />
-                </div>
-
-                <div class="buttons">
-                    <button id="btnAppAttach" class="primary" type="button">Attach</button>
-                    <button id="btnAppClose" type="button">Close</button>
-                </div>
-
-                <div class="row">
-                    <label>Capture</label>
-                    <div class="buttons">
-                        <button id="btnCaptureStart" class="primary" type="button">Start Capture</button>
-                        <button id="btnCaptureStop" type="button">Stop Capture</button>
-                    </div>
                 </div>
             </fieldset>
         </section>

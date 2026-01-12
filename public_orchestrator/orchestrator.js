@@ -9,29 +9,12 @@ const clusterMetaEl = document.getElementById('clusterMeta');
 const dashboardClustersEl = document.getElementById('dashboardClusters');
 const dashboardAssignmentsEl = document.getElementById('dashboardAssignments');
 const btnDashboardRefreshEl = document.getElementById('btnDashboardRefresh');
-const dashboardClusterCardsEl = document.getElementById('dashboardClusterCards');
-const cctvIntervalEl = document.getElementById('cctvInterval');
-const btnCctvStartEl = document.getElementById('btnCctvStart');
-const btnCctvStopEl = document.getElementById('btnCctvStop');
-const cctvStatusEl = document.getElementById('cctvStatus');
 const cctvGridEl = document.getElementById('cctvGrid');
 
 const editClusterLabelEl = document.getElementById('editClusterLabel');
 const editClusterBaseUrlEl = document.getElementById('editClusterBaseUrl');
 const btnClusterSaveEl = document.getElementById('btnClusterSave');
 const btnClusterRemoveEl = document.getElementById('btnClusterRemove');
-
-const appLaunchPathEl = document.getElementById('appLaunchPath');
-const appAttachTitleEl = document.getElementById('appAttachTitle');
-const appLeftEl = document.getElementById('appLeft');
-const appTopEl = document.getElementById('appTop');
-const appWidthEl = document.getElementById('appWidth');
-const appHeightEl = document.getElementById('appHeight');
-const btnAppLaunchEl = document.getElementById('btnAppLaunch');
-const btnAppAttachEl = document.getElementById('btnAppAttach');
-const btnAppCloseEl = document.getElementById('btnAppClose');
-const btnCaptureStartEl = document.getElementById('btnCaptureStart');
-const btnCaptureStopEl = document.getElementById('btnCaptureStop');
 
 const manageStatusEl = document.getElementById('manageStatus');
 
@@ -109,7 +92,6 @@ let _cachedTriggers = [];
 let _cachedConfigs = [];
 let _cachedLayouts = [];
 let _dupCountByServerUuid = new Map();
-let _cctvActive = false;
 let _cctvCards = new Map();
 let _cctvLayoutKey = '';
 let _cctvStreams = new Map();
@@ -271,222 +253,56 @@ function _clusterLabel(cluster) {
   return String(cluster?.label ?? cluster?.uuid ?? '').trim() || 'Cluster';
 }
 
-async function _loadDashboardClusterStatus(cluster) {
+async function _appLaunchCluster(cluster, appPath, geometry) {
   const cu = String(cluster?.uuid ?? '').trim();
-  const baseUrl = String(cluster?.baseUrl ?? '').trim();
-  const duplicate = _isDuplicateCluster(cluster);
-
-  const info = {
-    cluster,
-    duplicate,
-    baseUrl,
-    health: { state: 'unknown', detail: null },
-    triggers: { state: 'unknown', total: 0, enabled: 0, met: 0, lastError: null, detail: null },
-  };
-
-  if (!baseUrl) {
-    info.health = { state: 'no-url', detail: 'No baseUrl' };
-    info.triggers = { state: 'unavailable', total: 0, enabled: 0, met: 0, lastError: null, detail: 'No baseUrl' };
-    return info;
-  }
-  if (duplicate) {
-    info.health = { state: 'duplicate', detail: 'Duplicate server UUID' };
-    info.triggers = { state: 'unavailable', total: 0, enabled: 0, met: 0, lastError: null, detail: 'Duplicate server UUID' };
-    return info;
-  }
-
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  const app_path = String(appPath || '').trim();
+  if (!app_path) return _setManageStatus('App path is required.');
+  const payload = geometry || _defaultGeometryPayload();
+  _setManageStatus(`Launching app on ${_clusterLabel(cluster)}...`);
   try {
-    await _getJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/server/info`);
-    info.health = { state: 'online', detail: null };
+    await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/app/launch', { app_path, ...payload });
+    _setManageStatus(`App launched on ${_clusterLabel(cluster)}.`);
   } catch (err) {
-    info.health = { state: 'offline', detail: err?.message ?? err };
-    info.triggers = { state: 'offline', total: 0, enabled: 0, met: 0, lastError: null, detail: err?.message ?? err };
-    return info;
+    _setManageStatus(`Launch failed: ${err?.message ?? err}`);
   }
+}
 
+async function _appAttachCluster(cluster, windowTitle, geometry) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  const window_title = String(windowTitle || '').trim();
+  if (!window_title) return _setManageStatus('Window title is required.');
+  const payload = geometry || _defaultGeometryPayload();
+  _setManageStatus(`Attaching app on ${_clusterLabel(cluster)}...`);
   try {
-    const status = await _getJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/triggers/status`);
-    const items = status && Array.isArray(status.items) ? status.items : [];
-    const enabledCount = items.filter(x => x && x.enabled).length;
-    const metCount = items.filter(x => x && x.isMet).length;
-    info.triggers = {
-      state: 'ok',
-      total: items.length,
-      enabled: enabledCount,
-      met: metCount,
-      lastError: status?.lastError ?? null,
-      detail: null,
-    };
+    await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/app/attach', { window_title, ...payload });
+    _setManageStatus(`App attached on ${_clusterLabel(cluster)}.`);
   } catch (err) {
-    info.triggers = { state: 'error', total: 0, enabled: 0, met: 0, lastError: null, detail: err?.message ?? err };
-  }
-
-  return info;
-}
-
-function _pillForHealth(state) {
-  switch (state) {
-    case 'online':
-      return { text: 'online', cls: 'ok' };
-    case 'offline':
-      return { text: 'offline', cls: 'bad' };
-    case 'duplicate':
-      return { text: 'duplicate', cls: 'warn' };
-    case 'no-url':
-      return { text: 'no url', cls: 'warn' };
-    default:
-      return { text: 'unknown', cls: '' };
+    _setManageStatus(`Attach failed: ${err?.message ?? err}`);
   }
 }
 
-async function _dashboardProxyAction(cluster, label, fn) {
-  const name = _clusterLabel(cluster);
-  _setManageStatus(`${label}: ${name}...`);
+async function _appCloseCluster(cluster) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  _setManageStatus(`Closing app on ${_clusterLabel(cluster)}...`);
   try {
-    await fn();
-    _setManageStatus(`${label}: ${name} OK.`);
+    await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/app/close`, {});
+    _setManageStatus(`App closed on ${_clusterLabel(cluster)}.`);
   } catch (err) {
-    _setManageStatus(`${label}: ${name} failed: ${err?.message ?? err}`);
-  }
-}
-
-function _buildDashboardClusterCard(info) {
-  const cluster = info.cluster || {};
-  const card = document.createElement('div');
-  card.className = 'clusterCard';
-  if (String(cluster.uuid ?? '') === String(_selectedClusterUuid() ?? '')) {
-    card.classList.add('isSelected');
-  }
-
-  const header = document.createElement('div');
-  header.className = 'clusterHeader';
-  const title = document.createElement('div');
-  title.className = 'clusterTitle';
-  title.textContent = _clusterLabel(cluster);
-  const healthPill = document.createElement('span');
-  const pillInfo = _pillForHealth(info.health?.state);
-  healthPill.className = `clusterPill ${pillInfo.cls}`;
-  healthPill.textContent = pillInfo.text;
-  header.appendChild(title);
-  header.appendChild(healthPill);
-
-  const meta = document.createElement('div');
-  meta.className = 'clusterMeta';
-  const baseUrl = String(cluster.baseUrl ?? '').trim();
-  const uuid = String(cluster.uuid ?? '').trim();
-  meta.textContent = `${uuid}${baseUrl ? ` | ${baseUrl}` : ''}`;
-
-  const triggers = document.createElement('div');
-  triggers.className = 'clusterMeta';
-  if (info.triggers?.state === 'ok') {
-    triggers.textContent = `Triggers: ${info.triggers.total} total / ${info.triggers.enabled} enabled / ${info.triggers.met} met`;
-  } else {
-    const reason = info.triggers?.detail ? ` (${_shortenText(info.triggers.detail)})` : '';
-    triggers.textContent = `Triggers: ${info.triggers?.state || 'unknown'}${reason}`;
-  }
-
-  const error = document.createElement('div');
-  error.className = 'clusterMeta';
-  const errText = info.triggers?.lastError ? _shortenText(info.triggers.lastError) : '';
-  error.textContent = errText ? `Last error: ${errText}` : '';
-
-  const actions = document.createElement('div');
-  actions.className = 'buttons clusterActions';
-
-  const selectBtn = document.createElement('button');
-  selectBtn.type = 'button';
-  selectBtn.textContent = 'Select';
-  selectBtn.addEventListener('click', () => {
-    if (!clusterSelectEl) return;
-    clusterSelectEl.value = String(cluster.uuid ?? '');
-    _setClusterEditorFromSelected();
-    _loadAppDefaultsForSelectedCluster();
-    _applyDuplicateUiState();
-  });
-  actions.appendChild(selectBtn);
-
-  const canProxy = Boolean(info.baseUrl) && !info.duplicate;
-  const captureStartBtn = document.createElement('button');
-  captureStartBtn.type = 'button';
-  captureStartBtn.textContent = 'Capture Start';
-  captureStartBtn.disabled = !canProxy;
-  captureStartBtn.addEventListener('click', () => {
-    _dashboardProxyAction(cluster, 'Capture start', () =>
-      _postProxy(cluster.uuid, '/api/orchestrator/clusters/{uuid}/capture/start', { intervalSeconds: 1.0 })
-    );
-  });
-  actions.appendChild(captureStartBtn);
-
-  const captureStopBtn = document.createElement('button');
-  captureStopBtn.type = 'button';
-  captureStopBtn.textContent = 'Capture Stop';
-  captureStopBtn.disabled = !canProxy;
-  captureStopBtn.addEventListener('click', () => {
-    _dashboardProxyAction(cluster, 'Capture stop', () =>
-      _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cluster.uuid)}/capture/stop`, {})
-    );
-  });
-  actions.appendChild(captureStopBtn);
-
-  const closeBtn = document.createElement('button');
-  closeBtn.type = 'button';
-  closeBtn.textContent = 'Close App';
-  closeBtn.disabled = !canProxy;
-  closeBtn.addEventListener('click', () => {
-    _dashboardProxyAction(cluster, 'Close app', () =>
-      _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cluster.uuid)}/app/close`, {})
-    );
-  });
-  actions.appendChild(closeBtn);
-
-  card.appendChild(header);
-  card.appendChild(meta);
-  card.appendChild(triggers);
-  if (error.textContent) {
-    card.appendChild(error);
-  }
-  card.appendChild(actions);
-
-  return card;
-}
-
-async function _renderDashboardCards() {
-  if (!dashboardClusterCardsEl) return;
-  const clusters = Array.isArray(_cachedClusters) ? _cachedClusters : [];
-  dashboardClusterCardsEl.textContent = '';
-
-  if (clusters.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'clusterEmpty';
-    empty.textContent = 'No clusters registered yet.';
-    dashboardClusterCardsEl.appendChild(empty);
-    return;
-  }
-
-  const tasks = clusters.map(c => _loadDashboardClusterStatus(c));
-  const results = await Promise.all(tasks);
-  for (const info of results) {
-    dashboardClusterCardsEl.appendChild(_buildDashboardClusterCard(info));
+    _setManageStatus(`Close failed: ${err?.message ?? err}`);
   }
 }
 
 async function dashboardRefresh() {
   _setManageStatus('Refreshing dashboard...');
   await refreshClusters(_selectedClusterUuid());
-  await _renderDashboardCards();
+  _ensureCctvCards();
   _setManageStatus('Dashboard updated.');
-}
-
-function _setCctvStatus(text) {
-  if (!cctvStatusEl) return;
-  cctvStatusEl.textContent = String(text ?? '');
-}
-
-function _cctvIntervalSeconds() {
-  const raw = String(cctvIntervalEl?.value || '').trim();
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return 0.5;
-  return Math.max(0.1, n);
 }
 
 function _cctvPillInfo(state) {
@@ -508,6 +324,13 @@ function _cctvPillInfo(state) {
     default:
       return { text: 'idle', cls: '' };
   }
+}
+
+function _intervalSecondsFromInput(el, fallback = 0.5) {
+  const raw = String(el?.value || '').trim();
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(0.1, n);
 }
 
 function _computeImageNormalized(imgEl, ev) {
@@ -559,9 +382,16 @@ async function _sendCctvClick(cluster, imgEl, ev) {
 function _ensureCctvCards() {
   if (!cctvGridEl) return;
   const clusters = Array.isArray(_cachedClusters) ? _cachedClusters : [];
-  const key = clusters.map(c => String(c?.uuid ?? '')).join('|');
+  const key = clusters.map(c => `${String(c?.uuid ?? '')}|${String(c?.label ?? '')}|${String(c?.baseUrl ?? '')}|${String(c?.serverUuid ?? '')}`).join('|');
   if (key === _cctvLayoutKey) return;
   _cctvLayoutKey = key;
+
+  const activeSet = new Set(clusters.map(c => String(c?.uuid ?? '')));
+  for (const [cu] of _cctvStreams.entries()) {
+    if (!activeSet.has(cu)) {
+      _closeCctvStream(cu);
+    }
+  }
 
   cctvGridEl.textContent = '';
   _cctvCards = new Map();
@@ -586,7 +416,8 @@ function _ensureCctvCards() {
     title.textContent = _clusterLabel(cluster);
 
     const pill = document.createElement('span');
-    const pillInfo = _cctvPillInfo('idle');
+    const initialState = !cluster?.baseUrl ? 'no-url' : (_isDuplicateCluster(cluster) ? 'duplicate' : 'idle');
+    const pillInfo = _cctvPillInfo(initialState);
     pill.className = `clusterPill ${pillInfo.cls}`;
     pill.textContent = pillInfo.text;
 
@@ -607,12 +438,146 @@ function _ensureCctvCards() {
 
     const status = document.createElement('div');
     status.className = 'cctvMeta';
-    status.textContent = 'Idle';
+    status.textContent = pillInfo.text;
+
+    const controls = document.createElement('div');
+    controls.className = 'cctvControls';
+
+    const appPathRow = document.createElement('div');
+    appPathRow.className = 'row';
+    const appPathLabel = document.createElement('label');
+    appPathLabel.textContent = 'App path';
+    const appPathInput = document.createElement('input');
+    appPathInput.type = 'text';
+    appPathInput.placeholder = 'C:\\Apps\\MyApp.exe';
+    appPathRow.appendChild(appPathLabel);
+    appPathRow.appendChild(appPathInput);
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'row';
+    const titleLabel = document.createElement('label');
+    titleLabel.textContent = 'Window title';
+    const titleInput = document.createElement('input');
+    titleInput.type = 'text';
+    titleInput.placeholder = 'Exact window title';
+    titleRow.appendChild(titleLabel);
+    titleRow.appendChild(titleInput);
+
+    const geomRow = document.createElement('div');
+    geomRow.className = 'row';
+    const geomLabel = document.createElement('label');
+    geomLabel.textContent = 'Window position/size';
+    const geomInputs = document.createElement('div');
+    geomInputs.className = 'buttons cctvGeom';
+    const leftInput = document.createElement('input');
+    leftInput.type = 'number';
+    leftInput.placeholder = 'left';
+    const topInput = document.createElement('input');
+    topInput.type = 'number';
+    topInput.placeholder = 'top';
+    const widthInput = document.createElement('input');
+    widthInput.type = 'number';
+    widthInput.placeholder = 'width';
+    const heightInput = document.createElement('input');
+    heightInput.type = 'number';
+    heightInput.placeholder = 'height';
+    geomInputs.appendChild(leftInput);
+    geomInputs.appendChild(topInput);
+    geomInputs.appendChild(widthInput);
+    geomInputs.appendChild(heightInput);
+    geomRow.appendChild(geomLabel);
+    geomRow.appendChild(geomInputs);
+
+    const actionRow = document.createElement('div');
+    actionRow.className = 'buttons cctvActions';
+
+    const selectBtn = document.createElement('button');
+    selectBtn.type = 'button';
+    selectBtn.textContent = 'Select';
+    selectBtn.addEventListener('click', () => {
+      if (!clusterSelectEl) return;
+      clusterSelectEl.value = String(cluster.uuid ?? '');
+      _setClusterEditorFromSelected();
+      _applyDuplicateUiState();
+    });
+    actionRow.appendChild(selectBtn);
+
+    const canProxy = Boolean(cluster?.baseUrl) && !_isDuplicateCluster(cluster);
+    const launchBtn = document.createElement('button');
+    launchBtn.type = 'button';
+    launchBtn.textContent = 'Launch';
+    launchBtn.disabled = !canProxy;
+    launchBtn.addEventListener('click', () => {
+      const geometry = _geometryPayloadFromInputs(leftInput, topInput, widthInput, heightInput);
+      _appLaunchCluster(cluster, appPathInput.value, geometry);
+    });
+    actionRow.appendChild(launchBtn);
+
+    const attachBtn = document.createElement('button');
+    attachBtn.type = 'button';
+    attachBtn.textContent = 'Attach';
+    attachBtn.disabled = !canProxy;
+    attachBtn.addEventListener('click', () => {
+      const geometry = _geometryPayloadFromInputs(leftInput, topInput, widthInput, heightInput);
+      _appAttachCluster(cluster, titleInput.value, geometry);
+    });
+    actionRow.appendChild(attachBtn);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.textContent = 'Close';
+    closeBtn.disabled = !canProxy;
+    closeBtn.addEventListener('click', () => _appCloseCluster(cluster));
+    actionRow.appendChild(closeBtn);
+
+    const intervalRow = document.createElement('div');
+    intervalRow.className = 'row';
+    const intervalLabel = document.createElement('label');
+    intervalLabel.textContent = 'Capture interval (seconds)';
+    const intervalInput = document.createElement('input');
+    intervalInput.type = 'number';
+    intervalInput.min = '0.1';
+    intervalInput.step = '0.1';
+    intervalInput.value = '0.5';
+    intervalRow.appendChild(intervalLabel);
+    intervalRow.appendChild(intervalInput);
+
+    const captureRow = document.createElement('div');
+    captureRow.className = 'buttons cctvActions';
+    const captureStartBtn = document.createElement('button');
+    captureStartBtn.type = 'button';
+    captureStartBtn.textContent = 'Start Capture';
+    captureStartBtn.disabled = !canProxy;
+    captureStartBtn.addEventListener('click', () => {
+      const interval = _intervalSecondsFromInput(intervalInput, 0.5);
+      _captureStartCluster(cluster, interval);
+    });
+    captureRow.appendChild(captureStartBtn);
+
+    const captureStopBtn = document.createElement('button');
+    captureStopBtn.type = 'button';
+    captureStopBtn.textContent = 'Stop Capture';
+    captureStopBtn.disabled = !canProxy;
+    captureStopBtn.addEventListener('click', () => _captureStopCluster(cluster));
+    captureRow.appendChild(captureStopBtn);
+
+    for (const el of [appPathInput, titleInput, leftInput, topInput, widthInput, heightInput, intervalInput]) {
+      if (!el) continue;
+      el.disabled = !canProxy;
+    }
+
+    controls.appendChild(appPathRow);
+    controls.appendChild(titleRow);
+    controls.appendChild(geomRow);
+    controls.appendChild(actionRow);
+    controls.appendChild(intervalRow);
+    controls.appendChild(captureRow);
 
     card.appendChild(header);
     card.appendChild(meta);
     card.appendChild(img);
     card.appendChild(status);
+    card.appendChild(controls);
 
     cctvGridEl.appendChild(card);
     _cctvCards.set(String(cluster.uuid ?? ''), {
@@ -651,7 +616,7 @@ function _startCctvStream(cluster) {
   });
 
   stream.addEventListener('error', () => {
-    if (!_cctvActive) return;
+    if (!_cctvStreams.has(cu)) return;
     _updateCctvCardState(cu, 'offline', '');
   });
 }
@@ -665,82 +630,38 @@ function _closeCctvStream(clusterUuid) {
   _cctvStreams.delete(cu);
 }
 
-function _closeAllCctvStreams() {
-  for (const [cu, stream] of _cctvStreams.entries()) {
-    stream.close();
-    _cctvStreams.delete(cu);
-  }
-}
-
-function _syncCctvStreams() {
-  if (!_cctvActive) return;
-  const clusters = Array.isArray(_cachedClusters) ? _cachedClusters : [];
-  const activeSet = new Set(clusters.map(c => String(c?.uuid ?? '')));
-
-  for (const [cu] of _cctvStreams.entries()) {
-    if (!activeSet.has(cu)) {
-      _closeCctvStream(cu);
-    }
-  }
-
-  for (const cluster of clusters) {
-    const cu = String(cluster?.uuid ?? '').trim();
-    if (!cu) continue;
-    if (!cluster?.baseUrl) {
-      _updateCctvCardState(cu, 'no-url', '');
-      continue;
-    }
-    if (_isDuplicateCluster(cluster)) {
-      _updateCctvCardState(cu, 'duplicate', '');
-      continue;
-    }
+async function _captureStartCluster(cluster, intervalSeconds) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  if (!cluster?.baseUrl) return _setManageStatus('Cluster baseUrl is not set.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  const interval = Math.max(0.1, Number(intervalSeconds) || 0.5);
+  _setManageStatus(`Starting capture on ${_clusterLabel(cluster)}...`);
+  try {
+    await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/capture/start', { intervalSeconds: interval });
     _startCctvStream(cluster);
+    _updateCctvCardState(cu, 'live', 'starting');
+    _setManageStatus(`Capture started on ${_clusterLabel(cluster)}.`);
+  } catch (err) {
+    _updateCctvCardState(cu, 'error', '');
+    _setManageStatus(`Start capture failed: ${err?.message ?? err}`);
   }
 }
 
-async function cctvStart() {
-  _ensureCctvCards();
-  const clusters = Array.isArray(_cachedClusters) ? _cachedClusters : [];
-  if (clusters.length === 0) {
-    _setCctvStatus('No clusters available.');
-    return;
+async function _captureStopCluster(cluster) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  if (!cluster?.baseUrl) return _setManageStatus('Cluster baseUrl is not set.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  _setManageStatus(`Stopping capture on ${_clusterLabel(cluster)}...`);
+  try {
+    await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/capture/stop`, {});
+  } catch (err) {
+    _setManageStatus(`Stop capture failed: ${err?.message ?? err}`);
   }
-  const interval = _cctvIntervalSeconds();
-  _setCctvStatus('Starting CCTV (SSE)...');
-  _cctvActive = true;
-  _closeAllCctvStreams();
-
-  const tasks = clusters.map(async (c) => {
-    if (!c?.baseUrl || _isDuplicateCluster(c)) return;
-    try {
-      await _postProxy(c.uuid, '/api/orchestrator/clusters/{uuid}/capture/start', { intervalSeconds: interval });
-    } catch (err) {
-      _updateCctvCardState(c.uuid, 'error', '');
-    }
-  });
-  await Promise.all(tasks);
-  _syncCctvStreams();
-  _setCctvStatus(`Running at ${interval}s interval (SSE).`);
-}
-
-async function cctvStop() {
-  _cctvActive = false;
-  _closeAllCctvStreams();
-  const clusters = Array.isArray(_cachedClusters) ? _cachedClusters : [];
-  _setCctvStatus('Stopping CCTV...');
-  const tasks = clusters.map(async (c) => {
-    if (!c?.baseUrl || _isDuplicateCluster(c)) return;
-    try {
-      await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(c.uuid)}/capture/stop`, {});
-    } catch {
-      // Best-effort stop.
-    }
-  });
-  await Promise.all(tasks);
-  _setCctvStatus('Stopped.');
-  for (const c of clusters) {
-    _updateCctvCardState(c.uuid, 'stopped', '');
-  }
+  _closeCctvStream(cu);
+  _updateCctvCardState(cu, 'stopped', '');
+  _setManageStatus(`Capture stopped on ${_clusterLabel(cluster)}.`);
 }
 
 function _selectedClusterIsDuplicate() {
@@ -756,11 +677,6 @@ function _selectedClusterIsDuplicate() {
 
 function _setProxyControlsEnabled(enabled) {
   const items = [
-    btnAppLaunchEl,
-    btnAppAttachEl,
-    btnAppCloseEl,
-    btnCaptureStartEl,
-    btnCaptureStopEl,
     btnActionsFetchEl,
     btnActionRunEl,
     btnActionRemoveEl,
@@ -801,26 +717,6 @@ function _setClusterEditorFromSelected() {
   if (editClusterBaseUrlEl) editClusterBaseUrlEl.value = String(selected.baseUrl ?? '');
 }
 
-async function _loadAppDefaultsForSelectedCluster() {
-  const cu = _selectedClusterUuid();
-  if (!cu) return;
-  if (_selectedClusterIsDuplicate()) return;
-
-  try {
-    const data = await _getJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/app/defaults`);
-    const d = (data && typeof data === 'object') ? data : {};
-
-    const defaultAppPath = String(d.defaultAppPath ?? d.appPath ?? d.path ?? '');
-    const defaultWindowTitle = String(d.defaultWindowTitle ?? d.programName ?? d.windowTitle ?? '');
-
-    if (appLaunchPathEl) appLaunchPathEl.value = defaultAppPath;
-    if (appAttachTitleEl) appAttachTitleEl.value = defaultWindowTitle;
-  } catch (err) {
-    // Not fatal; cluster might be offline or older version.
-    _setManageStatus(`App defaults unavailable: ${err?.message ?? err}`);
-  }
-}
-
 async function refreshClusters(selectUuid = null) {
   if (!clusterSelectEl) return;
   _setManageStatus('Loading clusters...');
@@ -852,13 +748,9 @@ async function refreshClusters(selectUuid = null) {
     }
 
     _setClusterEditorFromSelected();
-    await _loadAppDefaultsForSelectedCluster();
     _setManageStatus('Ready.');
     _applyDuplicateUiState();
     _ensureCctvCards();
-    if (_cctvActive) {
-      _syncCctvStreams();
-    }
   } catch (err) {
     _setManageStatus(`Failed to load clusters: ${err?.message ?? err}`);
   }
@@ -906,83 +798,17 @@ function _numOrDefault(el, d) {
   return Number.isFinite(n) ? Math.floor(n) : d;
 }
 
-function _appGeometryPayload() {
+function _defaultGeometryPayload() {
+  return { left: 0, top: 0, width: 640, height: 480 };
+}
+
+function _geometryPayloadFromInputs(leftEl, topEl, widthEl, heightEl) {
   return {
-    left: _numOrDefault(appLeftEl, 0),
-    top: _numOrDefault(appTopEl, 0),
-    width: _numOrDefault(appWidthEl, 640),
-    height: _numOrDefault(appHeightEl, 480),
+    left: _numOrDefault(leftEl, 0),
+    top: _numOrDefault(topEl, 0),
+    width: _numOrDefault(widthEl, 640),
+    height: _numOrDefault(heightEl, 480),
   };
-}
-
-async function appLaunch() {
-  const cu = _selectedClusterUuid();
-  if (!cu) return _setManageStatus('Select a cluster first.');
-  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
-  const app_path = String(appLaunchPathEl?.value || '').trim();
-  if (!app_path) return _setManageStatus('App path is required.');
-  _setManageStatus('Launching app on cluster...');
-  try {
-    await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/app/launch', { app_path, ..._appGeometryPayload() });
-    _setManageStatus('App launched.');
-  } catch (err) {
-    _setManageStatus(`Launch failed: ${err?.message ?? err}`);
-  }
-}
-
-async function appAttach() {
-  const cu = _selectedClusterUuid();
-  if (!cu) return _setManageStatus('Select a cluster first.');
-  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
-  const window_title = String(appAttachTitleEl?.value || '').trim();
-  if (!window_title) return _setManageStatus('Window title is required.');
-  _setManageStatus('Attaching app window on cluster...');
-  try {
-    await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/app/attach', { window_title, ..._appGeometryPayload() });
-    _setManageStatus('App attached.');
-  } catch (err) {
-    _setManageStatus(`Attach failed: ${err?.message ?? err}`);
-  }
-}
-
-async function appClose() {
-  const cu = _selectedClusterUuid();
-  if (!cu) return _setManageStatus('Select a cluster first.');
-  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
-  _setManageStatus('Closing app on cluster...');
-  try {
-    await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/app/close`, {});
-    _setManageStatus('App closed.');
-  } catch (err) {
-    _setManageStatus(`Close failed: ${err?.message ?? err}`);
-  }
-}
-
-async function captureStart() {
-  const cu = _selectedClusterUuid();
-  if (!cu) return _setManageStatus('Select a cluster first.');
-  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
-  _setManageStatus('Starting capture on cluster...');
-  try {
-    // Use the cluster default interval (1s) unless you later add an input.
-    await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/capture/start', { intervalSeconds: 1.0 });
-    _setManageStatus('Capture started.');
-  } catch (err) {
-    _setManageStatus(`Start capture failed: ${err?.message ?? err}`);
-  }
-}
-
-async function captureStop() {
-  const cu = _selectedClusterUuid();
-  if (!cu) return _setManageStatus('Select a cluster first.');
-  if (_selectedClusterIsDuplicate()) return _setManageStatus('Duplicate server UUID detected.');
-  _setManageStatus('Stopping capture on cluster...');
-  try {
-    await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/capture/stop`, {});
-    _setManageStatus('Capture stopped.');
-  } catch (err) {
-    _setManageStatus(`Stop capture failed: ${err?.message ?? err}`);
-  }
 }
 
 function _tabInit() {
@@ -1726,25 +1552,15 @@ if (btnDashboardRefreshEl) {
   });
 }
 
-if (btnCctvStartEl) btnCctvStartEl.addEventListener('click', () => cctvStart());
-if (btnCctvStopEl) btnCctvStopEl.addEventListener('click', () => cctvStop());
-
 if (clusterSelectEl) {
   clusterSelectEl.addEventListener('change', () => {
     _setClusterEditorFromSelected();
-    _loadAppDefaultsForSelectedCluster();
     _applyDuplicateUiState();
   });
 }
 
 if (btnClusterSaveEl) btnClusterSaveEl.addEventListener('click', () => saveSelectedCluster());
 if (btnClusterRemoveEl) btnClusterRemoveEl.addEventListener('click', () => removeSelectedCluster());
-if (btnAppLaunchEl) btnAppLaunchEl.addEventListener('click', () => appLaunch());
-if (btnAppAttachEl) btnAppAttachEl.addEventListener('click', () => appAttach());
-if (btnAppCloseEl) btnAppCloseEl.addEventListener('click', () => appClose());
-if (btnCaptureStartEl) btnCaptureStartEl.addEventListener('click', () => captureStart());
-if (btnCaptureStopEl) btnCaptureStopEl.addEventListener('click', () => captureStop());
-
 if (btnActionsFetchEl) btnActionsFetchEl.addEventListener('click', () => actionsFetch());
 if (btnActionRunEl) btnActionRunEl.addEventListener('click', () => actionRunRemove('run'));
 if (btnActionRemoveEl) btnActionRemoveEl.addEventListener('click', () => actionRunRemove('remove'));
@@ -1795,7 +1611,6 @@ for (const el of [clusterLabelEl, clusterBaseUrlEl]) {
 }
 
 _setStatus('Ready.');
-_setCctvStatus('Stopped.');
 
 _tabInit();
 _subTabInit();
