@@ -84,6 +84,11 @@ let _cctvCards = new Map();
 let _cctvLayoutKey = '';
 let _cctvStreams = new Map();
 let _appDefaultsCache = new Map();
+let _draggingUuid = null;
+let _dragInit = false;
+let _dragPlaceholder = null;
+
+const CLUSTER_ORDER_STORAGE_KEY = 'orchestrator.clusterOrder';
 
 function _setManageStatus(text) {
   if (!manageStatusEl) return;
@@ -234,6 +239,135 @@ function _shortenText(text, maxLen = 120) {
 
 function _clusterLabel(cluster) {
   return String(cluster?.label ?? cluster?.uuid ?? '').trim() || 'Cluster';
+}
+
+function _loadClusterOrder() {
+  try {
+    if (!globalThis.localStorage) return [];
+    const raw = globalThis.localStorage.getItem(CLUSTER_ORDER_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(x => String(x || '').trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function _saveClusterOrder(order) {
+  try {
+    if (!globalThis.localStorage) return;
+    const clean = Array.isArray(order) ? order.map(x => String(x || '').trim()).filter(Boolean) : [];
+    globalThis.localStorage.setItem(CLUSTER_ORDER_STORAGE_KEY, JSON.stringify(clean));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function _applyClusterOrder(clusters) {
+  const list = Array.isArray(clusters) ? clusters : [];
+  const order = _loadClusterOrder();
+  if (order.length === 0) return list;
+
+  const byUuid = new Map();
+  for (const c of list) {
+    const id = String(c?.uuid ?? '').trim();
+    if (id) byUuid.set(id, c);
+  }
+
+  const sorted = [];
+  for (const id of order) {
+    const item = byUuid.get(id);
+    if (item) {
+      sorted.push(item);
+      byUuid.delete(id);
+    }
+  }
+
+  for (const c of list) {
+    const id = String(c?.uuid ?? '').trim();
+    if (!id || byUuid.has(id)) {
+      sorted.push(c);
+      if (id) byUuid.delete(id);
+    }
+  }
+
+  return sorted;
+}
+
+function _reorderClusters(dragUuid, targetUuid) {
+  const drag = String(dragUuid || '').trim();
+  const target = String(targetUuid || '').trim();
+  if (!drag || drag === target) return;
+
+  const ordered = _applyClusterOrder(_cachedClusters).map(c => String(c?.uuid ?? '')).filter(Boolean);
+  const next = ordered.filter(id => id !== drag);
+  if (!target) {
+    next.push(drag);
+  } else {
+    const targetIdx = next.indexOf(target);
+    if (targetIdx < 0) {
+      next.push(drag);
+    } else {
+      next.splice(targetIdx, 0, drag);
+    }
+  }
+
+  _saveClusterOrder(next);
+  _cctvLayoutKey = '';
+  _ensureCctvCards();
+}
+
+function _ensureDragHandlers() {
+  if (_dragInit || !cctvGridEl) return;
+  _dragInit = true;
+  _dragPlaceholder = document.createElement('div');
+  _dragPlaceholder.className = 'cctvDropIndicator';
+
+  cctvGridEl.addEventListener('dragover', (ev) => {
+    if (!_draggingUuid) return;
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+
+    const cards = Array.from(cctvGridEl.querySelectorAll('.cctvCard')).filter(
+      el => !el.classList.contains('dragging')
+    );
+    const x = ev.clientX;
+    let inserted = false;
+    for (const card of cards) {
+      const rect = card.getBoundingClientRect();
+      if (x < rect.left + rect.width / 2) {
+        cctvGridEl.insertBefore(_dragPlaceholder, card);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) {
+      cctvGridEl.appendChild(_dragPlaceholder);
+    }
+  });
+
+  cctvGridEl.addEventListener('dragleave', (ev) => {
+    const related = ev.relatedTarget;
+    if (related && cctvGridEl.contains(related)) return;
+    _clearDropIndicator();
+  });
+
+  cctvGridEl.addEventListener('drop', (ev) => {
+    if (!_draggingUuid) return;
+    ev.preventDefault();
+    const dragId = (ev.dataTransfer && ev.dataTransfer.getData('text/plain')) || _draggingUuid;
+    _draggingUuid = null;
+    const nextCard = _dragPlaceholder && _dragPlaceholder.nextElementSibling;
+    const target = nextCard && nextCard.classList.contains('cctvCard') ? nextCard.dataset.uuid : '';
+    _clearDropIndicator();
+    _reorderClusters(dragId, target || '');
+  });
+}
+
+function _clearDropIndicator() {
+  if (_dragPlaceholder && _dragPlaceholder.parentElement) {
+    _dragPlaceholder.parentElement.removeChild(_dragPlaceholder);
+  }
 }
 
 async function _appLaunchCluster(cluster, appPath, geometry) {
@@ -446,7 +580,8 @@ async function _sendCctvClick(cluster, imgEl, ev) {
 
 function _ensureCctvCards() {
   if (!cctvGridEl) return;
-  const clusters = Array.isArray(_cachedClusters) ? _cachedClusters : [];
+  _ensureDragHandlers();
+  const clusters = _applyClusterOrder(_cachedClusters);
   const key = clusters.map(c => `${String(c?.uuid ?? '')}|${String(c?.label ?? '')}|${String(c?.baseUrl ?? '')}|${String(c?.serverUuid ?? '')}`).join('|');
   if (key === _cctvLayoutKey) return;
   _cctvLayoutKey = key;
@@ -472,9 +607,28 @@ function _ensureCctvCards() {
   for (const cluster of clusters) {
     const card = document.createElement('div');
     card.className = 'cctvCard';
+    card.dataset.uuid = String(cluster.uuid ?? '');
 
     const header = document.createElement('div');
     header.className = 'cctvHeader';
+
+    const dragHandle = document.createElement('span');
+    dragHandle.className = 'cctvDrag';
+    dragHandle.textContent = 'drag';
+    dragHandle.setAttribute('draggable', 'true');
+    dragHandle.addEventListener('dragstart', (ev) => {
+      _draggingUuid = String(cluster.uuid ?? '');
+      card.classList.add('dragging');
+      if (ev.dataTransfer) {
+        ev.dataTransfer.effectAllowed = 'move';
+        ev.dataTransfer.setData('text/plain', _draggingUuid);
+      }
+    });
+    dragHandle.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      _draggingUuid = null;
+      _clearDropIndicator();
+    });
 
     const title = document.createElement('div');
     title.className = 'cctvTitle';
@@ -486,6 +640,7 @@ function _ensureCctvCards() {
     pill.className = `clusterPill ${pillInfo.cls}`;
     pill.textContent = pillInfo.text;
 
+    header.appendChild(dragHandle);
     header.appendChild(title);
     header.appendChild(pill);
 
@@ -1579,3 +1734,40 @@ for (const el of [addClusterLabelEl, addClusterBaseUrlEl]) {
 
 dashboardRefresh();
 _setManageStatus('Ready.');
+    card.setAttribute('draggable', 'true');
+    card.addEventListener('dragstart', (ev) => {
+      const target = ev.target;
+      if (target && target.closest && target.closest('input, textarea, button')) {
+        ev.preventDefault();
+        return;
+      }
+      _draggingUuid = String(cluster.uuid ?? '');
+      card.classList.add('dragging');
+      if (ev.dataTransfer) {
+        ev.dataTransfer.effectAllowed = 'move';
+        ev.dataTransfer.setData('text/plain', _draggingUuid);
+      }
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      _draggingUuid = null;
+      _clearDropIndicator();
+    });
+    card.addEventListener('dragover', (ev) => {
+      if (!_draggingUuid) return;
+      ev.preventDefault();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+      if (_draggingUuid === String(cluster.uuid ?? '')) return;
+      card.classList.add('dragOver');
+    });
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('dragOver');
+    });
+    card.addEventListener('drop', (ev) => {
+      ev.preventDefault();
+      card.classList.remove('dragOver');
+      const dragId = (ev.dataTransfer && ev.dataTransfer.getData('text/plain')) || _draggingUuid;
+      _draggingUuid = null;
+      card.classList.remove('dragging');
+      _reorderClusters(dragId, String(cluster.uuid ?? ''));
+    });

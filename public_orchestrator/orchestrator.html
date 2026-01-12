@@ -14,23 +14,24 @@
         <h1 class="orchTitle">Orchestrator Dashboard</h1>
 
         <section class="orchPanel active">
-            <fieldset class="orchBlock">
-                <legend>Clusters</legend>
+            <fieldset class="orchBlock clusterRegBar">
+                <legend>Add Cluster</legend>
 
-                <div class="row">
-                    <label for="addClusterBaseUrl">Cluster Address</label>
-                    <input id="addClusterBaseUrl" type="text" placeholder="Example: 10.0.0.10:8000 (or http://10.0.0.10:8000)" />
-                    <div class="orchSubHint">The orchestrator will call <span class="mono">/api/server/info</span> to auto-discover the cluster UUID.</div>
-                </div>
+                <div class="clusterRegGrid">
+                    <div class="clusterRegItem">
+                        <label for="addClusterBaseUrl">Address</label>
+                        <input id="addClusterBaseUrl" type="text" placeholder="10.0.0.10:8000 or http://10.0.0.10:8000" />
+                    </div>
 
-                <div class="row">
-                    <label for="addClusterLabel">Label (optional)</label>
-                    <input id="addClusterLabel" type="text" placeholder="Optional cluster label" />
-                </div>
+                    <div class="clusterRegItem">
+                        <label for="addClusterLabel">Label</label>
+                        <input id="addClusterLabel" type="text" placeholder="Optional label" />
+                    </div>
 
-                <div class="buttons">
-                    <button id="btnAddCluster" class="primary" type="button">Add Cluster</button>
-                    <button id="btnDashboardRefresh" type="button">Refresh Dashboard</button>
+                    <div class="buttons clusterRegActions">
+                        <button id="btnAddCluster" class="primary" type="button">Add</button>
+                        <button id="btnDashboardRefresh" type="button">Refresh</button>
+                    </div>
                 </div>
 
                 <div class="orchSubHint">Each cluster card has its own app and capture controls.</div>
