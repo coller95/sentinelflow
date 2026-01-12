@@ -1,20 +1,8 @@
-const clusterLabelEl = document.getElementById('clusterLabel');
-const clusterBaseUrlEl = document.getElementById('clusterBaseUrl');
-const btnCommissionEl = document.getElementById('btnCommission');
-const regStatusEl = document.getElementById('regStatus');
-
-const clusterSelectEl = document.getElementById('clusterSelect');
-const btnRefreshClustersEl = document.getElementById('btnRefreshClusters');
-const clusterMetaEl = document.getElementById('clusterMeta');
-const dashboardClustersEl = document.getElementById('dashboardClusters');
-const dashboardAssignmentsEl = document.getElementById('dashboardAssignments');
+const addClusterLabelEl = document.getElementById('addClusterLabel');
+const addClusterBaseUrlEl = document.getElementById('addClusterBaseUrl');
+const btnAddClusterEl = document.getElementById('btnAddCluster');
 const btnDashboardRefreshEl = document.getElementById('btnDashboardRefresh');
 const cctvGridEl = document.getElementById('cctvGrid');
-
-const editClusterLabelEl = document.getElementById('editClusterLabel');
-const editClusterBaseUrlEl = document.getElementById('editClusterBaseUrl');
-const btnClusterSaveEl = document.getElementById('btnClusterSave');
-const btnClusterRemoveEl = document.getElementById('btnClusterRemove');
 
 const manageStatusEl = document.getElementById('manageStatus');
 
@@ -96,11 +84,6 @@ let _cctvCards = new Map();
 let _cctvLayoutKey = '';
 let _cctvStreams = new Map();
 
-function _setStatus(text) {
-  if (!regStatusEl) return;
-  regStatusEl.textContent = String(text ?? '');
-}
-
 function _setManageStatus(text) {
   if (!manageStatusEl) return;
   manageStatusEl.textContent = String(text ?? '');
@@ -154,8 +137,7 @@ async function _postJson(url, body) {
 }
 
 function _selectedClusterUuid() {
-  const v = String(clusterSelectEl?.value || '').trim();
-  return v || null;
+  return null;
 }
 
 function _fillTextArea(el, obj) {
@@ -298,10 +280,24 @@ async function _appCloseCluster(cluster) {
   }
 }
 
+async function _removeCluster(cluster) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu) return;
+  if (!confirm(`Remove cluster ${_clusterLabel(cluster)} (${cu})?`)) return;
+  _setManageStatus(`Removing ${_clusterLabel(cluster)}...`);
+  try {
+    await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/remove`, {});
+    _closeCctvStream(cu);
+    _setManageStatus(`Removed ${_clusterLabel(cluster)}.`);
+    await refreshClusters();
+  } catch (err) {
+    _setManageStatus(`Remove failed: ${err?.message ?? err}`);
+  }
+}
+
 async function dashboardRefresh() {
   _setManageStatus('Refreshing dashboard...');
-  await refreshClusters(_selectedClusterUuid());
-  _ensureCctvCards();
+  await refreshClusters();
   _setManageStatus('Dashboard updated.');
 }
 
@@ -491,17 +487,6 @@ function _ensureCctvCards() {
     const actionRow = document.createElement('div');
     actionRow.className = 'buttons cctvActions';
 
-    const selectBtn = document.createElement('button');
-    selectBtn.type = 'button';
-    selectBtn.textContent = 'Select';
-    selectBtn.addEventListener('click', () => {
-      if (!clusterSelectEl) return;
-      clusterSelectEl.value = String(cluster.uuid ?? '');
-      _setClusterEditorFromSelected();
-      _applyDuplicateUiState();
-    });
-    actionRow.appendChild(selectBtn);
-
     const canProxy = Boolean(cluster?.baseUrl) && !_isDuplicateCluster(cluster);
     const launchBtn = document.createElement('button');
     launchBtn.type = 'button';
@@ -529,6 +514,12 @@ function _ensureCctvCards() {
     closeBtn.disabled = !canProxy;
     closeBtn.addEventListener('click', () => _appCloseCluster(cluster));
     actionRow.appendChild(closeBtn);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Remove';
+    removeBtn.addEventListener('click', () => _removeCluster(cluster));
+    actionRow.appendChild(removeBtn);
 
     const intervalRow = document.createElement('div');
     intervalRow.className = 'row';
@@ -665,129 +656,25 @@ async function _captureStopCluster(cluster) {
 }
 
 function _selectedClusterIsDuplicate() {
-  const cu = _selectedClusterUuid();
-  const selected = (Array.isArray(_cachedClusters) ? _cachedClusters : []).find(
-    x => String(x?.uuid ?? '') === String(cu)
-  ) || null;
-  if (!selected) return false;
-  const su = _serverUuidOf(selected);
-  if (!su) return false;
-  return (_dupCountByServerUuid.get(su) || 0) > 1;
+  return false;
 }
 
-function _setProxyControlsEnabled(enabled) {
-  const items = [
-    btnActionsFetchEl,
-    btnActionRunEl,
-    btnActionRemoveEl,
-    btnActionUpsertEl,
-    btnConditionsFetchEl,
-    btnConditionsStatusEl,
-    btnConditionsSendEl,
-    btnTriggersFetchEl,
-    btnTriggersStatusEl,
-    btnTriggersSendEl,
-    btnTriggerApplyEnabledEl,
-    btnTriggerRemoveEl,
-  ];
-  for (const el of items) {
-    if (!el) continue;
-    el.disabled = !enabled;
-  }
-}
-
-function _applyDuplicateUiState() {
-  const isDup = _selectedClusterIsDuplicate();
-  _setProxyControlsEnabled(!isDup);
-  if (isDup) {
-    _setManageStatus('Duplicate server UUID detected. Resolve duplicates to enable proxy actions.');
-  }
-}
-
-function _setClusterEditorFromSelected() {
-  const cu = _selectedClusterUuid();
-  const selected = (Array.isArray(_cachedClusters) ? _cachedClusters : []).find(x => String(x?.uuid ?? '') === String(cu)) || null;
-  if (clusterMetaEl) clusterMetaEl.textContent = _fmtClusterMeta(selected);
-  if (!selected) {
-    if (editClusterLabelEl) editClusterLabelEl.value = '';
-    if (editClusterBaseUrlEl) editClusterBaseUrlEl.value = '';
-    return;
-  }
-  if (editClusterLabelEl) editClusterLabelEl.value = String(selected.label ?? '');
-  if (editClusterBaseUrlEl) editClusterBaseUrlEl.value = String(selected.baseUrl ?? '');
-}
-
-async function refreshClusters(selectUuid = null) {
-  if (!clusterSelectEl) return;
+async function refreshClusters() {
   _setManageStatus('Loading clusters...');
   try {
     const resp = await _getJson('/api/orchestrator/clusters');
     const clusters = resp && Array.isArray(resp.clusters) ? resp.clusters : [];
     _cachedClusters = clusters;
-    if (dashboardClustersEl) _fillTextArea(dashboardClustersEl, resp);
     _dupCountByServerUuid = new Map();
     for (const c of clusters) {
       const su = _serverUuidOf(c);
       if (!su) continue;
       _dupCountByServerUuid.set(su, (_dupCountByServerUuid.get(su) || 0) + 1);
     }
-
-    clusterSelectEl.textContent = '';
-    for (const c of clusters) {
-      const su = _serverUuidOf(c);
-      const dupCount = su ? (_dupCountByServerUuid.get(su) || 0) : 0;
-      const opt = document.createElement('option');
-      opt.value = String(c.uuid ?? '');
-      const baseLabel = String(c.label ?? c.uuid ?? '');
-      opt.textContent = dupCount > 1 ? `${baseLabel} [DUP x${dupCount}]` : baseLabel;
-      clusterSelectEl.appendChild(opt);
-    }
-
-    if (selectUuid) {
-      clusterSelectEl.value = String(selectUuid);
-    }
-
-    _setClusterEditorFromSelected();
-    _setManageStatus('Ready.');
-    _applyDuplicateUiState();
     _ensureCctvCards();
+    _setManageStatus('Ready.');
   } catch (err) {
     _setManageStatus(`Failed to load clusters: ${err?.message ?? err}`);
-  }
-}
-
-async function saveSelectedCluster() {
-  const cu = _selectedClusterUuid();
-  if (!cu) return _setManageStatus('Select a cluster first.');
-
-  const label = String(editClusterLabelEl?.value || '').trim();
-  const baseUrl = String(editClusterBaseUrlEl?.value || '').trim();
-  if (!label) return _setManageStatus('Label is required.');
-
-  _setManageStatus('Saving cluster...');
-  try {
-    await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/update`, {
-      label,
-      baseUrl: baseUrl, // allow empty string to clear baseUrl
-    });
-    _setManageStatus('Saved.');
-    await refreshClusters(cu);
-  } catch (err) {
-    _setManageStatus(`Save failed: ${err?.message ?? err}`);
-  }
-}
-
-async function removeSelectedCluster() {
-  const cu = _selectedClusterUuid();
-  if (!cu) return _setManageStatus('Select a cluster first.');
-
-  _setManageStatus('Removing cluster...');
-  try {
-    await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/remove`, {});
-    _setManageStatus('Removed.');
-    await refreshClusters(null);
-  } catch (err) {
-    _setManageStatus(`Remove failed: ${err?.message ?? err}`);
   }
 }
 
@@ -1282,7 +1169,6 @@ async function configAssignmentsFetch() {
   try {
     const data = await _getJson('/api/orchestrator/configs/assignments');
     _fillTextArea(configAssignmentsEl, data);
-    if (dashboardAssignmentsEl) _fillTextArea(dashboardAssignmentsEl, data);
     _setManageStatus('Assignments loaded.');
   } catch (err) {
     _setManageStatus(`Assignments failed: ${err?.message ?? err}`);
@@ -1506,15 +1392,15 @@ async function screenApply() {
 }
 
 async function commissionCluster() {
-  const label = String(clusterLabelEl?.value || '').trim();
-  const baseUrl = String(clusterBaseUrlEl?.value || '').trim();
+  const label = String(addClusterLabelEl?.value || '').trim();
+  const baseUrl = String(addClusterBaseUrlEl?.value || '').trim();
 
   if (!baseUrl) {
-    _setStatus('Cluster address is required (IP:port or http://host:port).');
+    _setManageStatus('Cluster address is required (IP:port or http://host:port).');
     return;
   }
 
-  _setStatus('Registering...');
+  _setManageStatus('Registering cluster...');
 
   const payload = { baseUrl, label: label ? label : null };
 
@@ -1522,45 +1408,28 @@ async function commissionCluster() {
     const result = await _postJson('/api/orchestrator/clusters/commission_from_url', payload);
     const cluster = result && result.cluster ? result.cluster : null;
     if (cluster && cluster.uuid) {
-      _setStatus(`Registered: ${cluster.label} (${cluster.uuid})`);
-      await refreshClusters(String(cluster.uuid));
+      _setManageStatus(`Registered: ${cluster.label} (${cluster.uuid}).`);
     } else {
-      _setStatus('Registered.');
-      await refreshClusters(_selectedClusterUuid());
+      _setManageStatus('Registered.');
     }
+    await refreshClusters();
   } catch (err) {
-    _setStatus(`Failed: ${err?.message ?? err}`);
+    _setManageStatus(`Register failed: ${err?.message ?? err}`);
   }
 }
 
-if (btnCommissionEl) {
-  btnCommissionEl.addEventListener('click', () => {
+if (btnAddClusterEl) {
+  btnAddClusterEl.addEventListener('click', () => {
     commissionCluster();
-  });
-}
-
-if (btnRefreshClustersEl) {
-  btnRefreshClustersEl.addEventListener('click', () => {
-    refreshClusters(_selectedClusterUuid());
   });
 }
 
 if (btnDashboardRefreshEl) {
   btnDashboardRefreshEl.addEventListener('click', () => {
     dashboardRefresh();
-    configAssignmentsFetch();
   });
 }
 
-if (clusterSelectEl) {
-  clusterSelectEl.addEventListener('change', () => {
-    _setClusterEditorFromSelected();
-    _applyDuplicateUiState();
-  });
-}
-
-if (btnClusterSaveEl) btnClusterSaveEl.addEventListener('click', () => saveSelectedCluster());
-if (btnClusterRemoveEl) btnClusterRemoveEl.addEventListener('click', () => removeSelectedCluster());
 if (btnActionsFetchEl) btnActionsFetchEl.addEventListener('click', () => actionsFetch());
 if (btnActionRunEl) btnActionRunEl.addEventListener('click', () => actionRunRemove('run'));
 if (btnActionRemoveEl) btnActionRemoveEl.addEventListener('click', () => actionRunRemove('remove'));
@@ -1600,7 +1469,7 @@ if (btnScreenAssignEl) btnScreenAssignEl.addEventListener('click', () => screenA
 if (btnScreenUnassignEl) btnScreenUnassignEl.addEventListener('click', () => screenUnassign());
 if (btnScreenApplyEl) btnScreenApplyEl.addEventListener('click', () => screenApply());
 
-for (const el of [clusterLabelEl, clusterBaseUrlEl]) {
+for (const el of [addClusterLabelEl, addClusterBaseUrlEl]) {
   if (!el) continue;
   el.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') {
@@ -1610,13 +1479,5 @@ for (const el of [clusterLabelEl, clusterBaseUrlEl]) {
   });
 }
 
-_setStatus('Ready.');
-
-_tabInit();
-_subTabInit();
 dashboardRefresh();
-screensLayoutsFetch(null);
-screensAssignmentsFetch();
-configsFetch(null);
-configAssignmentsFetch();
 _setManageStatus('Ready.');

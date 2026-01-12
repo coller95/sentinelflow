@@ -167,7 +167,7 @@ button:disabled {
 }
 
 .orchCard {
-    width: min(900px, 100%);
+    width: min(1200px, 100%);
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -338,9 +338,11 @@ button:disabled {
 }
 
 .cctvGrid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 10px;
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    scroll-snap-type: x proximity;
 }
 
 .cctvCard {
@@ -351,6 +353,8 @@ button:disabled {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    flex: 0 0 320px;
+    scroll-snap-align: start;
 }
 
 .cctvHeader {
