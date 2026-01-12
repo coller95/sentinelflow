@@ -372,7 +372,7 @@ def SendKeystrokeToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
     if not hwnd:
         return
 
-    _TryFocusWindow(hwnd)
+    TryFocusWindow(hwnd)
     time.sleep(0.05)
 
     win32api.keybd_event(virtualKey, 0, 0, 0)  # type: ignore
@@ -383,7 +383,7 @@ def SendKeyDownToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
     if not hwnd:
         return
 
-    _TryFocusWindow(hwnd)
+    TryFocusWindow(hwnd)
     time.sleep(0.05)
 
     win32api.keybd_event(virtualKey, 0, 0, 0)  # type: ignore
@@ -393,7 +393,7 @@ def SendKeyUpToWindow(hwnd: HWND, virtualKey: VirtualKey) -> None:
     if not hwnd:
         return
 
-    _TryFocusWindow(hwnd)
+    TryFocusWindow(hwnd)
     time.sleep(0.05)
 
     win32api.keybd_event(virtualKey, 0, win32con.KEYEVENTF_KEYUP, 0)  # type: ignore
@@ -414,7 +414,7 @@ def SendKeyChordToWindow(hwnd: HWND, virtualKeys: List[VirtualKey]) -> None:
     if not keys:
         return
 
-    _TryFocusWindow(hwnd)
+    TryFocusWindow(hwnd)
     time.sleep(0.05)
 
     modifiers = keys[:-1]
@@ -444,7 +444,7 @@ def SendMouseClickToWindow(hwnd: HWND, normalizedX: NormalizedCoord, normalizedY
     screenX = left + int(normalizedX * windowWidth)
     screenY = top + int(normalizedY * windowHeight)
 
-    _TryFocusWindow(hwnd)
+    TryFocusWindow(hwnd)
     time.sleep(0.05)
 
     win32api.SetCursorPos((screenX, screenY))

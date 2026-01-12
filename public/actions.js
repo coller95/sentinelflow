@@ -96,7 +96,7 @@ function _setActionStepsFromValue(value) {
         if (!s || typeof s !== 'object') continue;
         const kind = _actionKindOf(s);
         if (!kind) continue;
-        const parameters = (s.parameters && typeof s.parameters === 'object') ? parameters : {};
+        const parameters = (s.parameters && typeof s.parameters === 'object') ? s.parameters : {};
         if (kind === 'Delay') {
             const ms = Number(parameters.ms);
             const seconds = Number(parameters.seconds);
