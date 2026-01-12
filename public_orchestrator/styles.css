@@ -2,6 +2,21 @@
 
 :root {
     color-scheme: light dark;
+    --bg: #f6f7f8;
+    --panel: #ffffff;
+    --panel-2: #f1f3f5;
+    --ink: #1f2328;
+    --muted: rgba(31, 35, 40, 0.6);
+    --border: rgba(31, 35, 40, 0.12);
+    --accent: #2a6f62;
+    --accent-strong: #1e5148;
+    --radius: 10px;
+    --radius-sm: 8px;
+    --shadow: 0 8px 20px rgba(31, 35, 40, 0.08);
+}
+
+* {
+    box-sizing: border-box;
 }
 
 html, body {
@@ -10,98 +25,134 @@ html, body {
 }
 
 body {
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: Canvas;
-    color: CanvasText;
+    font-family: "Source Sans 3", "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
 }
 
-select {
-    padding: 6px 8px;
-    border-radius: 6px;
-    border: 1px solid rgba(0,0,0,0.2);
-    background: Canvas;
-    color: CanvasText;
-    outline: none;
-    font-size: 13px;
+select,
+input,
+textarea,
+button {
+    font-family: inherit;
 }
 
 fieldset {
-    border: none;
-    padding: 0;
+    border: 1px solid var(--border);
+    padding: 12px;
     margin: 0;
+    border-radius: var(--radius);
+    background: var(--panel);
 }
 
 legend {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    opacity: 0.5;
-    margin-bottom: 8px;
+    letter-spacing: 0.6px;
+    color: var(--muted);
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+}
+
+label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
 }
 
 .row {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
 }
 
-label {
-    font-size: 12px;
-    opacity: 0.8;
-}
-
-input {
-    padding: 6px 8px;
-    border-radius: 6px;
-    border: 1px solid rgba(0,0,0,0.2);
-    background: Canvas;
-    color: CanvasText;
+input,
+select,
+textarea {
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--ink);
     outline: none;
     font-size: 13px;
 }
 
+input:focus,
+select:focus,
+textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(42, 111, 98, 0.15);
+}
+
 button {
     appearance: none;
-    border: none;
-    padding: 8px 14px;
-    border-radius: 6px;
+    border: 1px solid var(--border);
+    padding: 7px 12px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    background: rgba(0,0,0,0.1);
+    background: var(--panel-2);
     color: inherit;
     font-size: 13px;
+    font-weight: 600;
+    transition: background 140ms ease, border-color 140ms ease;
 }
 
 button:hover {
-    background: rgba(0,0,0,0.2);
+    border-color: rgba(42, 111, 98, 0.45);
+    background: rgba(42, 111, 98, 0.08);
 }
 
 button.primary {
-    background: rgba(0,0,0,0.2);
-    font-weight: 600;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
 }
 
-.status {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-    font-size: 11px;
-    opacity: 0.85;
+button.primary:hover {
+    background: var(--accent-strong);
+    border-color: var(--accent-strong);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .buttons {
     display: flex;
-    gap: 10px;
-    margin-top: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: 8px;
+}
+
+.buttons input {
+    flex: 1 1 90px;
+    min-width: 0;
+}
+
+.status {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+    font-size: 11px;
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--panel-2);
 }
 
 .monoBox {
     margin: 0;
-    padding: 10px;
-    border-radius: 6px;
-    border: 1px solid rgba(0,0,0,0.2);
-    background: Canvas;
-    color: CanvasText;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--ink);
+    font-family: ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
     font-size: 12px;
     overflow: auto;
     white-space: pre;
@@ -109,88 +160,258 @@ button.primary {
 
 .orchRoot {
     min-height: 100vh;
-    overflow: auto;
     display: flex;
     align-items: flex-start;
     justify-content: center;
-    padding: 18px;
+    padding: 16px;
 }
 
 .orchCard {
-    width: min(720px, 100%);
+    width: min(900px, 100%);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .orchTitle {
-    margin: 0 0 12px 0;
-    font-size: 18px;
+    margin: 0;
+    font-size: 20px;
     font-weight: 700;
 }
 
-.orchHint {
-    margin-top: 10px;
+.orchHint,
+.orchSubHint {
     font-size: 12px;
-    opacity: 0.7;
+    color: var(--muted);
 }
 
 .orchSubHint {
-    margin-top: 6px;
-    font-size: 12px;
-    opacity: 0.7;
+    margin-top: 4px;
 }
 
 .orchSection {
-    margin-top: 16px;
+    margin-top: 6px;
 }
 
 .orchTabs {
     display: flex;
-    gap: 8px;
-    margin-top: 12px;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.orchTabs--main {
+    margin-top: 6px;
 }
 
 .orchTabs button {
-    padding: 6px 12px;
+    padding: 6px 10px;
+}
+
+.orchSubTabs {
+    margin-top: 0;
+}
+
+.orchSubTabs button {
+    padding: 5px 9px;
+    font-size: 12px;
 }
 
 .orchTabs button.active {
-    background: rgba(0,0,0,0.2);
-    font-weight: 600;
+    background: rgba(42, 111, 98, 0.12);
+    border-color: rgba(42, 111, 98, 0.4);
+    color: #1f4d45;
 }
 
 .orchPanel {
     display: none;
-    margin-top: 12px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
 }
 
 .orchPanel.active {
     display: block;
 }
 
+.orchSubPanel {
+    display: none;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+}
+
+.orchSubPanel.active {
+    display: block;
+}
+
+.clusterGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.clusterCard {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--panel);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.clusterCard.isSelected {
+    border-color: rgba(42, 111, 98, 0.55);
+    box-shadow: 0 0 0 2px rgba(42, 111, 98, 0.12);
+}
+
+.clusterHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.clusterTitle {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.clusterMeta {
+    font-size: 11px;
+    color: var(--muted);
+    word-break: break-word;
+}
+
+.clusterPill {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.clusterPill.ok {
+    background: rgba(42, 111, 98, 0.12);
+    border-color: rgba(42, 111, 98, 0.4);
+    color: #1f4d45;
+}
+
+.clusterPill.warn {
+    background: rgba(210, 148, 0, 0.12);
+    border-color: rgba(210, 148, 0, 0.4);
+    color: #6b4e00;
+}
+
+.clusterPill.bad {
+    background: rgba(176, 52, 48, 0.12);
+    border-color: rgba(176, 52, 48, 0.4);
+    color: #7b1d1b;
+}
+
+.clusterActions {
+    margin-top: 4px;
+}
+
+.clusterActions button {
+    padding: 5px 8px;
+    font-size: 12px;
+}
+
+.clusterEmpty {
+    padding: 10px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.cctvGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+}
+
+.cctvCard {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--panel);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cctvHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.cctvTitle {
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.cctvMeta {
+    font-size: 11px;
+    color: var(--muted);
+    word-break: break-word;
+}
+
+.cctvImage {
+    width: 100%;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    object-fit: cover;
+    aspect-ratio: 16 / 9;
+}
+
+.orchBlock + .orchBlock {
+    margin-top: 12px;
+}
+
+@media (max-width: 820px) {
+    .orchCard {
+        width: 100%;
+    }
+}
+
 @media (prefers-color-scheme: dark) {
-    input {
-        border-color: rgba(255,255,255,0.2);
-        background: rgba(0,0,0,0.2);
-    }
-
-    select {
-        border-color: rgba(255,255,255,0.2);
-        background: rgba(0,0,0,0.2);
-    }
-
-    .monoBox {
-        border-color: rgba(255,255,255,0.2);
-        background: rgba(0,0,0,0.2);
+    :root {
+        --bg: #101214;
+        --panel: #15181b;
+        --panel-2: #1b1f24;
+        --ink: #e7eaee;
+        --muted: rgba(231, 234, 238, 0.6);
+        --border: rgba(231, 234, 238, 0.16);
+        --accent: #47b39c;
+        --accent-strong: #35907d;
+        --shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
     }
 
     button {
-        background: rgba(255,255,255,0.1);
+        background: var(--panel-2);
     }
 
     button:hover {
-        background: rgba(255,255,255,0.2);
+        background: rgba(71, 179, 156, 0.18);
     }
 
-    button.primary {
-        background: rgba(255,255,255,0.2);
+    .orchTabs button.active {
+        color: #d8fff5;
     }
 }

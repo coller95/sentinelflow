@@ -13,32 +13,8 @@
     <section class="orchCard">
         <h1 class="orchTitle">Orchestrator</h1>
 
-        <fieldset>
-            <legend>Commission Cluster</legend>
-
-            <div class="row">
-                <label for="clusterLabel">Label</label>
-                <input id="clusterLabel" type="text" placeholder="Optional (defaults to host:port)" />
-            </div>
-
-            <div class="row">
-                <label for="clusterBaseUrl">Cluster Address</label>
-                <input id="clusterBaseUrl" type="text" placeholder="Example: 10.0.0.10:8000 (or http://10.0.0.10:8000)" />
-                <div class="orchSubHint">The orchestrator will call <span class="mono">/api/server/info</span> to auto-discover the cluster UUID.</div>
-            </div>
-
-            <div class="buttons">
-                <button id="btnCommission" class="primary" type="button">Register</button>
-            </div>
-
-            <div class="row">
-                <label>Status</label>
-                <div id="regStatus" class="status" aria-live="polite"></div>
-            </div>
-        </fieldset>
-
         <fieldset class="orchSection">
-            <legend>Manage Cluster</legend>
+            <legend>Cluster Context</legend>
 
             <div class="row">
                 <label for="clusterSelect">Select Cluster</label>
@@ -49,30 +25,122 @@
             <div class="buttons">
                 <button id="btnRefreshClusters" type="button">Refresh Clusters</button>
             </div>
+        </fieldset>
+
+        <nav class="orchTabs orchTabs--main">
+            <button class="active" data-tab="dashboard" type="button">Dashboard</button>
+            <button data-tab="cctv" type="button">CCTV</button>
+            <button data-tab="clusters" type="button">Clusters</button>
+            <button data-tab="launcher" type="button">Launcher</button>
+            <button data-tab="screens" type="button">Screens</button>
+            <button data-tab="configs" type="button">Configs</button>
+        </nav>
+
+        <section id="tab-dashboard" class="orchPanel active">
+            <fieldset class="orchBlock">
+                <legend>Overview</legend>
+
+                <div class="buttons">
+                    <button id="btnDashboardRefresh" class="primary" type="button">Refresh Dashboard</button>
+                </div>
+
+                <div class="row">
+                    <label>Cluster Health & Triggers</label>
+                    <div id="dashboardClusterCards" class="clusterGrid"></div>
+                </div>
+            </fieldset>
+
+            <fieldset class="orchBlock">
+                <legend>Raw Data</legend>
+
+                <div class="row">
+                    <label for="dashboardClusters">Clusters (read-only)</label>
+                    <textarea id="dashboardClusters" class="monoBox" rows="6" readonly></textarea>
+                </div>
+
+                <div class="row">
+                    <label for="dashboardAssignments">Config Assignments (read-only)</label>
+                    <textarea id="dashboardAssignments" class="monoBox" rows="6" readonly></textarea>
+                </div>
+            </fieldset>
+        </section>
+
+        <section id="tab-cctv" class="orchPanel">
+            <fieldset class="orchBlock">
+                <legend>CCTV</legend>
+
+                <div class="row">
+                    <label for="cctvInterval">Capture Interval (seconds)</label>
+                    <input id="cctvInterval" type="number" min="0.1" step="0.1" value="0.5" />
+                    <div class="orchSubHint">Set how often each cluster captures a frame.</div>
+                </div>
+
+                <div class="buttons">
+                    <button id="btnCctvStart" class="primary" type="button">Start CCTV</button>
+                    <button id="btnCctvStop" type="button">Stop CCTV</button>
+                </div>
+
+                <div class="row">
+                    <label>Status</label>
+                    <div id="cctvStatus" class="status" aria-live="polite"></div>
+                </div>
+            </fieldset>
 
             <div class="row">
-                <label for="editClusterLabel">Edit Label</label>
-                <input id="editClusterLabel" type="text" placeholder="Cluster label" />
+                <label>Cluster Screens</label>
+                <div id="cctvGrid" class="cctvGrid"></div>
             </div>
+        </section>
 
-            <div class="row">
-                <label for="editClusterBaseUrl">Edit Base URL</label>
-                <input id="editClusterBaseUrl" type="text" placeholder="Example: 10.0.0.10:8000 (or http://10.0.0.10:8000)" />
-            </div>
+        <section id="tab-clusters" class="orchPanel">
+            <fieldset>
+                <legend>Commission Cluster</legend>
 
-            <div class="buttons">
-                <button id="btnClusterSave" class="primary" type="button">Save</button>
-                <button id="btnClusterRemove" type="button">Remove</button>
-            </div>
+                <div class="row">
+                    <label for="clusterLabel">Label</label>
+                    <input id="clusterLabel" type="text" placeholder="Optional (defaults to host:port)" />
+                </div>
 
-            <nav class="orchTabs">
-                <button class="active" data-tab="actions" type="button">Actions</button>
-                <button data-tab="conditions" type="button">Conditions</button>
-                <button data-tab="triggers" type="button">Triggers</button>
-                <button data-tab="app" type="button">App</button>
-            </nav>
+                <div class="row">
+                    <label for="clusterBaseUrl">Cluster Address</label>
+                    <input id="clusterBaseUrl" type="text" placeholder="Example: 10.0.0.10:8000 (or http://10.0.0.10:8000)" />
+                    <div class="orchSubHint">The orchestrator will call <span class="mono">/api/server/info</span> to auto-discover the cluster UUID.</div>
+                </div>
 
-            <section id="tab-app" class="orchPanel">
+                <div class="buttons">
+                    <button id="btnCommission" class="primary" type="button">Register</button>
+                </div>
+
+                <div class="row">
+                    <label>Status</label>
+                    <div id="regStatus" class="status" aria-live="polite"></div>
+                </div>
+            </fieldset>
+
+            <fieldset class="orchSection">
+                <legend>Edit Cluster</legend>
+
+                <div class="row">
+                    <label for="editClusterLabel">Edit Label</label>
+                    <input id="editClusterLabel" type="text" placeholder="Cluster label" />
+                </div>
+
+                <div class="row">
+                    <label for="editClusterBaseUrl">Edit Base URL</label>
+                    <input id="editClusterBaseUrl" type="text" placeholder="Example: 10.0.0.10:8000 (or http://10.0.0.10:8000)" />
+                </div>
+
+                <div class="buttons">
+                    <button id="btnClusterSave" class="primary" type="button">Save</button>
+                    <button id="btnClusterRemove" type="button">Remove</button>
+                </div>
+            </fieldset>
+        </section>
+
+        <section id="tab-launcher" class="orchPanel">
+            <fieldset>
+                <legend>Launcher</legend>
+
                 <div class="row">
                     <label for="appLaunchPath">Launch app path</label>
                     <input id="appLaunchPath" type="text" placeholder="Example: C:\\Games\\MyGame.exe" />
@@ -109,124 +177,316 @@
                         <button id="btnCaptureStop" type="button">Stop Capture</button>
                     </div>
                 </div>
-            </section>
+            </fieldset>
+        </section>
 
-            <section id="tab-actions" class="orchPanel active">
+        <section id="tab-screens" class="orchPanel">
+            <fieldset class="orchBlock">
+                <legend>Layouts</legend>
+
                 <div class="buttons">
-                    <button id="btnActionsFetch" class="primary" type="button">Fetch</button>
+                    <button id="btnScreensLayoutsFetch" class="primary" type="button">Fetch</button>
+                    <button id="btnScreensAssignmentsFetch" type="button">Assignments</button>
                 </div>
 
                 <div class="row">
-                    <label for="actionsSelect">Select Action</label>
-                    <select id="actionsSelect"></select>
+                    <label for="screensLayoutSelect">Select Layout</label>
+                    <select id="screensLayoutSelect"></select>
                 </div>
 
                 <div class="row">
-                    <label for="actionsList">Actions (read-only)</label>
-                    <textarea id="actionsList" class="monoBox" rows="10" readonly></textarea>
+                    <label for="screensLayoutsList">Layouts (read-only)</label>
+                    <textarea id="screensLayoutsList" class="monoBox" rows="6" readonly></textarea>
                 </div>
 
                 <div class="row">
-                    <label for="actionRunUuid">Run action UUID</label>
-                    <input id="actionRunUuid" type="text" placeholder="Action UUID" />
+                    <label for="screenLayoutName">Name</label>
+                    <input id="screenLayoutName" type="text" placeholder="Layout name" />
                 </div>
+
+                <div class="row">
+                    <label for="screenLayoutDescription">Description</label>
+                    <input id="screenLayoutDescription" type="text" placeholder="Optional description" />
+                </div>
+
+                <div class="row">
+                    <label for="screenLayoutScreens">Screens JSON</label>
+                    <textarea id="screenLayoutScreens" class="monoBox" rows="8" placeholder='[{"label":"Display A","left":0,"top":0,"width":1920,"height":1080}]'></textarea>
+                </div>
+
                 <div class="buttons">
-                    <button id="btnActionRun" class="primary" type="button">Run</button>
-                    <button id="btnActionRemove" type="button">Remove</button>
+                    <button id="btnScreenLayoutCreate" class="primary" type="button">Create</button>
+                    <button id="btnScreenLayoutUpdate" type="button">Update</button>
+                    <button id="btnScreenLayoutRemove" type="button">Remove</button>
+                </div>
+            </fieldset>
+
+            <fieldset class="orchBlock">
+                <legend>Assignments</legend>
+
+                <div class="row">
+                    <label for="screenAssignCluster">Cluster UUID (blank = selected)</label>
+                    <input id="screenAssignCluster" type="text" placeholder="Optional cluster UUID" />
                 </div>
 
                 <div class="row">
-                    <label for="actionUpsertBody">Upsert payload (cluster format)</label>
-                    <textarea id="actionUpsertBody" class="monoBox" rows="8" placeholder='{"uuid": null, "name": "My Action", "steps": []}'></textarea>
+                    <label for="screenAssignLabel">Screen Label</label>
+                    <input id="screenAssignLabel" type="text" placeholder="Display A" />
+                    <div class="orchSubHint" id="screenAssignHint"></div>
                 </div>
+
                 <div class="buttons">
-                    <button id="btnActionUpsert" class="primary" type="button">Upsert</button>
-                </div>
-            </section>
-
-            <section id="tab-conditions" class="orchPanel">
-                <div class="buttons">
-                    <button id="btnConditionsFetch" class="primary" type="button">Fetch</button>
-                    <button id="btnConditionsStatus" type="button">Status</button>
+                    <button id="btnScreenAssign" class="primary" type="button">Assign</button>
+                    <button id="btnScreenUnassign" type="button">Unassign</button>
                 </div>
 
                 <div class="row">
-                    <label for="conditionsSelect">Select Condition</label>
-                    <select id="conditionsSelect"></select>
+                    <label for="screenApplyTargets">Apply to Cluster UUID(s)</label>
+                    <input id="screenApplyTargets" type="text" placeholder="Comma-separated UUIDs (blank = selected or apply all)" />
                 </div>
 
                 <div class="row">
-                    <label for="conditionsList">Conditions / Status (read-only)</label>
-                    <textarea id="conditionsList" class="monoBox" rows="10" readonly></textarea>
-                </div>
-
-                <div class="row">
-                    <label for="conditionsOp">Operation</label>
-                    <select id="conditionsOp">
-                        <option value="/api/orchestrator/clusters/{uuid}/conditions">Create</option>
-                        <option value="/api/orchestrator/clusters/{uuid}/conditions/set_from_live">Update (set_from_live)</option>
-                        <option value="/api/orchestrator/clusters/{uuid}/conditions/move">Move</option>
-                        <option value="/api/orchestrator/clusters/{uuid}/conditions/remove_uuid">Remove</option>
-                    </select>
-                </div>
-                <div class="row">
-                    <label for="conditionsBody">Payload (cluster format)</label>
-                    <textarea id="conditionsBody" class="monoBox" rows="8" placeholder='{"name": "HP", "type": "ProgressBar", "roi": {"xNormalized":0.1,"yNormalized":0.2,"widthNormalized":0.3,"heightNormalized":0.05}}'></textarea>
-                </div>
-                <div class="buttons">
-                    <button id="btnConditionsSend" class="primary" type="button">Send</button>
-                </div>
-            </section>
-
-            <section id="tab-triggers" class="orchPanel">
-                <div class="buttons">
-                    <button id="btnTriggersFetch" class="primary" type="button">Fetch</button>
-                    <button id="btnTriggersStatus" type="button">Status</button>
-                </div>
-
-                <div class="row">
-                    <label for="triggersSelect">Select Trigger</label>
-                    <select id="triggersSelect"></select>
-                </div>
-
-                <div class="row">
-                    <label for="triggersList">Triggers / Status (read-only)</label>
-                    <textarea id="triggersList" class="monoBox" rows="10" readonly></textarea>
+                    <label for="screenApplyWindowTitle">Window Title Override</label>
+                    <input id="screenApplyWindowTitle" type="text" placeholder="Optional window title" />
                 </div>
 
                 <div class="row">
                     <label>
-                        <input id="triggerEnabled" type="checkbox" />
-                        Enabled
+                        <input id="screenApplyAll" type="checkbox" />
+                        Apply to all assigned
                     </label>
                 </div>
+
+                <div class="row">
+                    <label>
+                        <input id="screenApplyDryRun" type="checkbox" />
+                        Dry run (no changes)
+                    </label>
+                </div>
+
                 <div class="buttons">
-                    <button id="btnTriggerApplyEnabled" type="button">Apply Enabled</button>
-                    <button id="btnTriggerRemove" type="button">Remove</button>
+                    <button id="btnScreenApply" class="primary" type="button">Apply Layout</button>
                 </div>
 
                 <div class="row">
-                    <label for="triggersOp">Operation</label>
-                    <select id="triggersOp">
-                        <option value="/api/orchestrator/clusters/{uuid}/triggers/upsert">Upsert</option>
-                        <option value="/api/orchestrator/clusters/{uuid}/triggers/remove_uuid">Remove</option>
-                        <option value="/api/orchestrator/clusters/{uuid}/triggers/set_enabled">Set Enabled</option>
-                    </select>
+                    <label for="screenAssignments">Assignments (read-only)</label>
+                    <textarea id="screenAssignments" class="monoBox" rows="6" readonly></textarea>
                 </div>
-                <div class="row">
-                    <label for="triggersBody">Payload (cluster format)</label>
-                    <textarea id="triggersBody" class="monoBox" rows="8" placeholder='{"uuid": null, "name": "Auto Heal", "enabled": true, "retriggerMs": 2000, "triggerCiterias": [], "action": "00000000-0000-0000-0000-000000000000"}'></textarea>
-                </div>
-                <div class="buttons">
-                    <button id="btnTriggersSend" class="primary" type="button">Send</button>
-                </div>
+            </fieldset>
+        </section>
+
+        <section id="tab-configs" class="orchPanel">
+            <nav class="orchTabs orchSubTabs">
+                <button class="active" data-panel="config-tab-bundles" type="button">Bundles</button>
+                <button data-panel="config-tab-actions" type="button">Actions</button>
+                <button data-panel="config-tab-conditions" type="button">Conditions</button>
+                <button data-panel="config-tab-triggers" type="button">Triggers</button>
+            </nav>
+
+            <section id="config-tab-bundles" class="orchSubPanel active">
+                <fieldset class="orchBlock">
+                    <legend>Config Bundles</legend>
+
+                    <div class="buttons">
+                        <button id="btnConfigsFetch" class="primary" type="button">Fetch</button>
+                        <button id="btnAssignmentsFetch" type="button">Assignments</button>
+                    </div>
+
+                    <div class="row">
+                        <label for="configsSelect">Select Config Bundle</label>
+                        <select id="configsSelect"></select>
+                    </div>
+
+                    <div class="row">
+                        <label for="configsList">Config Bundles (read-only)</label>
+                        <textarea id="configsList" class="monoBox" rows="8" readonly></textarea>
+                    </div>
+
+                    <div class="row">
+                        <label for="configName">Name</label>
+                        <input id="configName" type="text" placeholder="Config name" />
+                    </div>
+
+                    <div class="row">
+                        <label for="configDescription">Description</label>
+                        <input id="configDescription" type="text" placeholder="Optional description" />
+                    </div>
+
+                    <div class="row">
+                        <label for="configTags">Tags (comma-separated)</label>
+                        <input id="configTags" type="text" placeholder="example: prod, heal, farm" />
+                    </div>
+
+                    <div class="row">
+                        <label for="configContent">Config Content (actions/conditions/triggers)</label>
+                        <textarea id="configContent" class="monoBox" rows="10" placeholder='{"version":1,"actions":[],"conditions":[],"triggers":[]}'></textarea>
+                    </div>
+
+                    <div class="buttons">
+                        <button id="btnConfigCreate" class="primary" type="button">Create</button>
+                        <button id="btnConfigUpdate" type="button">Update</button>
+                        <button id="btnConfigRemove" type="button">Remove</button>
+                    </div>
+
+                    <div class="row">
+                        <label>Snapshot from selected cluster</label>
+                        <div class="buttons">
+                            <button id="btnConfigSnapshot" type="button">Create from Cluster</button>
+                        </div>
+                        <div class="orchSubHint">Uses the selected cluster's actions/conditions/triggers.</div>
+                    </div>
+
+                    <div class="row">
+                        <label for="configApplyTargets">Apply to Cluster UUID(s)</label>
+                        <input id="configApplyTargets" type="text" placeholder="Comma-separated UUIDs (blank = selected cluster)" />
+                    </div>
+
+                    <div class="row">
+                        <label>
+                            <input id="configApplyDryRun" type="checkbox" />
+                            Dry run (no changes)
+                        </label>
+                    </div>
+
+                    <div class="buttons">
+                        <button id="btnConfigApply" class="primary" type="button">Apply</button>
+                    </div>
+
+                    <div class="row">
+                        <label for="configAssignments">Assignments (read-only)</label>
+                        <textarea id="configAssignments" class="monoBox" rows="6" readonly></textarea>
+                    </div>
+                </fieldset>
             </section>
 
-            <div class="row">
-                <label>Manage Status</label>
-                <div id="manageStatus" class="status" aria-live="polite"></div>
-            </div>
-        </fieldset>
+            <section id="config-tab-actions" class="orchSubPanel">
+                <fieldset class="orchBlock">
+                    <legend>Actions</legend>
+
+                    <div class="buttons">
+                        <button id="btnActionsFetch" class="primary" type="button">Fetch</button>
+                    </div>
+
+                    <div class="row">
+                        <label for="actionsSelect">Select Action</label>
+                        <select id="actionsSelect"></select>
+                    </div>
+
+                    <div class="row">
+                        <label for="actionsList">Actions (read-only)</label>
+                        <textarea id="actionsList" class="monoBox" rows="10" readonly></textarea>
+                    </div>
+
+                    <div class="row">
+                        <label for="actionRunUuid">Run action UUID</label>
+                        <input id="actionRunUuid" type="text" placeholder="Action UUID" />
+                    </div>
+                    <div class="buttons">
+                        <button id="btnActionRun" class="primary" type="button">Run</button>
+                        <button id="btnActionRemove" type="button">Remove</button>
+                    </div>
+
+                    <div class="row">
+                        <label for="actionUpsertBody">Upsert payload (cluster format)</label>
+                        <textarea id="actionUpsertBody" class="monoBox" rows="8" placeholder='{"uuid": null, "name": "My Action", "steps": []}'></textarea>
+                    </div>
+                    <div class="buttons">
+                        <button id="btnActionUpsert" class="primary" type="button">Upsert</button>
+                    </div>
+                </fieldset>
+            </section>
+
+            <section id="config-tab-conditions" class="orchSubPanel">
+                <fieldset class="orchBlock">
+                    <legend>Conditions</legend>
+
+                    <div class="buttons">
+                        <button id="btnConditionsFetch" class="primary" type="button">Fetch</button>
+                        <button id="btnConditionsStatus" type="button">Status</button>
+                    </div>
+
+                    <div class="row">
+                        <label for="conditionsSelect">Select Condition</label>
+                        <select id="conditionsSelect"></select>
+                    </div>
+
+                    <div class="row">
+                        <label for="conditionsList">Conditions / Status (read-only)</label>
+                        <textarea id="conditionsList" class="monoBox" rows="10" readonly></textarea>
+                    </div>
+
+                    <div class="row">
+                        <label for="conditionsOp">Operation</label>
+                        <select id="conditionsOp">
+                            <option value="/api/orchestrator/clusters/{uuid}/conditions">Create</option>
+                            <option value="/api/orchestrator/clusters/{uuid}/conditions/set_from_live">Update (set_from_live)</option>
+                            <option value="/api/orchestrator/clusters/{uuid}/conditions/move">Move</option>
+                            <option value="/api/orchestrator/clusters/{uuid}/conditions/remove_uuid">Remove</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <label for="conditionsBody">Payload (cluster format)</label>
+                        <textarea id="conditionsBody" class="monoBox" rows="8" placeholder='{"name": "HP", "type": "ProgressBar", "roi": {"xNormalized":0.1,"yNormalized":0.2,"widthNormalized":0.3,"heightNormalized":0.05}}'></textarea>
+                    </div>
+                    <div class="buttons">
+                        <button id="btnConditionsSend" class="primary" type="button">Send</button>
+                    </div>
+                </fieldset>
+            </section>
+
+            <section id="config-tab-triggers" class="orchSubPanel">
+                <fieldset class="orchBlock">
+                    <legend>Triggers</legend>
+
+                    <div class="buttons">
+                        <button id="btnTriggersFetch" class="primary" type="button">Fetch</button>
+                        <button id="btnTriggersStatus" type="button">Status</button>
+                    </div>
+
+                    <div class="row">
+                        <label for="triggersSelect">Select Trigger</label>
+                        <select id="triggersSelect"></select>
+                    </div>
+
+                    <div class="row">
+                        <label for="triggersList">Triggers / Status (read-only)</label>
+                        <textarea id="triggersList" class="monoBox" rows="10" readonly></textarea>
+                    </div>
+
+                    <div class="row">
+                        <label>
+                            <input id="triggerEnabled" type="checkbox" />
+                            Enabled
+                        </label>
+                    </div>
+                    <div class="buttons">
+                        <button id="btnTriggerApplyEnabled" type="button">Apply Enabled</button>
+                        <button id="btnTriggerRemove" type="button">Remove</button>
+                    </div>
+
+                    <div class="row">
+                        <label for="triggersOp">Operation</label>
+                        <select id="triggersOp">
+                            <option value="/api/orchestrator/clusters/{uuid}/triggers/upsert">Upsert</option>
+                            <option value="/api/orchestrator/clusters/{uuid}/triggers/remove_uuid">Remove</option>
+                            <option value="/api/orchestrator/clusters/{uuid}/triggers/set_enabled">Set Enabled</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <label for="triggersBody">Payload (cluster format)</label>
+                        <textarea id="triggersBody" class="monoBox" rows="8" placeholder='{"uuid": null, "name": "Auto Heal", "enabled": true, "retriggerMs": 2000, "triggerCiterias": [], "action": "00000000-0000-0000-0000-000000000000"}'></textarea>
+                    </div>
+                    <div class="buttons">
+                        <button id="btnTriggersSend" class="primary" type="button">Send</button>
+                    </div>
+                </fieldset>
+            </section>
+        </section>
+
+        <div class="row">
+            <label>Manage Status</label>
+            <div id="manageStatus" class="status" aria-live="polite"></div>
+        </div>
 
         <div class="orchHint">Use `http://127.0.0.1:PORT/` in your browser.</div>
     </section>

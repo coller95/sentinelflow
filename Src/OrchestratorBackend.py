@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional, cast
 from urllib.parse import urljoin
 from uuid import UUID
 
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from Src.OrchestratorServices import OrchestratorServices
@@ -160,6 +161,64 @@ async def _proxy_json(method: str, baseUrl: str, path: str, body: Optional[Dict[
         except Exception:
             return res.text
     return res.text
+
+
+async def _proxy_bytes(method: str, baseUrl: str, path: str) -> Response:
+    url = urljoin(baseUrl, path.lstrip("/"))
+    timeout = httpx.Timeout(connect=3.0, read=20.0, write=10.0, pool=3.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            res = await client.request(method.upper(), url)
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=502, detail=f"cluster request failed: {exc}")
+
+    if res.status_code >= 400:
+        content_type = res.headers.get("content-type", "")
+        detail: str
+        if "application/json" in content_type:
+            try:
+                payload_any: Any = res.json()
+                if isinstance(payload_any, dict):
+                    payload = cast(Dict[str, Any], payload_any)
+                    if "detail" in payload:
+                        detail = str(payload.get("detail") or "")
+                    else:
+                        detail = str(payload)
+                else:
+                    detail = str(payload_any)
+            except Exception:
+                detail = res.text
+        else:
+            detail = res.text
+        raise HTTPException(status_code=502, detail=f"cluster error ({res.status_code}): {detail}")
+
+    media = res.headers.get("content-type", "application/octet-stream")
+    return Response(content=res.content, media_type=media, headers={"Cache-Control": "no-store"})
+
+
+async def _proxy_sse(baseUrl: str, path: str) -> StreamingResponse:
+    url = urljoin(baseUrl, path.lstrip("/"))
+    timeout = httpx.Timeout(connect=3.0, read=None, write=10.0, pool=3.0)
+
+    async def event_stream():
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                async with client.stream("GET", url) as res:
+                    if res.status_code >= 400:
+                        raw = await res.aread()
+                        detail = raw.decode("utf-8", errors="replace")
+                        raise HTTPException(status_code=502, detail=f"cluster error ({res.status_code}): {detail}")
+                    async for chunk in res.aiter_bytes():
+                        if chunk:
+                            yield chunk
+            except httpx.RequestError as exc:
+                raise HTTPException(status_code=502, detail=f"cluster request failed: {exc}")
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -380,6 +439,564 @@ def RemoveCluster(clusterUuid: UUID) -> Dict[str, Any]:
 
 
 # -----------------------------------------------------------------------------
+# Config bundles
+# -----------------------------------------------------------------------------
+
+class ConfigBundleCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    tags: List[str] = []
+    content: Optional[Dict[str, Any]] = None
+
+
+class ConfigBundleFromClusterRequest(BaseModel):
+    clusterUuid: UUID
+    name: str
+    description: Optional[str] = None
+    tags: List[str] = []
+
+
+class ConfigBundleUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[List[str]] = None
+    content: Optional[Dict[str, Any]] = None
+
+
+class ApplyConfigRequest(BaseModel):
+    clusterUuid: Optional[UUID] = None
+    clusterUuids: List[UUID] = []
+    dryRun: bool = False
+
+
+def _config_counts(content: Dict[str, Any]) -> Dict[str, int]:
+    def _count(key: str) -> int:
+        items = content.get(key, [])
+        if isinstance(items, list):
+            return len(items)
+        return 0
+
+    return {
+        "actions": _count("actions"),
+        "conditions": _count("conditions"),
+        "triggers": _count("triggers"),
+    }
+
+
+def _config_content_dict(record: Any) -> Dict[str, Any]:
+    raw = getattr(record, "content", None)
+    if isinstance(raw, dict):
+        return dict(raw)
+    return {}
+
+
+def _config_meta_dict(record: Any) -> Dict[str, Any]:
+    content = _config_content_dict(record)
+    counts = _config_counts(content)
+    return {
+        "uuid": str(record.uuid),
+        "name": record.name,
+        "description": record.description,
+        "tags": list(record.tags),
+        "revision": int(record.revision),
+        "createdAtUnix": float(record.createdAtUnix),
+        "updatedAtUnix": float(record.updatedAtUnix),
+        "sourceClusterUuid": (None if record.sourceClusterUuid is None else str(record.sourceClusterUuid)),
+        "counts": counts,
+    }
+
+
+def _config_full_dict(record: Any) -> Dict[str, Any]:
+    payload = _config_meta_dict(record)
+    payload["content"] = _config_content_dict(record)
+    return payload
+
+
+@app.get("/api/orchestrator/configs")
+def ListConfigBundles() -> Dict[str, Any]:
+    svc = _get_services()
+    configs = svc.ListConfigBundles()
+    return {"configs": [_config_meta_dict(c) for c in configs]}
+
+
+@app.get("/api/orchestrator/configs/{configUuid}")
+def GetConfigBundle(configUuid: UUID) -> Dict[str, Any]:
+    svc = _get_services()
+    record = svc.GetConfigBundle(configUuid)
+    if record is None:
+        raise HTTPException(status_code=404, detail="config bundle not found")
+    return {"config": _config_full_dict(record)}
+
+
+@app.post("/api/orchestrator/configs/create")
+def CreateConfigBundle(req: ConfigBundleCreateRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        record = svc.CreateConfigBundle(
+            name=req.name,
+            description=req.description,
+            tags=req.tags,
+            content=req.content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    _try_save_state(svc)
+    return {"ok": True, "config": _config_full_dict(record)}
+
+
+@app.post("/api/orchestrator/configs/from_cluster")
+async def CreateConfigBundleFromCluster(req: ConfigBundleFromClusterRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, req.clusterUuid)
+    state_any = await _proxy_json("GET", base, "/api/state/export")
+    if not isinstance(state_any, dict):
+        raise HTTPException(status_code=502, detail="cluster /api/state/export returned invalid payload")
+
+    actions = state_any.get("actions", [])
+    conditions = state_any.get("conditions", [])
+    triggers = state_any.get("triggers", [])
+    content = {
+        "version": 1,
+        "actions": list(actions) if isinstance(actions, list) else [],
+        "conditions": list(conditions) if isinstance(conditions, list) else [],
+        "triggers": list(triggers) if isinstance(triggers, list) else [],
+    }
+
+    try:
+        record = svc.CreateConfigBundle(
+            name=req.name,
+            description=req.description,
+            tags=req.tags,
+            content=content,
+            sourceClusterUuid=req.clusterUuid,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    _try_save_state(svc)
+    return {"ok": True, "config": _config_full_dict(record)}
+
+
+@app.post("/api/orchestrator/configs/{configUuid}/update")
+def UpdateConfigBundle(configUuid: UUID, req: ConfigBundleUpdateRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        record = svc.UpdateConfigBundle(
+            configUuid,
+            name=req.name,
+            description=req.description,
+            tags=req.tags,
+            content=req.content,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="config bundle not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    _try_save_state(svc)
+    return {"ok": True, "config": _config_full_dict(record)}
+
+
+@app.post("/api/orchestrator/configs/{configUuid}/remove")
+def RemoveConfigBundle(configUuid: UUID) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.RemoveConfigBundle(configUuid)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="config bundle not found")
+
+    _try_save_state(svc)
+    return {"ok": True}
+
+
+@app.get("/api/orchestrator/configs/assignments")
+def ListConfigAssignments() -> Dict[str, Any]:
+    svc = _get_services()
+    assignments = svc.ListConfigAssignments()
+    clusters = {c.uuid: c for c in svc.ListClusters(includeDecommissioned=True)}
+    configs = {c.uuid: c for c in svc.ListConfigBundles()}
+    items: List[Dict[str, Any]] = []
+    for a in assignments:
+        cluster = clusters.get(a.clusterUuid)
+        config = configs.get(a.configUuid)
+        is_stale = False
+        if config is not None:
+            is_stale = int(a.configRevision) != int(config.revision)
+        items.append(
+            {
+                "clusterUuid": str(a.clusterUuid),
+                "clusterLabel": (None if cluster is None else cluster.label),
+                "configUuid": str(a.configUuid),
+                "configName": (None if config is None else config.name),
+                "configRevision": int(a.configRevision),
+                "assignedAtUnix": float(a.assignedAtUnix),
+                "isStale": bool(is_stale),
+            }
+        )
+    return {"assignments": items}
+
+
+@app.post("/api/orchestrator/configs/{configUuid}/apply")
+async def ApplyConfigBundle(configUuid: UUID, req: ApplyConfigRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    config = svc.GetConfigBundle(configUuid)
+    if config is None:
+        raise HTTPException(status_code=404, detail="config bundle not found")
+
+    targets: List[UUID] = []
+    if req.clusterUuid is not None:
+        targets.append(req.clusterUuid)
+    if req.clusterUuids:
+        targets.extend(req.clusterUuids)
+    if not targets:
+        raise HTTPException(status_code=400, detail="clusterUuid or clusterUuids is required")
+
+    content = _config_content_dict(config)
+    counts = _config_counts(content)
+    seen: set = set()
+    results: List[Dict[str, Any]] = []
+
+    for cluster_uuid in targets:
+        if cluster_uuid in seen:
+            continue
+        seen.add(cluster_uuid)
+
+        if svc.GetCluster(cluster_uuid) is None:
+            raise HTTPException(status_code=404, detail=f"cluster not found: {cluster_uuid}")
+
+        if req.dryRun:
+            results.append(
+                {
+                    "clusterUuid": str(cluster_uuid),
+                    "dryRun": True,
+                    "counts": counts,
+                }
+            )
+            continue
+
+        base = _require_cluster_base_url(svc, cluster_uuid)
+        defaults_any = await _proxy_json("GET", base, "/api/app/defaults")
+        if not isinstance(defaults_any, dict):
+            raise HTTPException(status_code=502, detail="cluster /api/app/defaults returned invalid payload")
+
+        state_payload = {
+            "version": 1,
+            "savedAtUnix": float(time.time()),
+            "app": defaults_any,
+            "actions": list(content.get("actions", [])) if isinstance(content.get("actions", []), list) else [],
+            "conditions": list(content.get("conditions", [])) if isinstance(content.get("conditions", []), list) else [],
+            "triggers": list(content.get("triggers", [])) if isinstance(content.get("triggers", []), list) else [],
+        }
+
+        await _proxy_json(
+            "POST",
+            base,
+            "/api/state/import",
+            body={"state": state_payload, "keepServerUuid": True},
+        )
+        svc.AssignConfigBundle(cluster_uuid, configUuid)
+        results.append({"clusterUuid": str(cluster_uuid), "applied": True, "counts": counts})
+
+    if not req.dryRun:
+        _try_save_state(svc)
+    return {"ok": True, "results": results}
+
+
+# -----------------------------------------------------------------------------
+# Screens (layouts + assignments)
+# -----------------------------------------------------------------------------
+
+class DisplayScreenDto(BaseModel):
+    label: str
+    left: int
+    top: int
+    width: int
+    height: int
+
+
+class DisplayLayoutCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    screens: List[DisplayScreenDto] = []
+
+
+class DisplayLayoutUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    screens: Optional[List[DisplayScreenDto]] = None
+
+
+class DisplayAssignmentRequest(BaseModel):
+    clusterUuid: UUID
+    layoutUuid: UUID
+    screenLabel: str
+
+
+class DisplayUnassignRequest(BaseModel):
+    clusterUuid: UUID
+
+
+class DisplayApplyRequest(BaseModel):
+    clusterUuid: Optional[UUID] = None
+    clusterUuids: List[UUID] = []
+    applyAll: bool = False
+    dryRun: bool = False
+    windowTitle: Optional[str] = None
+
+
+def _screen_dict(screen: Any) -> Dict[str, Any]:
+    return {
+        "label": str(screen.label),
+        "left": int(screen.left),
+        "top": int(screen.top),
+        "width": int(screen.width),
+        "height": int(screen.height),
+    }
+
+
+def _layout_dict(record: Any, includeScreens: bool = False) -> Dict[str, Any]:
+    payload = {
+        "uuid": str(record.uuid),
+        "name": str(record.name),
+        "description": str(record.description),
+        "screenLabels": [s.label for s in record.screens],
+        "screenCount": len(record.screens),
+        "createdAtUnix": float(record.createdAtUnix),
+        "updatedAtUnix": float(record.updatedAtUnix),
+    }
+    if includeScreens:
+        payload["screens"] = [_screen_dict(s) for s in record.screens]
+    return payload
+
+
+@app.get("/api/orchestrator/screens/layouts")
+def ListDisplayLayouts() -> Dict[str, Any]:
+    svc = _get_services()
+    layouts = svc.ListDisplayLayouts()
+    return {"layouts": [_layout_dict(l) for l in layouts]}
+
+
+@app.get("/api/orchestrator/screens/layouts/{layoutUuid}")
+def GetDisplayLayout(layoutUuid: UUID) -> Dict[str, Any]:
+    svc = _get_services()
+    record = svc.GetDisplayLayout(layoutUuid)
+    if record is None:
+        raise HTTPException(status_code=404, detail="layout not found")
+    return {"layout": _layout_dict(record, includeScreens=True)}
+
+
+@app.post("/api/orchestrator/screens/layouts/create")
+def CreateDisplayLayout(req: DisplayLayoutCreateRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        record = svc.CreateDisplayLayout(
+            name=req.name,
+            description=req.description,
+            screens=[s.model_dump() for s in (req.screens or [])],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    _try_save_state(svc)
+    return {"ok": True, "layout": _layout_dict(record, includeScreens=True)}
+
+
+@app.post("/api/orchestrator/screens/layouts/{layoutUuid}/update")
+def UpdateDisplayLayout(layoutUuid: UUID, req: DisplayLayoutUpdateRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    screens = None
+    if req.screens is not None:
+        screens = [s.model_dump() for s in req.screens]
+
+    try:
+        record = svc.UpdateDisplayLayout(
+            layoutUuid,
+            name=req.name,
+            description=req.description,
+            screens=screens,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="layout not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    _try_save_state(svc)
+    return {"ok": True, "layout": _layout_dict(record, includeScreens=True)}
+
+
+@app.post("/api/orchestrator/screens/layouts/{layoutUuid}/remove")
+def RemoveDisplayLayout(layoutUuid: UUID) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.RemoveDisplayLayout(layoutUuid)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="layout not found")
+
+    _try_save_state(svc)
+    return {"ok": True}
+
+
+@app.get("/api/orchestrator/screens/assignments")
+def ListDisplayAssignments() -> Dict[str, Any]:
+    svc = _get_services()
+    assignments = svc.ListDisplayAssignments()
+    clusters = {c.uuid: c for c in svc.ListClusters(includeDecommissioned=True)}
+    layouts = {l.uuid: l for l in svc.ListDisplayLayouts()}
+
+    items: List[Dict[str, Any]] = []
+    for a in assignments:
+        cluster = clusters.get(a.clusterUuid)
+        layout = layouts.get(a.layoutUuid)
+        items.append(
+            {
+                "clusterUuid": str(a.clusterUuid),
+                "clusterLabel": (None if cluster is None else cluster.label),
+                "layoutUuid": str(a.layoutUuid),
+                "layoutName": (None if layout is None else layout.name),
+                "screenLabel": a.screenLabel,
+                "assignedAtUnix": float(a.assignedAtUnix),
+            }
+        )
+    return {"assignments": items}
+
+
+@app.post("/api/orchestrator/screens/assign")
+def AssignDisplay(req: DisplayAssignmentRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    if svc.GetCluster(req.clusterUuid) is None:
+        raise HTTPException(status_code=404, detail="cluster not found")
+    try:
+        record = svc.AssignDisplay(req.clusterUuid, req.layoutUuid, req.screenLabel)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    _try_save_state(svc)
+    return {
+        "ok": True,
+        "assignment": {
+            "clusterUuid": str(record.clusterUuid),
+            "layoutUuid": str(record.layoutUuid),
+            "screenLabel": record.screenLabel,
+            "assignedAtUnix": float(record.assignedAtUnix),
+        },
+    }
+
+
+@app.post("/api/orchestrator/screens/unassign")
+def UnassignDisplay(req: DisplayUnassignRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.RemoveDisplayAssignment(req.clusterUuid)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="assignment not found")
+
+    _try_save_state(svc)
+    return {"ok": True}
+
+
+@app.post("/api/orchestrator/screens/apply")
+async def ApplyDisplayLayouts(req: DisplayApplyRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    targets: List[UUID] = []
+    if bool(req.applyAll):
+        targets = [a.clusterUuid for a in svc.ListDisplayAssignments()]
+    else:
+        if req.clusterUuid is not None:
+            targets.append(req.clusterUuid)
+        if req.clusterUuids:
+            targets.extend(req.clusterUuids)
+
+    if not targets:
+        raise HTTPException(status_code=400, detail="clusterUuid, clusterUuids, or applyAll is required")
+
+    assignments = {a.clusterUuid: a for a in svc.ListDisplayAssignments()}
+    layouts = {l.uuid: l for l in svc.ListDisplayLayouts()}
+
+    seen: set = set()
+    results: List[Dict[str, Any]] = []
+    for cu in targets:
+        if cu in seen:
+            continue
+        seen.add(cu)
+
+        cluster = svc.GetCluster(cu)
+        if cluster is None:
+            results.append({"clusterUuid": str(cu), "error": "cluster not found"})
+            continue
+
+        assignment = assignments.get(cu)
+        if assignment is None:
+            results.append({"clusterUuid": str(cu), "error": "no display assignment"})
+            continue
+
+        layout = layouts.get(assignment.layoutUuid)
+        if layout is None:
+            results.append({"clusterUuid": str(cu), "error": "layout not found"})
+            continue
+
+        screen = next((s for s in layout.screens if s.label == assignment.screenLabel), None)
+        if screen is None:
+            results.append({"clusterUuid": str(cu), "error": "screen label not found"})
+            continue
+
+        if req.dryRun:
+            results.append(
+                {
+                    "clusterUuid": str(cu),
+                    "dryRun": True,
+                    "layoutUuid": str(layout.uuid),
+                    "screenLabel": screen.label,
+                }
+            )
+            continue
+
+        try:
+            base = _require_cluster_base_url(svc, cu)
+        except HTTPException as exc:
+            results.append({"clusterUuid": str(cu), "error": exc.detail})
+            continue
+
+        window_title = str(req.windowTitle or "").strip()
+        if not window_title:
+            defaults_any = await _proxy_json("GET", base, "/api/app/defaults")
+            if not isinstance(defaults_any, dict):
+                results.append({"clusterUuid": str(cu), "error": "cluster /api/app/defaults returned invalid payload"})
+                continue
+            window_title = str(defaults_any.get("defaultWindowTitle", "") or "").strip()
+        if not window_title:
+            results.append({"clusterUuid": str(cu), "error": "window title is required"})
+            continue
+
+        body = {
+            "window_title": window_title,
+            "left": int(screen.left),
+            "top": int(screen.top),
+            "width": int(screen.width),
+            "height": int(screen.height),
+        }
+
+        try:
+            await _proxy_json("POST", base, "/api/app/attach", body=body)
+            results.append(
+                {
+                    "clusterUuid": str(cu),
+                    "layoutUuid": str(layout.uuid),
+                    "screenLabel": screen.label,
+                    "applied": True,
+                }
+            )
+        except HTTPException as exc:
+            results.append({"clusterUuid": str(cu), "error": exc.detail})
+
+    if not req.dryRun:
+        _try_save_state(svc)
+    return {"ok": True, "results": results}
+
+
+# -----------------------------------------------------------------------------
 # Orchestrator state
 # -----------------------------------------------------------------------------
 
@@ -494,6 +1111,24 @@ async def ProxyCaptureStop(clusterUuid: UUID) -> Any:
     svc = _get_services()
     base = _require_cluster_base_url(svc, clusterUuid)
     return await _proxy_json("POST", base, "/api/capture/stop")
+
+
+@app.get("/api/orchestrator/clusters/{clusterUuid}/capture/latest")
+async def ProxyCaptureLatest(clusterUuid: UUID, fmt: str = "jpg") -> Response:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    clean_fmt = str(fmt or "jpg").strip().lstrip(".")
+    return await _proxy_bytes("GET", base, f"/api/capture/latest?fmt={clean_fmt}")
+
+
+@app.get("/api/orchestrator/clusters/{clusterUuid}/capture/stream")
+async def ProxyCaptureStream(clusterUuid: UUID, fmt: str = "jpg", quality: int = 70) -> StreamingResponse:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    clean_fmt = str(fmt or "jpg").strip().lstrip(".")
+    q = int(quality)
+    q = max(10, min(95, q))
+    return await _proxy_sse(base, f"/api/capture/stream?fmt={clean_fmt}&quality={q}")
 
 
 # --- Actions (mutations) ---
