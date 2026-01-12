@@ -495,6 +495,132 @@ button:disabled {
     margin-top: 8px;
 }
 
+.cctvManageHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.cctvManageTools {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.autoList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.autoItem {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px;
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.autoItemTop {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.autoItemTitle {
+    font-size: 12px;
+    font-weight: 700;
+    word-break: break-word;
+}
+
+.autoBadges {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.autoBadge {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.autoBadge--ok {
+    background: rgba(42, 111, 98, 0.12);
+    border-color: rgba(42, 111, 98, 0.4);
+    color: #1f4d45;
+}
+
+.autoBadge--warn {
+    background: rgba(210, 148, 0, 0.12);
+    border-color: rgba(210, 148, 0, 0.4);
+    color: #6b4e00;
+}
+
+.autoBadge--muted {
+    background: var(--panel-2);
+    color: var(--muted);
+}
+
+.autoMeta {
+    font-size: 10px;
+    color: var(--muted);
+    font-family: ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+    word-break: break-word;
+}
+
+.autoNote {
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.autoButtons {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 2px;
+}
+
+.autoButtons button {
+    padding: 5px 8px;
+    font-size: 12px;
+}
+
+.autoEmpty {
+    padding: 6px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.autoThumbs {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.autoThumb {
+    width: 44px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    object-fit: cover;
+    background: var(--panel-2);
+}
+
 .cctvManageForm {
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
