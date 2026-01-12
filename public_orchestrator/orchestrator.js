@@ -83,6 +83,7 @@ let _dupCountByServerUuid = new Map();
 let _cctvCards = new Map();
 let _cctvLayoutKey = '';
 let _cctvStreams = new Map();
+let _appDefaultsCache = new Map();
 
 function _setManageStatus(text) {
   if (!manageStatusEl) return;
@@ -329,6 +330,45 @@ function _intervalSecondsFromInput(el, fallback = 0.5) {
   return Math.max(0.1, n);
 }
 
+async function _loadAppDefaultsForCluster(cluster, inputs) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu || !cluster?.baseUrl || _isDuplicateCluster(cluster)) return;
+
+  const cached = _appDefaultsCache.get(cu);
+  if (cached) {
+    _applyAppDefaultsToInputs(cached, inputs);
+    return;
+  }
+
+  try {
+    const data = await _getJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/app/defaults`);
+    if (data && typeof data === 'object') {
+      _appDefaultsCache.set(cu, data);
+      _applyAppDefaultsToInputs(data, inputs);
+    }
+  } catch (err) {
+    // Best-effort; defaults are optional.
+    console.warn(`Defaults unavailable for ${_clusterLabel(cluster)}:`, err);
+  }
+}
+
+function _applyAppDefaultsToInputs(data, inputs) {
+  if (!data || typeof data !== 'object' || !inputs) return;
+  const appPath = String(data.defaultAppPath ?? data.appPath ?? data.path ?? '');
+  const windowTitle = String(data.defaultWindowTitle ?? data.programName ?? data.windowTitle ?? '');
+  const left = data.defaultWindowLeft ?? data.left;
+  const top = data.defaultWindowTop ?? data.top;
+  const width = data.defaultWindowWidth ?? data.width;
+  const height = data.defaultWindowHeight ?? data.height;
+
+  if (inputs.appPathEl) inputs.appPathEl.value = appPath;
+  if (inputs.titleEl) inputs.titleEl.value = windowTitle;
+  if (inputs.leftEl && Number.isFinite(Number(left))) inputs.leftEl.value = String(Math.floor(Number(left)));
+  if (inputs.topEl && Number.isFinite(Number(top))) inputs.topEl.value = String(Math.floor(Number(top)));
+  if (inputs.widthEl && Number.isFinite(Number(width))) inputs.widthEl.value = String(Math.floor(Number(width)));
+  if (inputs.heightEl && Number.isFinite(Number(height))) inputs.heightEl.value = String(Math.floor(Number(height)));
+}
+
 function _computeImageNormalized(imgEl, ev) {
   const rect = imgEl.getBoundingClientRect();
   const clickX = ev.clientX - rect.left;
@@ -557,6 +597,15 @@ function _ensureCctvCards() {
       el.disabled = !canProxy;
     }
 
+    _loadAppDefaultsForCluster(cluster, {
+      appPathEl: appPathInput,
+      titleEl: titleInput,
+      leftEl: leftInput,
+      topEl: topInput,
+      widthEl: widthInput,
+      heightEl: heightInput,
+    });
+
     controls.appendChild(appPathRow);
     controls.appendChild(titleRow);
     controls.appendChild(geomRow);
@@ -666,6 +715,7 @@ async function refreshClusters() {
     const clusters = resp && Array.isArray(resp.clusters) ? resp.clusters : [];
     _cachedClusters = clusters;
     _dupCountByServerUuid = new Map();
+    _appDefaultsCache = new Map();
     for (const c of clusters) {
       const su = _serverUuidOf(c);
       if (!su) continue;
