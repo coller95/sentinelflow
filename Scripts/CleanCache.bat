@@ -7,10 +7,10 @@ if exist "Src\__pycache__" (
     rmdir /s /q "Src\__pycache__"
 )
 
-REM Remove localpycs folder in Src\build\Main
-if exist "Src\build\Main\localpycs" (
-    echo Removing Src\build\Main\localpycs
-    rmdir /s /q "Src\build\Main\localpycs"
+REM Remove localpycs folder in build\Main
+if exist "build\Main\localpycs" (
+    echo Removing build\Main\localpycs
+    rmdir /s /q "build\Main\localpycs"
 )
 
 REM Remove .pyc and .pyo files recursively in Src

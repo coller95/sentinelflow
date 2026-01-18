@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
-from Src.OrchestratorServices import OrchestratorServices
+from .services import OrchestratorServices
 
 
 app = FastAPI()
@@ -26,16 +26,16 @@ app = FastAPI()
 def _resource_root() -> Path:
     """Return the runtime root directory.
 
-    - In development: project root (the folder containing `Src/` and static folders).
+    - In development: project root (the folder containing `Src/` and `web/`).
     - In PyInstaller onefile: the extraction directory (`sys._MEIPASS`).
     """
     mei_root = getattr(sys, "_MEIPASS", None)
     if mei_root:
         return Path(mei_root)
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parents[2]
 
 
-_public_dir = _resource_root() / "public_orchestrator"
+_public_dir = _resource_root() / "web" / "orchestrator"
 app.mount("/static", StaticFiles(directory=str(_public_dir)), name="static")
 
 
@@ -50,7 +50,7 @@ def _state_root() -> Path:
             return Path(sys.executable).resolve().parent
         except Exception:
             return Path.cwd()
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parents[2]
 
 
 _STATE_PATH = _state_root() / "orchestrator_state.json"

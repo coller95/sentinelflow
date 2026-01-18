@@ -9,4 +9,4 @@ IF EXIST ".venv\Scripts\activate.bat" (
   call .venv\Scripts\activate.bat
 )
 
-python -m Src.Main %*
+python -m Src.cluster.main %*

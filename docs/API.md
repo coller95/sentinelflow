@@ -99,7 +99,7 @@ The orchestrator is a separate FastAPI app intended to run as a central registry
 From the repo root:
 
 ```bash
-python Src/OrchestratorMain.py
+python -m Src.orchestrator.main
 ```
 
 Note:

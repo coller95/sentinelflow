@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 import numpy as np
 from numpy.typing import NDArray
 
-from Src.Helper import *
+from .helper import *
 
 
 @dataclass(frozen=True)

@@ -20,7 +20,7 @@ from numpy.typing import NDArray
 
 from typing import List, Optional, Any, Dict, cast
 
-from Src.ControllerServices import ControllerServices
+from .services import ControllerServices
 
 app = FastAPI()
 services: Optional[ControllerServices] = None
@@ -70,7 +70,7 @@ def _state_root() -> Path:
         # Last resort.
         return Path.cwd()
 
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parents[2]
 
 
 _STATE_PATH = _state_root() / "state.json"
@@ -156,21 +156,21 @@ def _try_save_state(svc: ControllerServices) -> None:
 def _resource_root() -> Path:
     """Return the runtime root directory.
 
-    - In development: project root (the folder containing `Src/` and `public/`).
+    - In development: project root (the folder containing `Src/` and `web/`).
     - In PyInstaller onefile: the extraction directory (`sys._MEIPASS`).
     """
     mei_root = getattr(sys, "_MEIPASS", None)
     if mei_root:
         return Path(mei_root)
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parents[2]
 
 
-_public_dir = _resource_root() / "public"
+_public_dir = _resource_root() / "web" / "cluster"
 app.mount("/static", StaticFiles(directory=str(_public_dir)), name="static")
 
 
 def _get_services() -> ControllerServices:
-    # Prefer an instance wired by the entrypoint (Main.py), but fall back
+    # Prefer an instance wired by the entrypoint (cluster main), but fall back
     # to the module-level instance for backwards compatibility.
     svc = getattr(app.state, "services", None)
     if svc is not None:
@@ -496,7 +496,7 @@ def _crop_frame_normalized(frame: NDArray[np.uint8], roi: ConditionRoiDto) -> ND
     return frame[py : py + ph, px : px + pw].copy()
 
 
-# Serve the HTML file from the public directory
+# Serve the HTML file from the cluster UI directory
 @app.get("/", response_class=FileResponse)
 def ServeIndex():
     index_path = _public_dir / "index.html"
@@ -734,7 +734,7 @@ def GetTriggers() -> List[TriggerItemDto]:
 @app.post("/api/triggers/upsert")
 def UpsertTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
     svc = _get_services()
-    from Src.ControllerServices import TriggerComparator, TriggerCiteria, TriggerCriteriaMode
+    from .services import TriggerComparator, TriggerCiteria, TriggerCriteriaMode
 
     name = (req.name or "").strip()
     if not name:
@@ -880,7 +880,7 @@ def GetTriggerDebug() -> Dict[str, Any]:
 @app.post("/api/actions/upsert")
 def UpsertAction(req: ActionUpsertRequest) -> Dict[str, Any]:
     svc = _get_services()
-    from Src.ControllerServices import MacroType, MacroStep
+    from .services import MacroType, MacroStep
 
     name = (req.name or "").strip()
     if not name:
@@ -978,7 +978,7 @@ def AddCondition(req: ConditionUpsertRequest) -> Dict[str, Any]:
     if req.roi.widthNormalized <= 0 or req.roi.heightNormalized <= 0:
         raise HTTPException(status_code=400, detail="roi width/height must be > 0")
 
-    from Src.ControllerServices import ConditionRoi, ConditionType
+    from .services import ConditionRoi, ConditionType
 
     template: Optional[NDArray[np.uint8]] = None
     raw_b64 = (req.templateImageBase64 or "").strip()
@@ -1054,7 +1054,7 @@ def MoveCondition(req: ConditionMoveRequest):
 @app.post("/api/conditions/set_from_live")
 def SetConditionFromLive(req: ConditionSetFromLiveRequest):
     svc = _get_services()
-    from Src.ControllerServices import ConditionItem, ConditionRoi, ConditionType
+    from .services import ConditionItem, ConditionRoi, ConditionType
 
     item = svc.GetConditionItemByUuid(req.uuid)
     if item is None:

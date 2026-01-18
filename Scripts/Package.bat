@@ -16,10 +16,8 @@ IF %ERRORLEVEL% NEQ 0 (
     pip install pyinstaller
 )
 
-REM Package Main.py into a single executable using .venv Python
+REM Package the cluster entrypoint into a single executable using .venv Python
+python -m PyInstaller --onefile --add-data "web\cluster;web\cluster" Src\cluster\main.py
 
-REM Change to Src directory and package
-python -m PyInstaller --onefile --add-data "public;public" Src\Main.py
-
-echo Packaging complete. Check the dist folder in Src.
+echo Packaging complete. Check the dist folder in the repo root.
 pause

@@ -13,18 +13,18 @@ from pathlib import Path
 import uvicorn
 
 # Ensure project root is on sys.path so `import Src.*` works regardless of CWD.
-_PROJECT_ROOT = str(Path(__file__).resolve().parents[1])
+_PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from Src.OrchestratorBackend import app  # noqa: E402
-from Src.OrchestratorServices import OrchestratorServices  # noqa: E402
+from Src.orchestrator.backend import app  # noqa: E402
+from Src.orchestrator.services import OrchestratorServices  # noqa: E402
 
 
 def main() -> int:
     svc = OrchestratorServices()
     try:
-        from Src.OrchestratorBackend import _STATE_PATH  # type: ignore
+        from Src.orchestrator.backend import _STATE_PATH  # type: ignore
         svc.LoadState(_STATE_PATH)
     except FileNotFoundError:
         pass
