@@ -17,7 +17,10 @@ IF %ERRORLEVEL% NEQ 0 (
 )
 
 REM Package the cluster entrypoint into a single executable using .venv Python
-python -m PyInstaller --onefile --add-data "web\cluster;web\cluster" Src\cluster\main.py
+python -m PyInstaller --onefile --name "SentinelFlowCluster" --add-data "web\cluster;web\cluster" Src\cluster\main.py
+
+REM Package the orchestrator entrypoint into a single executable using .venv Python
+python -m PyInstaller --onefile --name "SentinelFlowOrchestrator" --add-data "web\orchestrator;web\orchestrator" Src\orchestrator\main.py
 
 echo Packaging complete. Check the dist folder in the repo root.
 pause
