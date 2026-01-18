@@ -199,6 +199,11 @@ class ControllerServices:
         with self._state_lock:
             return self._server_uuid
 
+    def ResetServerUuid(self) -> UUID:
+        with self._state_lock:
+            self._server_uuid = uuid4()
+            return self._server_uuid
+
     def GetAppDefaults(self) -> Dict[str, Any]:
         with self._state_lock:
             return {

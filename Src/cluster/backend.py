@@ -196,6 +196,14 @@ def GetServerInfo() -> Dict[str, Any]:
     }
 
 
+@app.post("/api/server/reset_uuid")
+def ResetServerUuid() -> Dict[str, Any]:
+    svc = _get_services()
+    new_uuid = svc.ResetServerUuid()
+    _try_save_state(svc)
+    return {"ok": True, "serverUuid": str(new_uuid)}
+
+
 @app.get("/api/state/export")
 def ExportState(includeServerUuid: bool = False) -> Dict[str, Any]:
     svc = _get_services()

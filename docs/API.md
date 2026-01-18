@@ -87,6 +87,19 @@ Response:
 Notes:
 - `serverUuid` is persisted in `state.json`.
 
+### `POST /api/server/reset_uuid`
+
+Generates a new server UUID and persists it to `state.json`.
+
+Response:
+
+```json
+{ "ok": true, "serverUuid": "6b7c5a7f-..." }
+```
+
+Notes:
+- This changes the node identity used by the orchestrator.
+
 ## Central Orchestrator (Registry)
 
 The orchestrator is a separate FastAPI app intended to run as a central registry for multiple cluster servers.
