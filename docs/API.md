@@ -135,6 +135,9 @@ Response:
 
 The orchestrator stores clusters by their UUID (the cluster server's `serverUuid`) and assigns a human label.
 
+Notes:
+- The orchestrator treats `clusterUuid` and `serverUuid` as the same identifier.
+
 #### `POST /api/orchestrator/clusters/commission`
 
 Registers (or updates) a cluster by UUID.
@@ -222,6 +225,8 @@ Response:
 
 Notes:
 - This proxies the cluster endpoint `POST /api/server/reset_uuid`.
+- If multiple clusters share the same `baseUrl`, the orchestrator updates all of them to the new `serverUuid`.
+- The cluster record UUID is updated to match the new server UUID.
 
 ### App control (launch / attach)
 
@@ -323,9 +328,12 @@ Errors:
 
 ### Query clusters
 
-#### `GET /api/orchestrator/clusters?includeDecommissioned=false`
+#### `GET /api/orchestrator/clusters?includeDecommissioned=false&refreshServerUuid=true`
 
 Lists commissioned clusters.
+
+Query params:
+- `refreshServerUuid` (bool, default `true`): call each cluster's `/api/server/info` and sync stored UUIDs (may update `clusterUuid`).
 
 Response:
 

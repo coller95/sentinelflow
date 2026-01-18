@@ -92,10 +92,84 @@ class OrchestratorServices:
 
     def FindClustersByServerUuid(self, serverUuid: UUID, includeDecommissioned: bool = False) -> List[ClusterRecord]:
         with self._lock:
-            matches = [c for c in self._clusters.values() if c.serverUuid == serverUuid]
+            matches = [c for c in self._clusters.values() if c.uuid == serverUuid]
         if includeDecommissioned:
             return matches
         return [c for c in matches if c.decommissionedAtUnix is None]
+
+    def _rekey_assignments_locked(self, old_uuid: UUID, new_uuid: UUID) -> None:
+        if old_uuid == new_uuid:
+            return
+
+        if old_uuid in self._configAssignments:
+            existing = self._configAssignments[old_uuid]
+            if new_uuid not in self._configAssignments:
+                self._configAssignments[new_uuid] = ConfigAssignmentRecord(
+                    clusterUuid=new_uuid,
+                    configUuid=existing.configUuid,
+                    configRevision=existing.configRevision,
+                    assignedAtUnix=existing.assignedAtUnix,
+                )
+            del self._configAssignments[old_uuid]
+
+        if old_uuid in self._displayAssignments:
+            existing = self._displayAssignments[old_uuid]
+            if new_uuid not in self._displayAssignments:
+                self._displayAssignments[new_uuid] = DisplayAssignmentRecord(
+                    clusterUuid=new_uuid,
+                    layoutUuid=existing.layoutUuid,
+                    screenLabel=existing.screenLabel,
+                    assignedAtUnix=existing.assignedAtUnix,
+                )
+            del self._displayAssignments[old_uuid]
+
+    def _rekey_cluster_locked(self, old_uuid: UUID, new_uuid: UUID) -> ClusterRecord:
+        existing = self._clusters.get(old_uuid)
+        if existing is None:
+            raise KeyError("cluster not found")
+        if old_uuid == new_uuid:
+            if existing.serverUuid != old_uuid:
+                existing = ClusterRecord(
+                    uuid=existing.uuid,
+                    serverUuid=existing.uuid,
+                    label=existing.label,
+                    baseUrl=existing.baseUrl,
+                    commissionedAtUnix=existing.commissionedAtUnix,
+                    decommissionedAtUnix=existing.decommissionedAtUnix,
+                )
+                self._clusters[old_uuid] = existing
+            return existing
+
+        target = self._clusters.get(new_uuid)
+        if target is None:
+            record = ClusterRecord(
+                uuid=new_uuid,
+                serverUuid=new_uuid,
+                label=existing.label,
+                baseUrl=existing.baseUrl,
+                commissionedAtUnix=existing.commissionedAtUnix,
+                decommissionedAtUnix=existing.decommissionedAtUnix,
+            )
+        else:
+            merged_label = target.label or existing.label
+            merged_base = target.baseUrl or existing.baseUrl
+            merged_commissioned = min(target.commissionedAtUnix, existing.commissionedAtUnix)
+            merged_decommissioned = target.decommissionedAtUnix
+            if merged_decommissioned is None:
+                merged_decommissioned = existing.decommissionedAtUnix
+            record = ClusterRecord(
+                uuid=new_uuid,
+                serverUuid=new_uuid,
+                label=merged_label,
+                baseUrl=merged_base,
+                commissionedAtUnix=merged_commissioned,
+                decommissionedAtUnix=merged_decommissioned,
+            )
+
+        self._clusters[new_uuid] = record
+        del self._clusters[old_uuid]
+        self._rekey_assignments_locked(old_uuid, new_uuid)
+        return record
 
     def CommissionCluster(
         self,
@@ -110,20 +184,27 @@ class OrchestratorServices:
 
         clean_base = (baseUrl or "").strip() or None
         now = float(time.time())
-        record_uuid = recordUuid or serverUuid
+        record_uuid = serverUuid
         with self._lock:
-            if record_uuid in self._clusters:
-                record_uuid = uuid4()
-                while record_uuid in self._clusters:
-                    record_uuid = uuid4()
-            record = ClusterRecord(
-                uuid=record_uuid,
-                serverUuid=serverUuid,
-                label=clean_label,
-                baseUrl=clean_base,
-                commissionedAtUnix=now,
-                decommissionedAtUnix=None,
-            )
+            existing = self._clusters.get(record_uuid)
+            if existing is not None:
+                record = ClusterRecord(
+                    uuid=existing.uuid,
+                    serverUuid=existing.uuid,
+                    label=clean_label,
+                    baseUrl=clean_base,
+                    commissionedAtUnix=existing.commissionedAtUnix,
+                    decommissionedAtUnix=None,
+                )
+            else:
+                record = ClusterRecord(
+                    uuid=record_uuid,
+                    serverUuid=record_uuid,
+                    label=clean_label,
+                    baseUrl=clean_base,
+                    commissionedAtUnix=now,
+                    decommissionedAtUnix=None,
+                )
             self._clusters[record.uuid] = record
         return record
 
@@ -143,7 +224,7 @@ class OrchestratorServices:
 
             record = ClusterRecord(
                 uuid=existing.uuid,
-                serverUuid=existing.serverUuid,
+                serverUuid=existing.uuid,
                 label=clean_label,
                 baseUrl=clean_base,
                 commissionedAtUnix=existing.commissionedAtUnix,
@@ -154,20 +235,22 @@ class OrchestratorServices:
 
     def UpdateClusterServerUuid(self, clusterUuid: UUID, serverUuid: UUID) -> ClusterRecord:
         with self._lock:
-            existing = self._clusters.get(clusterUuid)
-            if existing is None:
-                raise KeyError("cluster not found")
+            return self._rekey_cluster_locked(clusterUuid, serverUuid)
 
-            record = ClusterRecord(
-                uuid=existing.uuid,
-                serverUuid=serverUuid,
-                label=existing.label,
-                baseUrl=existing.baseUrl,
-                commissionedAtUnix=existing.commissionedAtUnix,
-                decommissionedAtUnix=existing.decommissionedAtUnix,
-            )
-            self._clusters[clusterUuid] = record
-            return record
+    def UpdateClustersServerUuidByBaseUrl(self, baseUrl: str, serverUuid: UUID) -> List[ClusterRecord]:
+        clean_base = (baseUrl or "").strip()
+        if not clean_base:
+            return []
+        updated: List[ClusterRecord] = []
+        with self._lock:
+            matches = [c.uuid for c in self._clusters.values() if str(c.baseUrl or "").strip() == clean_base]
+            for cu in matches:
+                try:
+                    record = self._rekey_cluster_locked(cu, serverUuid)
+                except KeyError:
+                    continue
+                updated.append(record)
+        return updated
 
     def DecommissionCluster(self, clusterUuid: UUID) -> ClusterRecord:
         now = float(time.time())
@@ -177,7 +260,7 @@ class OrchestratorServices:
                 raise KeyError("cluster not found")
             record = ClusterRecord(
                 uuid=existing.uuid,
-                serverUuid=existing.serverUuid,
+                serverUuid=existing.uuid,
                 label=existing.label,
                 baseUrl=existing.baseUrl,
                 commissionedAtUnix=existing.commissionedAtUnix,
@@ -512,7 +595,7 @@ class OrchestratorServices:
             "clusters": [
                 {
                     "uuid": str(c.uuid),
-                    "serverUuid": str(c.serverUuid),
+                    "serverUuid": str(c.uuid),
                     "label": c.label,
                     "baseUrl": c.baseUrl,
                     "commissionedAtUnix": float(c.commissionedAtUnix),
@@ -589,6 +672,7 @@ class OrchestratorServices:
 
         clusters_any: Any = obj.get("clusters", [])
         clusters: Dict[UUID, ClusterRecord] = {}
+        cluster_uuid_map: Dict[UUID, UUID] = {}
         if isinstance(clusters_any, list):
             for item_any in cast(List[Any], clusters_any):
                 if not isinstance(item_any, dict):
@@ -611,10 +695,11 @@ class OrchestratorServices:
                     server_uuid = None
                 if server_uuid is None and cu is not None:
                     server_uuid = cu
-                if server_uuid is None:
+                if server_uuid is None and cu is None:
                     continue
+                record_uuid = server_uuid or cu or uuid4()
                 if not label:
-                    label = str(server_uuid)
+                    label = str(record_uuid)
 
                 base_url_raw = str(item.get("baseUrl", "") or "").strip()
                 base_url = base_url_raw or None
@@ -628,17 +713,25 @@ class OrchestratorServices:
                     except Exception:
                         decomm_at = None
 
-                record_uuid = cu or uuid4()
-                while record_uuid in clusters:
-                    record_uuid = uuid4()
+                if record_uuid in clusters:
+                    if cu is not None:
+                        cluster_uuid_map[cu] = record_uuid
+                    if server_uuid is not None:
+                        cluster_uuid_map[server_uuid] = record_uuid
+                    continue
+
                 clusters[record_uuid] = ClusterRecord(
                     uuid=record_uuid,
-                    serverUuid=server_uuid,
+                    serverUuid=record_uuid,
                     label=label,
                     baseUrl=base_url,
                     commissionedAtUnix=commissioned_at if commissioned_at > 0 else float(time.time()),
                     decommissionedAtUnix=decomm_at,
                 )
+                if cu is not None:
+                    cluster_uuid_map[cu] = record_uuid
+                if server_uuid is not None:
+                    cluster_uuid_map[server_uuid] = record_uuid
 
         bundles_any: Any = obj.get("configBundles", [])
         bundles: Dict[UUID, ConfigBundleRecord] = {}
@@ -699,6 +792,10 @@ class OrchestratorServices:
                         source_uuid = UUID(raw_source)
                 except Exception:
                     source_uuid = None
+                if source_uuid is not None and source_uuid in cluster_uuid_map:
+                    source_uuid = cluster_uuid_map[source_uuid]
+                if source_uuid is not None and source_uuid not in clusters:
+                    source_uuid = None
 
                 record_uuid = bu or uuid4()
                 while record_uuid in bundles:
@@ -727,6 +824,8 @@ class OrchestratorServices:
                     cu = UUID(str(item.get("clusterUuid", "")))
                 except Exception:
                     cu = None
+                if cu is not None and cu in cluster_uuid_map:
+                    cu = cluster_uuid_map[cu]
                 if cu is None or cu not in clusters:
                     continue
 
@@ -822,6 +921,8 @@ class OrchestratorServices:
                     cu = UUID(str(item.get("clusterUuid", "")))
                 except Exception:
                     cu = None
+                if cu is not None and cu in cluster_uuid_map:
+                    cu = cluster_uuid_map[cu]
                 if cu is None or cu not in clusters:
                     continue
 

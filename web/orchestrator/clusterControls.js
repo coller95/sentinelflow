@@ -1,7 +1,7 @@
 async function _appLaunchCluster(cluster, appPath, geometry) {
   const cu = String(cluster?.uuid ?? '').trim();
   if (!cu) return _setManageStatus('Select a cluster first.');
-  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
   const app_path = String(appPath || '').trim();
   if (!app_path) return _setManageStatus('App path is required.');
   const payload = geometry || _defaultGeometryPayload();
@@ -17,7 +17,7 @@ async function _appLaunchCluster(cluster, appPath, geometry) {
 async function _appAttachCluster(cluster, windowTitle, geometry) {
   const cu = String(cluster?.uuid ?? '').trim();
   if (!cu) return _setManageStatus('Select a cluster first.');
-  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
   const window_title = String(windowTitle || '').trim();
   if (!window_title) return _setManageStatus('Window title is required.');
   const payload = geometry || _defaultGeometryPayload();
@@ -33,7 +33,7 @@ async function _appAttachCluster(cluster, windowTitle, geometry) {
 async function _appCloseCluster(cluster) {
   const cu = String(cluster?.uuid ?? '').trim();
   if (!cu) return _setManageStatus('Select a cluster first.');
-  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
   _setManageStatus(`Closing app on ${_clusterLabel(cluster)}...`);
   try {
     await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/app/close`, {});
@@ -46,7 +46,7 @@ async function _appCloseCluster(cluster) {
 async function _appFocusCluster(cluster, windowTitle) {
   const cu = String(cluster?.uuid ?? '').trim();
   if (!cu) return _setManageStatus('Select a cluster first.');
-  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
   const window_title = String(windowTitle || '').trim();
   const payload = window_title ? { window_title } : {};
   _setManageStatus(`Focusing app on ${_clusterLabel(cluster)}...`);
@@ -61,7 +61,7 @@ async function _appFocusCluster(cluster, windowTitle) {
 async function _appResizeCluster(cluster, geometry) {
   const cu = String(cluster?.uuid ?? '').trim();
   if (!cu) return _setManageStatus('Select a cluster first.');
-  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
   const payload = geometry || _defaultGeometryPayload();
   _setManageStatus(`Resizing app on ${_clusterLabel(cluster)}...`);
   try {
@@ -84,5 +84,22 @@ async function _removeCluster(cluster) {
     await refreshClusters();
   } catch (err) {
     _setManageStatus(`Remove failed: ${err?.message ?? err}`);
+  }
+}
+
+async function _resetClusterUuid(cluster) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  if (!cluster?.baseUrl) return _setManageStatus('Cluster baseUrl is not set.');
+  const label = _clusterLabel(cluster);
+  if (!confirm(`Reset server UUID for ${label}?`)) return;
+  _setManageStatus(`Resetting UUID for ${label}...`);
+  try {
+    const data = await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/server/reset_uuid`, {});
+    const newUuid = String(data?.cluster?.uuid ?? data?.reset?.serverUuid ?? '').trim();
+    _setManageStatus(`UUID reset for ${label}${newUuid ? ` -> ${newUuid}` : ''}.`);
+    await refreshClusters();
+  } catch (err) {
+    _setManageStatus(`Reset UUID failed: ${err?.message ?? err}`);
   }
 }

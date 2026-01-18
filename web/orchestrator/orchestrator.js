@@ -49,7 +49,7 @@ function _fillSelect(el, items, valueKey, labelKey, selectedValue) {
 }
 
 function _serverUuidOf(cluster) {
-  return String(cluster?.serverUuid ?? cluster?.uuid ?? '').trim();
+  return String(cluster?.uuid ?? '').trim();
 }
 
 function _isDuplicateCluster(cluster) {

@@ -46,7 +46,7 @@ async function _clusterGet(cluster, path, outputEl, label) {
   const cu = String(cluster?.uuid ?? '').trim();
   if (!cu) return;
   if (!cluster?.baseUrl) return _setManageStatus('Cluster baseUrl is not set.');
-  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
   try {
     const data = await _getJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}${path}`);
     if (outputEl) _fillTextArea(outputEl, data);
@@ -61,7 +61,7 @@ async function _clusterPost(cluster, path, payload, outputEl, label) {
   const cu = String(cluster?.uuid ?? '').trim();
   if (!cu) return;
   if (!cluster?.baseUrl) return _setManageStatus('Cluster baseUrl is not set.');
-  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
   try {
     const data = await _postProxy(cu, `/api/orchestrator/clusters/{uuid}${path}`, payload);
     if (outputEl) _fillTextArea(outputEl, data);

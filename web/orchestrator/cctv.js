@@ -184,7 +184,7 @@ async function _sendCctvClick(cluster, imgEl, ev) {
   const cu = String(cluster?.uuid ?? '').trim();
   if (!cu) return;
   if (!cluster?.baseUrl) return _setManageStatus('Cluster baseUrl is not set.');
-  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
 
   const norm = _computeImageNormalized(imgEl, ev);
   if (!norm) return;
@@ -205,7 +205,7 @@ function _ensureCctvCards() {
   if (!cctvGridEl) return;
   _ensureDragHandlers();
   const clusters = _applyClusterOrder(_cachedClusters);
-  const key = clusters.map(c => `${String(c?.uuid ?? '')}|${String(c?.label ?? '')}|${String(c?.baseUrl ?? '')}|${String(c?.serverUuid ?? '')}`).join('|');
+  const key = clusters.map(c => `${String(c?.uuid ?? '')}|${String(c?.label ?? '')}|${String(c?.baseUrl ?? '')}`).join('|');
   if (key === _cctvLayoutKey) return;
   _cctvLayoutKey = key;
 
@@ -270,7 +270,11 @@ function _ensureCctvCards() {
     const meta = document.createElement('div');
     meta.className = 'cctvMeta';
     const baseUrl = String(cluster.baseUrl ?? '').trim();
-    meta.textContent = `${cluster.uuid}${baseUrl ? ` | ${baseUrl}` : ''}`;
+    const clusterUuid = String(cluster.uuid ?? '').trim();
+    const parts = [];
+    if (clusterUuid) parts.push(`cluster:${clusterUuid}`);
+    if (baseUrl) parts.push(baseUrl);
+    meta.textContent = parts.join(' | ');
 
     const img = document.createElement('img');
     img.className = 'cctvImage';
@@ -380,6 +384,13 @@ function _ensureCctvCards() {
     closeBtn.disabled = !canProxy;
     closeBtn.addEventListener('click', () => _appCloseCluster(cluster));
     actionRow.appendChild(closeBtn);
+
+    const resetUuidBtn = document.createElement('button');
+    resetUuidBtn.type = 'button';
+    resetUuidBtn.textContent = 'Reset UUID';
+    resetUuidBtn.disabled = !cluster?.baseUrl;
+    resetUuidBtn.addEventListener('click', () => _resetClusterUuid(cluster));
+    actionRow.appendChild(resetUuidBtn);
 
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
@@ -503,7 +514,7 @@ async function _captureStartCluster(cluster, intervalSeconds) {
   const cu = String(cluster?.uuid ?? '').trim();
   if (!cu) return _setManageStatus('Select a cluster first.');
   if (!cluster?.baseUrl) return _setManageStatus('Cluster baseUrl is not set.');
-  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
   const interval = Math.max(0.1, Number(intervalSeconds) || 0.5);
   _setManageStatus(`Starting capture on ${_clusterLabel(cluster)}...`);
   try {
@@ -521,7 +532,7 @@ async function _captureStopCluster(cluster) {
   const cu = String(cluster?.uuid ?? '').trim();
   if (!cu) return _setManageStatus('Select a cluster first.');
   if (!cluster?.baseUrl) return _setManageStatus('Cluster baseUrl is not set.');
-  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate server UUID detected.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
   _setManageStatus(`Stopping capture on ${_clusterLabel(cluster)}...`);
   try {
     await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/capture/stop`, {});
