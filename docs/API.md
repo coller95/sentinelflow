@@ -986,6 +986,7 @@ Response:
     "name": "Auto Heal",
     "enabled": true,
     "retriggerMs": 5000,
+    "disableOnFire": false,
     "criteriaMode": "All",
     "triggerCiterias": [
       { "conditionUuid": "...", "expectedValue": 0.3, "comparator": "LessThanOrEqual" }
@@ -1002,16 +1003,17 @@ Create/update a trigger.
 Request:
 
 ```json
-{
-  "uuid": null,
-  "name": "Auto Heal",
-  "enabled": true,
-  "retriggerMs": 5000,
-  "criteriaMode": "All",
-  "triggerCiterias": [
-    { "conditionUuid": "...", "expectedValue": 0.3, "comparator": "LessThanOrEqual" }
-  ],
-  "action": "..."
+  {
+    "uuid": null,
+    "name": "Auto Heal",
+    "enabled": true,
+    "retriggerMs": 5000,
+    "disableOnFire": false,
+    "criteriaMode": "All",
+    "triggerCiterias": [
+      { "conditionUuid": "...", "expectedValue": 0.3, "comparator": "LessThanOrEqual" }
+    ],
+    "action": "..."
 }
 ```
 
@@ -1019,6 +1021,9 @@ Notes:
 - `retriggerMs`:
   - `<= 0`: rising-edge only (fires once when criteria becomes true)
   - `> 0`: can fire again every `retriggerMs` while criteria remains true
+- `disableOnFire`:
+  - `false` (default): stays enabled after firing
+  - `true`: auto-disable after a fire
 - `criteriaMode`: `All` (default) requires every criteria to pass; `Any` allows any single criteria to pass.
 
 Response:

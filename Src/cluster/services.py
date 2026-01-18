@@ -95,6 +95,7 @@ class TriggerItem:
     action: UUID            # ActionItem UUID
     enabled: bool = False
     retriggerMs: int = 0
+    disableOnFire: bool = False
     criteriaMode: TriggerCriteriaMode = TriggerCriteriaMode.All
 
 class ControllerServices:
@@ -338,6 +339,7 @@ class ControllerServices:
                 "name": t.name,
                 "enabled": bool(t.enabled),
                 "retriggerMs": int(getattr(t, "retriggerMs", 0) or 0),
+                "disableOnFire": bool(getattr(t, "disableOnFire", False)),
                 "action": str(t.action),
                 "triggerCiterias": crit_out,
                 "criteriaMode": mode.name,
@@ -516,6 +518,7 @@ class ControllerServices:
                 retrigger_ms = int(t.get("retriggerMs", 0) or 0)
                 if retrigger_ms < 0:
                     retrigger_ms = 0
+                disable_on_fire = bool(t.get("disableOnFire", False))
 
                 crit_in = t.get("triggerCiterias", [])
                 crit_out: List[TriggerCiteria] = []
@@ -554,6 +557,7 @@ class ControllerServices:
                     action=action_uuid,
                     enabled=enabled,
                     retriggerMs=retrigger_ms,
+                    disableOnFire=disable_on_fire,
                     criteriaMode=mode,
                 )
 
@@ -621,6 +625,7 @@ class ControllerServices:
         action: UUID,
         enabled: bool = False,
         retriggerMs: int = 0,
+        disableOnFire: bool = False,
         criteriaMode: TriggerCriteriaMode = TriggerCriteriaMode.All,
     ) -> TriggerItem:
         clean_name = (name or "").strip()
@@ -648,6 +653,7 @@ class ControllerServices:
                 action=action,
                 enabled=bool(enabled),
                 retriggerMs=retrigger_ms_int,
+                disableOnFire=bool(disableOnFire),
                 criteriaMode=criteriaMode,
             )
             self._triggerItemList[trig_uuid] = item
@@ -665,6 +671,7 @@ class ControllerServices:
                 action=existing.action,
                 enabled=bool(enabled),
                 retriggerMs=int(getattr(existing, "retriggerMs", 0) or 0),
+                disableOnFire=bool(getattr(existing, "disableOnFire", False)),
                 criteriaMode=getattr(existing, "criteriaMode", TriggerCriteriaMode.All),
             )
             self._triggerItemList[uuid] = updated
@@ -908,6 +915,21 @@ class ControllerServices:
                                 self._trigger_fire_count[t.uuid] = int(self._trigger_fire_count.get(t.uuid, 0)) + 1
                                 self._trigger_last_fire_unix[t.uuid] = now_unix
                                 self._trigger_last_fire_mono[t.uuid] = now_mono
+                            if bool(getattr(t, "disableOnFire", False)):
+                                with self._state_lock:
+                                    existing = self._triggerItemList.get(t.uuid)
+                                    if existing is not None and bool(existing.enabled):
+                                        self._triggerItemList[t.uuid] = TriggerItem(
+                                            uuid=existing.uuid,
+                                            name=existing.name,
+                                            triggerCiterias=list(existing.triggerCiterias or []),
+                                            action=existing.action,
+                                            enabled=False,
+                                            retriggerMs=int(getattr(existing, "retriggerMs", 0) or 0),
+                                            disableOnFire=bool(getattr(existing, "disableOnFire", False)),
+                                            criteriaMode=getattr(existing, "criteriaMode", TriggerCriteriaMode.All),
+                                        )
+                                        self._trigger_last_match[t.uuid] = False
                         except Exception as exc:
                             with self._state_lock:
                                 self._trigger_last_error = exc

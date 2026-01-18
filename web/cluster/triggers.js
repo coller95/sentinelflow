@@ -92,6 +92,7 @@ function _clearTriggerEditor() {
     selectedTriggerUuid = null;
     if (triggerNameEl) triggerNameEl.value = '';
     if (triggerEnabledEl) triggerEnabledEl.checked = false;
+    if (triggerDisableOnFireEl) triggerDisableOnFireEl.checked = false;
     if (triggerRetriggerMsEl) triggerRetriggerMsEl.value = '0';
     if (triggerCriteriaModeEl) triggerCriteriaModeEl.value = 'All';
     if (triggerActionEl) triggerActionEl.value = '';
@@ -120,6 +121,7 @@ function _applyTriggerToEditor(t) {
     selectedTriggerUuid = String(t.uuid ?? '');
     if (triggerNameEl) triggerNameEl.value = String(t.name ?? '');
     if (triggerEnabledEl) triggerEnabledEl.checked = !!t.enabled;
+    if (triggerDisableOnFireEl) triggerDisableOnFireEl.checked = !!t.disableOnFire;
     if (triggerRetriggerMsEl) triggerRetriggerMsEl.value = String(t.retriggerMs ?? 0);
     if (triggerCriteriaModeEl) triggerCriteriaModeEl.value = String(t.criteriaMode ?? 'All');
     if (triggerActionEl) triggerActionEl.value = String(t.action ?? '');
@@ -395,6 +397,7 @@ if (btnTriggerNew) {
                 name,
                 enabled: false,
                 retriggerMs: 0,
+                disableOnFire: false,
                 criteriaMode: 'All',
                 action: actionUuid,
                 triggerCiterias: [],
@@ -408,6 +411,7 @@ if (btnTriggerNew) {
                 name,
                 enabled: false,
                 retriggerMs: 0,
+                disableOnFire: false,
                 criteriaMode: 'All',
                 action: actionUuid,
                 triggerCiterias: [],
@@ -470,6 +474,7 @@ if (btnTriggerSave) {
             const actionUuid = triggerActionEl ? String(triggerActionEl.value || '').trim() : '';
             if (!actionUuid) throw new Error('Action is required');
             const enabled = triggerEnabledEl ? !!triggerEnabledEl.checked : false;
+            const disableOnFire = triggerDisableOnFireEl ? !!triggerDisableOnFireEl.checked : false;
             let retriggerMs = 0;
             if (triggerRetriggerMsEl) {
                 const n = Number(triggerRetriggerMsEl.value);
@@ -483,7 +488,7 @@ if (btnTriggerSave) {
             if (domRowCount > 0 && citerias.length === 0) {
                 throw new Error('Criteria rows exist but no Condition is selected. Create/refresh Conditions first, then select a Condition for each criteria.');
             }
-            const payload = { name, enabled, retriggerMs, criteriaMode, action: actionUuid, triggerCiterias: citerias };
+            const payload = { name, enabled, retriggerMs, disableOnFire, criteriaMode, action: actionUuid, triggerCiterias: citerias };
             if (selectedTriggerUuid) payload.uuid = selectedTriggerUuid;
             const res = await postJson('/api/triggers/upsert', payload);
             if (res && res.uuid) selectedTriggerUuid = String(res.uuid);

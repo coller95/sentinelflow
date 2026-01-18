@@ -392,6 +392,7 @@ class TriggerItemDto(BaseModel):
     name: str
     enabled: bool = False
     retriggerMs: int = 0
+    disableOnFire: bool = False
     triggerCiterias: List[TriggerCiteriaDto] = []
     criteriaMode: TriggerCriteriaModeDto = TriggerCriteriaModeDto.All
     action: str
@@ -402,6 +403,7 @@ class TriggerUpsertRequest(BaseModel):
     name: str
     enabled: bool = False
     retriggerMs: int = 0
+    disableOnFire: bool = False
     triggerCiterias: List[TriggerCiteriaDto] = []
     criteriaMode: Optional[TriggerCriteriaModeDto] = None
     action: UUID
@@ -722,6 +724,7 @@ def GetTriggers() -> List[TriggerItemDto]:
                 name=t.name,
                 enabled=bool(getattr(t, "enabled", False)),
                 retriggerMs=int(getattr(t, "retriggerMs", 0) or 0),
+                disableOnFire=bool(getattr(t, "disableOnFire", False)),
                 triggerCiterias=citerias,
                 criteriaMode=TriggerCriteriaModeDto[mode_name],
                 action=str(t.action),
@@ -768,6 +771,7 @@ def UpsertTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
             action=req.action,
             enabled=bool(req.enabled),
             retriggerMs=int(getattr(req, "retriggerMs", 0) or 0),
+            disableOnFire=bool(req.disableOnFire),
             criteriaMode=mode,
         )
     except ValueError as exc:

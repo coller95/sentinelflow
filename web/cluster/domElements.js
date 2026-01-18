@@ -54,6 +54,7 @@ const btnTriggerMoveDown = document.getElementById('btnTriggerMoveDown');
 const btnTriggerSave = document.getElementById('btnTriggerSave');
 const triggerNameEl = document.getElementById('triggerName');
 const triggerEnabledEl = document.getElementById('triggerEnabled');
+const triggerDisableOnFireEl = document.getElementById('triggerDisableOnFire');
 const triggerRetriggerMsEl = document.getElementById('triggerRetriggerMs');
 const triggerCriteriaModeEl = document.getElementById('triggerCriteriaMode');
 const triggerActionEl = document.getElementById('triggerAction');
