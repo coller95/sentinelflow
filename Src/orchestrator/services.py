@@ -152,6 +152,23 @@ class OrchestratorServices:
             self._clusters[clusterUuid] = record
             return record
 
+    def UpdateClusterServerUuid(self, clusterUuid: UUID, serverUuid: UUID) -> ClusterRecord:
+        with self._lock:
+            existing = self._clusters.get(clusterUuid)
+            if existing is None:
+                raise KeyError("cluster not found")
+
+            record = ClusterRecord(
+                uuid=existing.uuid,
+                serverUuid=serverUuid,
+                label=existing.label,
+                baseUrl=existing.baseUrl,
+                commissionedAtUnix=existing.commissionedAtUnix,
+                decommissionedAtUnix=existing.decommissionedAtUnix,
+            )
+            self._clusters[clusterUuid] = record
+            return record
+
     def DecommissionCluster(self, clusterUuid: UUID) -> ClusterRecord:
         now = float(time.time())
         with self._lock:

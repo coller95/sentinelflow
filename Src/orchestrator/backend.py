@@ -102,19 +102,24 @@ def GetOrchestratorUi() -> FileResponse:
 # Cluster proxy helpers
 # -----------------------------------------------------------------------------
 
-def _require_cluster_base_url(svc: OrchestratorServices, clusterUuid: UUID) -> str:
+def _require_cluster_base_url(
+    svc: OrchestratorServices,
+    clusterUuid: UUID,
+    allowDuplicates: bool = False,
+) -> str:
     record = svc.GetCluster(clusterUuid)
     if record is None:
         raise HTTPException(status_code=404, detail="cluster not found")
 
-    dupes = svc.FindClustersByServerUuid(record.serverUuid, includeDecommissioned=False)
-    if len(dupes) > 1:
-        base_urls = [str(c.baseUrl or "") for c in dupes if c.baseUrl]
-        suffix = f" ({', '.join(base_urls)})" if base_urls else ""
-        raise HTTPException(
-            status_code=409,
-            detail=f"duplicate serverUuid detected; resolve duplicates before proxying{suffix}",
-        )
+    if not allowDuplicates:
+        dupes = svc.FindClustersByServerUuid(record.serverUuid, includeDecommissioned=False)
+        if len(dupes) > 1:
+            base_urls = [str(c.baseUrl or "") for c in dupes if c.baseUrl]
+            suffix = f" ({', '.join(base_urls)})" if base_urls else ""
+            raise HTTPException(
+                status_code=409,
+                detail=f"duplicate serverUuid detected; resolve duplicates before proxying{suffix}",
+            )
 
     base = (record.baseUrl or "").strip()
     if not base:
@@ -1052,6 +1057,33 @@ async def ProxyServerInfo(clusterUuid: UUID) -> Any:
     svc = _get_services()
     base = _require_cluster_base_url(svc, clusterUuid)
     return await _proxy_json("GET", base, "/api/server/info")
+
+
+@app.post("/api/orchestrator/clusters/{clusterUuid}/server/reset_uuid")
+async def ProxyServerResetUuid(clusterUuid: UUID) -> Dict[str, Any]:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid, allowDuplicates=True)
+    payload = await _proxy_json("POST", base, "/api/server/reset_uuid")
+    if not isinstance(payload, dict) or "serverUuid" not in payload:
+        raise HTTPException(status_code=502, detail="cluster /api/server/reset_uuid returned invalid payload")
+
+    try:
+        new_uuid = UUID(str(payload.get("serverUuid") or "").strip())
+    except Exception:
+        raise HTTPException(status_code=502, detail="cluster /api/server/reset_uuid returned invalid serverUuid")
+
+    try:
+        record = svc.UpdateClusterServerUuid(clusterUuid, new_uuid)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="cluster not found")
+
+    dup_counts = _duplicate_server_uuid_counts(svc.ListClusters(includeDecommissioned=True))
+    _try_save_state(svc)
+    return {
+        "ok": True,
+        "cluster": _to_dto(record, dup_counts.get(record.serverUuid, 0)).model_dump(),
+        "reset": payload,
+    }
 
 
 # --- Actions (list) ---

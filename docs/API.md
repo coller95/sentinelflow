@@ -194,6 +194,35 @@ Response:
 }
 ```
 
+### Server identity (proxy)
+
+These endpoints proxy cluster identity calls.
+
+#### `GET /api/orchestrator/clusters/{clusterUuid}/server/info`
+
+Response:
+
+```json
+{ "serverUuid": "6b7c5a7f-..." }
+```
+
+#### `POST /api/orchestrator/clusters/{clusterUuid}/server/reset_uuid`
+
+Requests the cluster to generate a new server UUID and updates the orchestrator record.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "cluster": { "uuid": "...", "serverUuid": "...", "label": "...", "baseUrl": "http://..." },
+  "reset": { "ok": true, "serverUuid": "..." }
+}
+```
+
+Notes:
+- This proxies the cluster endpoint `POST /api/server/reset_uuid`.
+
 ### App control (launch / attach)
 
 The orchestrator can proxy “app” control calls to a specific cluster (launching or attaching the target program window on that cluster machine).
