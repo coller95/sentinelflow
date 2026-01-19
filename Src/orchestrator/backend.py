@@ -20,48 +20,38 @@ from pydantic import BaseModel, model_validator
 from enum import Enum
 
 from .services import OrchestratorServices
+from .models import (
+    ActionItemDto, ActionMoveRequest, ActionRunRequest, ActionUpsertRequest, ActionUuidRequest,
+    ApplyConfigRequest, AutomationStateImportRequest, ClusterItemDto, CommissionClusterFromUrlRequest,
+    CommissionClusterRequest, ConditionItemDto, ConditionMoveRequest, ConditionRoiDto,
+    ConditionSetFromLiveRequest, ConditionTypeDto, ConditionUpsertRequest, ConditionUuidRequest,
+    ConfigBundleCreateRequest, ConfigBundleFromClusterRequest, ConfigBundleUpdateRequest,
+    DisplayApplyRequest, DisplayAssignmentRequest, DisplayLayoutCreateRequest, DisplayLayoutUpdateRequest,
+    DisplayScreenDto, DisplayUnassignRequest, MacroStepDto, MacroTypeDto, OrchestratorImportRequest,
+    ProxyBodyRequest, TriggerCiteriaDto, TriggerComparatorDto, TriggerCriteriaModeDto, TriggerItemDto,
+    TriggerMoveRequest, TriggerSetEnabledRequest, TriggerUpsertRequest, TriggerUuidRequest, UpdateClusterRequest
+)
+from .utils import (
+    crop_frame_normalized, decode_image_b64, default_label_from_base_url, encode_jpeg_b64, encode_png_b64,
+    find_item_index, normalize_base_url, resource_root, state_root
+)
 
 
 app = FastAPI()
+
 
 
 # -----------------------------------------------------------------------------
 # Runtime paths + persistence
 # -----------------------------------------------------------------------------
 
-def _resource_root() -> Path:
-    """Return the runtime root directory.
-
-    - In development: project root (the folder containing `Src/` and `web/`).
-    - In PyInstaller onefile: the extraction directory (`sys._MEIPASS`).
-    """
-    mei_root = getattr(sys, "_MEIPASS", None)
-    if mei_root:
-        return Path(mei_root)
-    return Path(__file__).resolve().parents[2]
-
-
-_public_dir = _resource_root() / "web" / "orchestrator"
-_cluster_public_dir = _resource_root() / "web" / "cluster"
+_public_dir = resource_root() / "web" / "orchestrator"
+_cluster_public_dir = resource_root() / "web" / "cluster"
 app.mount("/static", StaticFiles(directory=str(_public_dir)), name="static")
 app.mount("/cluster-static", StaticFiles(directory=str(_cluster_public_dir)), name="cluster-static")
 
 
-def _state_root() -> Path:
-    """Where to store orchestrator persistent state.
-
-    - In dev: project root
-    - In packaged exe: folder next to the executable
-    """
-    if bool(getattr(sys, "frozen", False)):
-        try:
-            return Path(sys.executable).resolve().parent
-        except Exception:
-            return Path.cwd()
-    return Path(__file__).resolve().parents[2]
-
-
-_STATE_PATH = _state_root() / "orchestrator_state.json"
+_STATE_PATH = state_root() / "orchestrator_state.json"
 
 
 def _try_load_state(svc: OrchestratorServices) -> None:
@@ -262,64 +252,10 @@ def GetOrchestratorInfo() -> Dict[str, Any]:
 # Cluster management models
 # -----------------------------------------------------------------------------
 
-class CommissionClusterRequest(BaseModel):
-    clusterUuid: UUID
-    label: str
-    baseUrl: Optional[str] = None
 
 
-class CommissionClusterFromUrlRequest(BaseModel):
-    baseUrl: str
-    label: Optional[str] = None
 
 
-def _normalize_base_url(raw: str) -> str:
-    s = str(raw or "").strip()
-    if not s:
-        raise ValueError("baseUrl is required")
-
-    # Allow users to type just "IP:PORT" or "HOST:PORT".
-    if not (s.startswith("http://") or s.startswith("https://")):
-        s = "http://" + s
-
-    # Normalize to no trailing slash for storage.
-    return s.rstrip("/")
-
-
-def _default_label_from_base_url(base_url: str) -> str:
-    s = str(base_url or "").strip()
-    if not s:
-        return "Cluster"
-    # For something like http://127.0.0.1:8000 -> 127.0.0.1:8000
-    if s.startswith("http://"):
-        s = s[len("http://"):]
-    elif s.startswith("https://"):
-        s = s[len("https://"):]
-    return s.strip("/") or "Cluster"
-
-
-class ClusterItemDto(BaseModel):
-    uuid: str
-    serverUuid: str
-    label: str
-    baseUrl: Optional[str]
-    commissionedAtUnix: float
-    decommissionedAtUnix: Optional[float] = None
-    duplicateCount: int = 0
-    isDuplicate: bool = False
-
-
-def _to_dto(r: Any, duplicateCount: int = 0) -> ClusterItemDto:
-    return ClusterItemDto(
-        uuid=str(r.uuid),
-        serverUuid=str(r.uuid),
-        label=str(r.label),
-        baseUrl=(None if r.baseUrl is None else str(r.baseUrl)),
-        commissionedAtUnix=float(r.commissionedAtUnix),
-        decommissionedAtUnix=(None if r.decommissionedAtUnix is None else float(r.decommissionedAtUnix)),
-        duplicateCount=int(duplicateCount),
-        isDuplicate=int(duplicateCount) > 1,
-    )
 
 
 def _duplicate_server_uuid_counts(clusters: list[Any]) -> Dict[UUID, int]:
@@ -336,9 +272,6 @@ def _duplicate_server_uuid_counts(clusters: list[Any]) -> Dict[UUID, int]:
     return counts
 
 
-class UpdateClusterRequest(BaseModel):
-    label: Optional[str] = None
-    baseUrl: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------
@@ -362,8 +295,8 @@ def CommissionCluster(req: CommissionClusterRequest) -> Dict[str, Any]:
 async def CommissionClusterFromUrl(req: CommissionClusterFromUrlRequest) -> Dict[str, Any]:
     svc = _get_services()
     try:
-        base_url = _normalize_base_url(req.baseUrl)
-        label = str(req.label or "").strip() or _default_label_from_base_url(base_url)
+        base_url = normalize_base_url(req.baseUrl)
+        label = str(req.label or "").strip() or default_label_from_base_url(base_url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -463,7 +396,7 @@ def UpdateCluster(clusterUuid: UUID, req: UpdateClusterRequest) -> Dict[str, Any
     base_url: Optional[str] = None
     if req.baseUrl is not None:
         raw = str(req.baseUrl or "").strip()
-        base_url = _normalize_base_url(raw) if raw else None
+        base_url = normalize_base_url(raw) if raw else None
 
     try:
         record = svc.UpdateCluster(clusterUuid, label=label, baseUrl=base_url)
@@ -506,180 +439,14 @@ def RemoveCluster(clusterUuid: UUID) -> Dict[str, Any]:
 # Config bundles
 # -----------------------------------------------------------------------------
 
-class ConfigBundleCreateRequest(BaseModel):
-    name: str
-    description: Optional[str] = None
-    tags: List[str] = []
-    content: Optional[Dict[str, Any]] = None
-
-
-class ConfigBundleFromClusterRequest(BaseModel):
-    clusterUuid: UUID
-    name: str
-    description: Optional[str] = None
-    tags: List[str] = []
-
-
-class ConfigBundleUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    tags: Optional[List[str]] = None
-    content: Optional[Dict[str, Any]] = None
-
-
-class ApplyConfigRequest(BaseModel):
-    clusterUuid: Optional[UUID] = None
-    clusterUuids: List[UUID] = []
-    dryRun: bool = False
 
 
 # -----------------------------------------------------------------------------
 # Automation (global: orchestrator-managed actions/conditions/triggers)
 # -----------------------------------------------------------------------------
 
-class MacroTypeDto(str, Enum):
-    Click = "Click"
-    KeyStroke = "KeyStroke"
-    Delay = "Delay"
 
 
-class MacroStepDto(BaseModel):
-    action: MacroTypeDto
-    parameters: Dict[str, Any] = {}
-
-
-class ActionItemDto(BaseModel):
-    uuid: str
-    name: str
-    steps: List[MacroStepDto]
-
-
-class ActionUpsertRequest(BaseModel):
-    uuid: Optional[UUID] = None
-    name: str
-    steps: List[MacroStepDto] = []
-
-
-class ActionUuidRequest(BaseModel):
-    uuid: UUID
-
-
-class ActionRunRequest(BaseModel):
-    uuid: UUID
-    clusterUuid: Optional[UUID] = None
-
-
-class ActionMoveRequest(BaseModel):
-    uuid: UUID
-    direction: str  # 'up' | 'down'
-
-
-class TriggerComparatorDto(str, Enum):
-    Equals = "Equals"
-    NotEquals = "NotEquals"
-    GreaterThan = "GreaterThan"
-    LessThan = "LessThan"
-    GreaterThanOrEqual = "GreaterThanOrEqual"
-    LessThanOrEqual = "LessThanOrEqual"
-
-
-class TriggerCriteriaModeDto(str, Enum):
-    All = "All"
-    Any = "Any"
-
-
-class TriggerCiteriaDto(BaseModel):
-    conditionUuid: UUID
-    expectedValue: Any
-    comparator: TriggerComparatorDto
-
-
-class TriggerItemDto(BaseModel):
-    uuid: str
-    name: str
-    enabled: bool = False
-    retriggerMs: int = 0
-    disableOnFire: bool = False
-    triggerCiterias: List[TriggerCiteriaDto] = []
-    criteriaMode: TriggerCriteriaModeDto = TriggerCriteriaModeDto.All
-    action: str
-
-
-class TriggerUpsertRequest(BaseModel):
-    uuid: Optional[UUID] = None
-    name: str
-    enabled: bool = False
-    retriggerMs: int = 0
-    disableOnFire: bool = False
-    triggerCiterias: List[TriggerCiteriaDto] = []
-    criteriaMode: Optional[TriggerCriteriaModeDto] = None
-    action: UUID
-
-
-class TriggerUuidRequest(BaseModel):
-    uuid: UUID
-
-
-class TriggerMoveRequest(BaseModel):
-    uuid: UUID
-    direction: str  # 'up' | 'down'
-
-
-class TriggerSetEnabledRequest(BaseModel):
-    uuid: UUID
-    enabled: bool
-
-
-class AutomationStateImportRequest(BaseModel):
-    state: Dict[str, Any]
-    keepServerUuid: bool = True
-
-
-class ConditionTypeDto(str, Enum):
-    ImageMatchRoi = "ImageMatchRoi"
-    ProgressBar = "ProgressBar"
-
-
-class ConditionRoiDto(BaseModel):
-    xNormalized: float
-    yNormalized: float
-    widthNormalized: float
-    heightNormalized: float
-
-
-class ConditionItemDto(BaseModel):
-    uuid: str
-    name: str
-    type: ConditionTypeDto
-    roi: ConditionRoiDto
-
-
-class ConditionUuidRequest(BaseModel):
-    uuid: UUID
-
-
-class ConditionMoveRequest(BaseModel):
-    uuid: UUID
-    direction: str  # 'up' | 'down'
-
-
-class ConditionSetFromLiveRequest(BaseModel):
-    uuid: UUID
-    roi: ConditionRoiDto
-    name: Optional[str] = None
-    type: Optional[ConditionTypeDto] = None
-    templateImageBase64: Optional[str] = None
-    templateFromLive: bool = True
-    clusterUuid: Optional[UUID] = None
-
-
-class ConditionUpsertRequest(BaseModel):
-    name: str
-    type: ConditionTypeDto
-    roi: ConditionRoiDto
-    templateImageBase64: Optional[str] = None
-    templateFromLive: bool = False
-    clusterUuid: Optional[UUID] = None
 
 
 def _config_counts(content: Dict[str, Any]) -> Dict[str, int]:
@@ -1017,67 +784,8 @@ def _update_automation_content(svc: OrchestratorServices, content: Dict[str, Any
     return record
 
 
-def _find_item_index(items: List[Dict[str, Any]], uuid_str: str) -> int:
-    for i, item in enumerate(items):
-        if str(item.get("uuid", "")).strip() == uuid_str:
-            return i
-    return -1
 
 
-def _decode_image_b64(b64: Optional[str]) -> Optional[np.ndarray]:
-    raw = (b64 or "").strip()
-    if not raw:
-        return None
-    if "," in raw:
-        raw = raw.split(",", 1)[1]
-    try:
-        binary = base64.b64decode(raw, validate=True)
-    except Exception:
-        return None
-    arr = np.frombuffer(binary, dtype=np.uint8)
-    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
-
-
-def _encode_jpeg_b64(img: Optional[np.ndarray]) -> Optional[str]:
-    if img is None or getattr(img, "size", 0) == 0:
-        return None
-    ok, encoded = cv2.imencode(".jpg", img)
-    if not ok:
-        return None
-    return base64.b64encode(encoded.tobytes()).decode("ascii")
-
-
-def _encode_png_b64(img: Optional[np.ndarray]) -> Optional[str]:
-    if img is None or getattr(img, "size", 0) == 0:
-        return None
-    ok, encoded = cv2.imencode(".png", img)
-    if not ok:
-        return None
-    return base64.b64encode(encoded.tobytes()).decode("ascii")
-
-
-def _crop_frame_normalized(frame: np.ndarray, roi: Dict[str, Any]) -> Optional[np.ndarray]:
-    if frame is None or getattr(frame, "size", 0) == 0:
-        return None
-    h, w = frame.shape[:2]
-    if w <= 0 or h <= 0:
-        return None
-
-    x = float(max(0.0, min(1.0, roi.get("xNormalized", 0.0) or 0.0)))
-    y = float(max(0.0, min(1.0, roi.get("yNormalized", 0.0) or 0.0)))
-    rw = float(max(0.0, min(1.0, roi.get("widthNormalized", 0.0) or 0.0)))
-    rh = float(max(0.0, min(1.0, roi.get("heightNormalized", 0.0) or 0.0)))
-
-    px = int(x * w)
-    py = int(y * h)
-    pw = int(rw * w)
-    ph = int(rh * h)
-
-    px = max(0, min(px, w - 1))
-    py = max(0, min(py, h - 1))
-    pw = max(1, min(pw, w - px))
-    ph = max(1, min(ph, h - py))
-    return frame[py:py + ph, px:px + pw].copy()
 
 
 async def _fetch_cluster_latest_frame(svc: OrchestratorServices, clusterUuid: UUID) -> Optional[np.ndarray]:
@@ -1283,7 +991,7 @@ async def UpsertAutomationAction(req: ActionUpsertRequest) -> Dict[str, Any]:
         steps.append({"action": s.action.value, "parameters": dict(s.parameters or {})})
 
     new_item = {"uuid": action_uuid, "name": name, "steps": steps}
-    idx = _find_item_index(actions, action_uuid)
+    idx = find_item_index(actions, action_uuid)
     if idx >= 0:
         actions[idx] = new_item
     else:
@@ -1302,7 +1010,7 @@ async def RemoveAutomationAction(req: ActionUuidRequest) -> Dict[str, Any]:
     actions_any = content.get("actions", [])
     actions: List[Dict[str, Any]] = list(actions_any) if isinstance(actions_any, list) else []
     uuid_str = str(req.uuid)
-    idx = _find_item_index(actions, uuid_str)
+    idx = find_item_index(actions, uuid_str)
     if idx < 0:
         raise HTTPException(status_code=404, detail="Action uuid not found")
     actions.pop(idx)
@@ -1319,7 +1027,7 @@ async def MoveAutomationAction(req: ActionMoveRequest) -> Dict[str, Any]:
     actions_any = content.get("actions", [])
     actions: List[Dict[str, Any]] = list(actions_any) if isinstance(actions_any, list) else []
     uuid_str = str(req.uuid)
-    idx = _find_item_index(actions, uuid_str)
+    idx = find_item_index(actions, uuid_str)
     if idx < 0:
         raise HTTPException(status_code=404, detail="Action uuid not found")
     dir_norm = (req.direction or "").strip().lower()
@@ -1348,7 +1056,7 @@ async def RunAutomationAction(req: ActionRunRequest) -> Dict[str, Any]:
     actions_any = content.get("actions", [])
     actions: List[Dict[str, Any]] = list(actions_any) if isinstance(actions_any, list) else []
     uuid_str = str(req.uuid)
-    if _find_item_index(actions, uuid_str) < 0:
+    if find_item_index(actions, uuid_str) < 0:
         raise HTTPException(status_code=404, detail="Action uuid not found")
 
     sync_result = await _push_automation_to_cluster(svc, content, cluster_uuid)
@@ -1411,8 +1119,8 @@ async def AddAutomationCondition(req: ConditionUpsertRequest) -> Dict[str, Any]:
             "widthNormalized": float(req.roi.widthNormalized),
             "heightNormalized": float(req.roi.heightNormalized),
         }
-        crop = _crop_frame_normalized(frame, roi)
-        template_b64 = _encode_png_b64(crop)
+        crop = crop_frame_normalized(frame, roi)
+        template_b64 = encode_png_b64(crop)
     new_item = {
         "uuid": uuid_str,
         "name": name,
@@ -1439,7 +1147,7 @@ async def RemoveAutomationCondition(req: ConditionUuidRequest) -> Dict[str, Any]
     conditions_any = content.get("conditions", [])
     conditions: List[Dict[str, Any]] = list(conditions_any) if isinstance(conditions_any, list) else []
     uuid_str = str(req.uuid)
-    idx = _find_item_index(conditions, uuid_str)
+    idx = find_item_index(conditions, uuid_str)
     if idx < 0:
         raise HTTPException(status_code=404, detail="Condition uuid not found")
     conditions.pop(idx)
@@ -1456,7 +1164,7 @@ async def MoveAutomationCondition(req: ConditionMoveRequest) -> Dict[str, Any]:
     conditions_any = content.get("conditions", [])
     conditions: List[Dict[str, Any]] = list(conditions_any) if isinstance(conditions_any, list) else []
     uuid_str = str(req.uuid)
-    idx = _find_item_index(conditions, uuid_str)
+    idx = find_item_index(conditions, uuid_str)
     if idx < 0:
         raise HTTPException(status_code=404, detail="Condition uuid not found")
     dir_norm = (req.direction or "").strip().lower()
@@ -1481,7 +1189,7 @@ async def SetAutomationCondition(req: ConditionSetFromLiveRequest) -> Dict[str, 
     conditions_any = content.get("conditions", [])
     conditions: List[Dict[str, Any]] = list(conditions_any) if isinstance(conditions_any, list) else []
     uuid_str = str(req.uuid)
-    idx = _find_item_index(conditions, uuid_str)
+    idx = find_item_index(conditions, uuid_str)
     if idx < 0:
         raise HTTPException(status_code=404, detail="Condition uuid not found")
 
@@ -1505,8 +1213,8 @@ async def SetAutomationCondition(req: ConditionSetFromLiveRequest) -> Dict[str, 
         if frame is None:
             raise HTTPException(status_code=404, detail="No captured frame available for templateFromLive. Start capture first.")
         roi = item.get("roi", {})
-        crop = _crop_frame_normalized(frame, roi if isinstance(roi, dict) else {})
-        template_b64 = _encode_png_b64(crop)
+        crop = crop_frame_normalized(frame, roi if isinstance(roi, dict) else {})
+        template_b64 = encode_png_b64(crop)
         if template_b64:
             item["templateImageBase64"] = template_b64
     conditions[idx] = item
@@ -1540,15 +1248,15 @@ async def _automation_conditions_status_payload(
             template_thumb = None
             template_raw = item.get("templateImageBase64", None)
             if template_raw:
-                template_img = _decode_image_b64(str(template_raw))
-                template_thumb = _encode_jpeg_b64(template_img)
+                template_img = decode_image_b64(str(template_raw))
+                template_thumb = encode_jpeg_b64(template_img)
 
             crop_thumb = None
             if frame is not None:
                 roi_any = item.get("roi", {})
                 roi = roi_any if isinstance(roi_any, dict) else {}
-                crop = _crop_frame_normalized(frame, roi)
-                crop_thumb = _encode_jpeg_b64(crop)
+                crop = crop_frame_normalized(frame, roi)
+                crop_thumb = encode_jpeg_b64(crop)
 
             order.append(uuid_str)
             by_uuid[uuid_str] = {
@@ -1689,7 +1397,7 @@ async def UpsertAutomationTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
 
     triggers_any = content.get("triggers", [])
     triggers: List[Dict[str, Any]] = list(triggers_any) if isinstance(triggers_any, list) else []
-    idx = _find_item_index(triggers, uuid_str)
+    idx = find_item_index(triggers, uuid_str)
     if idx >= 0:
         triggers[idx] = new_item
     else:
@@ -1707,7 +1415,7 @@ async def RemoveAutomationTrigger(req: TriggerUuidRequest) -> Dict[str, Any]:
     triggers_any = content.get("triggers", [])
     triggers: List[Dict[str, Any]] = list(triggers_any) if isinstance(triggers_any, list) else []
     uuid_str = str(req.uuid)
-    idx = _find_item_index(triggers, uuid_str)
+    idx = find_item_index(triggers, uuid_str)
     if idx < 0:
         raise HTTPException(status_code=404, detail="Trigger uuid not found")
     triggers.pop(idx)
@@ -1724,7 +1432,7 @@ async def MoveAutomationTrigger(req: TriggerMoveRequest) -> Dict[str, Any]:
     triggers_any = content.get("triggers", [])
     triggers: List[Dict[str, Any]] = list(triggers_any) if isinstance(triggers_any, list) else []
     uuid_str = str(req.uuid)
-    idx = _find_item_index(triggers, uuid_str)
+    idx = find_item_index(triggers, uuid_str)
     if idx < 0:
         raise HTTPException(status_code=404, detail="Trigger uuid not found")
     dir_norm = (req.direction or "").strip().lower()
@@ -1749,7 +1457,7 @@ async def SetAutomationTriggerEnabled(req: TriggerSetEnabledRequest) -> Dict[str
     triggers_any = content.get("triggers", [])
     triggers: List[Dict[str, Any]] = list(triggers_any) if isinstance(triggers_any, list) else []
     uuid_str = str(req.uuid)
-    idx = _find_item_index(triggers, uuid_str)
+    idx = find_item_index(triggers, uuid_str)
     if idx < 0:
         raise HTTPException(status_code=404, detail="Trigger uuid not found")
     item = dict(triggers[idx])
@@ -1806,42 +1514,6 @@ def GetAutomationTriggerStatus() -> Dict[str, Any]:
 # Screens (layouts + assignments)
 # -----------------------------------------------------------------------------
 
-class DisplayScreenDto(BaseModel):
-    label: str
-    left: int
-    top: int
-    width: int
-    height: int
-
-
-class DisplayLayoutCreateRequest(BaseModel):
-    name: str
-    description: Optional[str] = None
-    screens: List[DisplayScreenDto] = []
-
-
-class DisplayLayoutUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    screens: Optional[List[DisplayScreenDto]] = None
-
-
-class DisplayAssignmentRequest(BaseModel):
-    clusterUuid: UUID
-    layoutUuid: UUID
-    screenLabel: str
-
-
-class DisplayUnassignRequest(BaseModel):
-    clusterUuid: UUID
-
-
-class DisplayApplyRequest(BaseModel):
-    clusterUuid: Optional[UUID] = None
-    clusterUuids: List[UUID] = []
-    applyAll: bool = False
-    dryRun: bool = False
-    windowTitle: Optional[str] = None
 
 
 def _screen_dict(screen: Any) -> Dict[str, Any]:
@@ -2099,8 +1771,6 @@ async def ApplyDisplayLayouts(req: DisplayApplyRequest) -> Dict[str, Any]:
 # Orchestrator state
 # -----------------------------------------------------------------------------
 
-class OrchestratorImportRequest(BaseModel):
-    state: Dict[str, Any]
 
 
 @app.get("/api/orchestrator/state/export")
@@ -2203,21 +1873,6 @@ async def ProxyActionsList(clusterUuid: UUID) -> Any:
 
 # --- Proxy body wrapper ---
 
-class ProxyBodyRequest(BaseModel):
-    body: Dict[str, Any] = {}
-
-    @model_validator(mode="before")
-    @classmethod
-    def _normalize_body(cls, values: Any) -> Dict[str, Any]:
-        if values is None:
-            return {"body": {}}
-        if isinstance(values, dict):
-            payload = cast(Dict[str, Any], values)
-            body = payload.get("body")
-            if isinstance(body, dict):
-                return payload
-            return {"body": payload}
-        return {"body": {}}
 
 
 # --- App window + capture ---
