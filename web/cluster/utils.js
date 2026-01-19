@@ -2,15 +2,83 @@ let _appBusy = false;
 
 function _applyAppControlState() {
     const attached = !!globalThis._appAttached;
-    btnLaunch.disabled = _appBusy || attached;
-    btnAttach.disabled = _appBusy || attached;
-    btnDetach.disabled = _appBusy || !attached;
-    btnClose.disabled = _appBusy || !attached;
+    const ready = appApiReady();
+    if (btnLaunch) btnLaunch.disabled = _appBusy || attached || !ready;
+    if (btnAttach) btnAttach.disabled = _appBusy || attached || !ready;
+    if (btnDetach) btnDetach.disabled = _appBusy || !attached || !ready;
+    if (btnClose) btnClose.disabled = _appBusy || !attached || !ready;
 }
 
 function setBusy(isBusy) {
     _appBusy = !!isBusy;
     _applyAppControlState();
+}
+
+function _apiBase() {
+    const raw = String(globalThis.API_BASE || '').trim();
+    if (!raw) return '';
+    return raw.endsWith('/') ? raw.slice(0, -1) : raw;
+}
+
+function _appApiBase() {
+    const raw = String(globalThis.APP_API_BASE || '').trim();
+    if (!raw) return '';
+    return raw.endsWith('/') ? raw.slice(0, -1) : raw;
+}
+
+function _stateApiBase() {
+    const raw = String(globalThis.STATE_API_BASE || '').trim();
+    if (!raw) return '';
+    return raw.endsWith('/') ? raw.slice(0, -1) : raw;
+}
+
+function _normalizedPath(path) {
+    const clean = String(path || '');
+    const queryIdx = clean.indexOf('?');
+    const base = queryIdx >= 0 ? clean.slice(0, queryIdx) : clean;
+    if (!base) return '';
+    return base.startsWith('/') ? base : `/${base}`;
+}
+
+function _isAppApiPath(path) {
+    const normalized = _normalizedPath(path);
+    if (!normalized) return false;
+    if (normalized.startsWith('/api/app')) return true;
+    if (normalized.startsWith('/api/capture')) return true;
+    if (normalized.startsWith('/api/control')) return true;
+    if (normalized.startsWith('/api/state')) return true;
+    if (normalized.startsWith('/api/triggers/status')) return true;
+    if (normalized.startsWith('/api/actions/run')) return true;
+    return false;
+}
+
+function _isStateApiPath(path) {
+    const normalized = _normalizedPath(path);
+    if (!normalized) return false;
+    return normalized.startsWith('/api/state');
+}
+
+function appApiReady() {
+    const apiBase = String(globalThis.API_BASE || '').trim();
+    const appBase = String(globalThis.APP_API_BASE || '').trim();
+    if (apiBase && !appBase) return false;
+    return true;
+}
+
+function apiPath(path) {
+    const useState = _isStateApiPath(path);
+    const stateBase = useState ? _stateApiBase() : '';
+    const useApp = !stateBase && _isAppApiPath(path);
+    const base = stateBase || (useApp ? _appApiBase() : _apiBase());
+    const clean = String(path || '');
+    if (!base) return clean;
+    if (!clean) return base;
+    let rel = clean;
+    if (rel.startsWith('/api/')) {
+        rel = rel.slice(4);
+    }
+    if (rel.startsWith('/')) return base + rel;
+    return `${base}/${rel}`;
 }
 
 function setStatus(message, kind) {
@@ -50,7 +118,7 @@ function parseActionStepsFromEditor() {
 }
 
 async function postJson(path, body) {
-    const res = await fetch(path, {
+    const res = await fetch(apiPath(path), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: body ? JSON.stringify(body) : '{}'
@@ -70,7 +138,7 @@ async function postJson(path, body) {
 }
 
 async function getJson(path) {
-    const res = await fetch(path, { method: 'GET' });
+    const res = await fetch(apiPath(path), { method: 'GET' });
     const text = await res.text();
     let data = null;
     try {

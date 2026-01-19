@@ -188,6 +188,10 @@ def _get_services() -> ControllerServices:
     return services
 
 
+def _deny_automation_edit() -> None:
+    raise HTTPException(status_code=403, detail="Automation editing is managed by the orchestrator.")
+
+
 @app.get("/api/server/info")
 def GetServerInfo() -> Dict[str, Any]:
     svc = _get_services()
@@ -481,6 +485,7 @@ class ConditionSetFromLiveRequest(BaseModel):
     type: Optional[ConditionTypeDto] = None
     templateImageBase64: Optional[str] = None
     templateFromLive: bool = True
+    clusterUuid: Optional[UUID] = None
 
 
 class ConditionUpsertRequest(BaseModel):
@@ -489,6 +494,7 @@ class ConditionUpsertRequest(BaseModel):
     roi: ConditionRoiDto
     templateImageBase64: Optional[str] = None
     templateFromLive: bool = False
+    clusterUuid: Optional[UUID] = None
 
 
 def _crop_frame_normalized(frame: NDArray[np.uint8], roi: ConditionRoiDto) -> NDArray[np.uint8]:
@@ -767,6 +773,7 @@ def GetTriggers() -> List[TriggerItemDto]:
 
 @app.post("/api/triggers/upsert")
 def UpsertTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
+    _deny_automation_edit()
     svc = _get_services()
     from .services import TriggerComparator, TriggerCiteria, TriggerCriteriaMode
 
@@ -817,6 +824,7 @@ def UpsertTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
 
 @app.post("/api/triggers/remove_uuid")
 def RemoveTriggerByUuid(req: TriggerUuidRequest) -> Dict[str, Any]:
+    _deny_automation_edit()
     svc = _get_services()
     try:
         svc.RemoveTriggerItemByUuid(req.uuid)
@@ -828,6 +836,7 @@ def RemoveTriggerByUuid(req: TriggerUuidRequest) -> Dict[str, Any]:
 
 @app.post("/api/triggers/move")
 def MoveTrigger(req: TriggerMoveRequest) -> Dict[str, Any]:
+    _deny_automation_edit()
     svc = _get_services()
     try:
         svc.MoveTriggerItemByUuid(req.uuid, str(req.direction))
@@ -841,6 +850,7 @@ def MoveTrigger(req: TriggerMoveRequest) -> Dict[str, Any]:
 
 @app.post("/api/triggers/set_enabled")
 def SetTriggerEnabled(req: TriggerSetEnabledRequest) -> Dict[str, Any]:
+    _deny_automation_edit()
     svc = _get_services()
     try:
         item = svc.SetTriggerEnabled(req.uuid, bool(req.enabled))
@@ -914,6 +924,7 @@ def GetTriggerDebug() -> Dict[str, Any]:
 
 @app.post("/api/actions/upsert")
 def UpsertAction(req: ActionUpsertRequest) -> Dict[str, Any]:
+    _deny_automation_edit()
     svc = _get_services()
     from .services import MacroType, MacroStep
 
@@ -939,6 +950,7 @@ def UpsertAction(req: ActionUpsertRequest) -> Dict[str, Any]:
 
 @app.post("/api/actions/remove_uuid")
 def RemoveActionByUuid(req: ActionUuidRequest) -> Dict[str, Any]:
+    _deny_automation_edit()
     svc = _get_services()
     try:
         svc.RemoveActionItemByUuid(req.uuid)
@@ -950,6 +962,7 @@ def RemoveActionByUuid(req: ActionUuidRequest) -> Dict[str, Any]:
 
 @app.post("/api/actions/move")
 def MoveAction(req: ActionMoveRequest) -> Dict[str, Any]:
+    _deny_automation_edit()
     svc = _get_services()
     try:
         svc.MoveActionItemByUuid(req.uuid, str(req.direction))
@@ -1004,6 +1017,7 @@ def GetConditions() -> List[ConditionItemDto]:
 
 @app.post("/api/conditions")
 def AddCondition(req: ConditionUpsertRequest) -> Dict[str, Any]:
+    _deny_automation_edit()
     svc = _get_services()
 
     name = (req.name or "").strip()
@@ -1056,6 +1070,7 @@ def AddCondition(req: ConditionUpsertRequest) -> Dict[str, Any]:
 
 @app.post("/api/conditions/clear")
 def ClearConditions():
+    _deny_automation_edit()
     svc = _get_services()
     svc.ClearConditionItems()
     _try_save_state(svc)
@@ -1064,6 +1079,7 @@ def ClearConditions():
 
 @app.post("/api/conditions/remove_uuid")
 def RemoveConditionByUuid(req: ConditionUuidRequest):
+    _deny_automation_edit()
     svc = _get_services()
     try:
         svc.RemoveConditionItemByUuid(req.uuid)
@@ -1075,6 +1091,7 @@ def RemoveConditionByUuid(req: ConditionUuidRequest):
 
 @app.post("/api/conditions/move")
 def MoveCondition(req: ConditionMoveRequest):
+    _deny_automation_edit()
     svc = _get_services()
     try:
         svc.MoveConditionItemByUuid(req.uuid, str(req.direction))
@@ -1088,6 +1105,7 @@ def MoveCondition(req: ConditionMoveRequest):
 
 @app.post("/api/conditions/set_from_live")
 def SetConditionFromLive(req: ConditionSetFromLiveRequest):
+    _deny_automation_edit()
     svc = _get_services()
     from .services import ConditionItem, ConditionRoi, ConditionType
 

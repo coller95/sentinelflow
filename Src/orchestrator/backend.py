@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 from urllib.parse import urljoin
-from uuid import UUID
+from uuid import UUID, uuid4
 
+import cv2
+import numpy as np
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, root_validator
+from enum import Enum
 
 from .services import OrchestratorServices
 
@@ -37,7 +42,9 @@ def _resource_root() -> Path:
 
 
 _public_dir = _resource_root() / "web" / "orchestrator"
+_cluster_public_dir = _resource_root() / "web" / "cluster"
 app.mount("/static", StaticFiles(directory=str(_public_dir)), name="static")
+app.mount("/cluster-static", StaticFiles(directory=str(_cluster_public_dir)), name="cluster-static")
 
 
 def _state_root() -> Path:
@@ -72,18 +79,26 @@ def _try_save_state(svc: OrchestratorServices) -> None:
     except Exception as exc:
         print(f"[orchestrator_state] Save failed: {exc}")
 
+def _ensure_automation_config(svc: OrchestratorServices) -> None:
+    before = svc.GetAutomationConfigUuid()
+    config = svc.EnsureAutomationConfig()
+    if before != config.uuid:
+        _try_save_state(svc)
+
 
 def _get_services() -> OrchestratorServices:
     svc = getattr(app.state, "services", None)
     if svc is not None:
         if not bool(getattr(app.state, "stateLoaded", False)):
             _try_load_state(svc)
+            _ensure_automation_config(svc)
             app.state.stateLoaded = True
         return svc
 
     # Fallback: create lazily.
     svc = OrchestratorServices()
     _try_load_state(svc)
+    _ensure_automation_config(svc)
     app.state.services = svc
     app.state.stateLoaded = True
     return svc
@@ -96,6 +111,12 @@ def _get_services() -> OrchestratorServices:
 @app.get("/")
 def GetOrchestratorUi() -> FileResponse:
     ui_path = _public_dir / "orchestrator.html"
+    return FileResponse(str(ui_path), media_type="text/html")
+
+
+@app.get("/automation")
+def GetAutomationUi() -> FileResponse:
+    ui_path = _public_dir / "automation.html"
     return FileResponse(str(ui_path), media_type="text/html")
 
 
@@ -512,6 +533,150 @@ class ApplyConfigRequest(BaseModel):
     dryRun: bool = False
 
 
+# -----------------------------------------------------------------------------
+# Automation (global: orchestrator-managed actions/conditions/triggers)
+# -----------------------------------------------------------------------------
+
+class MacroTypeDto(str, Enum):
+    Click = "Click"
+    KeyStroke = "KeyStroke"
+    Delay = "Delay"
+
+
+class MacroStepDto(BaseModel):
+    action: MacroTypeDto
+    parameters: Dict[str, Any] = {}
+
+
+class ActionItemDto(BaseModel):
+    uuid: str
+    name: str
+    steps: List[MacroStepDto]
+
+
+class ActionUpsertRequest(BaseModel):
+    uuid: Optional[UUID] = None
+    name: str
+    steps: List[MacroStepDto] = []
+
+
+class ActionUuidRequest(BaseModel):
+    uuid: UUID
+
+
+class ActionMoveRequest(BaseModel):
+    uuid: UUID
+    direction: str  # 'up' | 'down'
+
+
+class TriggerComparatorDto(str, Enum):
+    Equals = "Equals"
+    NotEquals = "NotEquals"
+    GreaterThan = "GreaterThan"
+    LessThan = "LessThan"
+    GreaterThanOrEqual = "GreaterThanOrEqual"
+    LessThanOrEqual = "LessThanOrEqual"
+
+
+class TriggerCriteriaModeDto(str, Enum):
+    All = "All"
+    Any = "Any"
+
+
+class TriggerCiteriaDto(BaseModel):
+    conditionUuid: UUID
+    expectedValue: Any
+    comparator: TriggerComparatorDto
+
+
+class TriggerItemDto(BaseModel):
+    uuid: str
+    name: str
+    enabled: bool = False
+    retriggerMs: int = 0
+    disableOnFire: bool = False
+    triggerCiterias: List[TriggerCiteriaDto] = []
+    criteriaMode: TriggerCriteriaModeDto = TriggerCriteriaModeDto.All
+    action: str
+
+
+class TriggerUpsertRequest(BaseModel):
+    uuid: Optional[UUID] = None
+    name: str
+    enabled: bool = False
+    retriggerMs: int = 0
+    disableOnFire: bool = False
+    triggerCiterias: List[TriggerCiteriaDto] = []
+    criteriaMode: Optional[TriggerCriteriaModeDto] = None
+    action: UUID
+
+
+class TriggerUuidRequest(BaseModel):
+    uuid: UUID
+
+
+class TriggerMoveRequest(BaseModel):
+    uuid: UUID
+    direction: str  # 'up' | 'down'
+
+
+class TriggerSetEnabledRequest(BaseModel):
+    uuid: UUID
+    enabled: bool
+
+
+class AutomationStateImportRequest(BaseModel):
+    state: Dict[str, Any]
+    keepServerUuid: bool = True
+
+
+class ConditionTypeDto(str, Enum):
+    ImageMatchRoi = "ImageMatchRoi"
+    ProgressBar = "ProgressBar"
+
+
+class ConditionRoiDto(BaseModel):
+    xNormalized: float
+    yNormalized: float
+    widthNormalized: float
+    heightNormalized: float
+
+
+class ConditionItemDto(BaseModel):
+    uuid: str
+    name: str
+    type: ConditionTypeDto
+    roi: ConditionRoiDto
+
+
+class ConditionUuidRequest(BaseModel):
+    uuid: UUID
+
+
+class ConditionMoveRequest(BaseModel):
+    uuid: UUID
+    direction: str  # 'up' | 'down'
+
+
+class ConditionSetFromLiveRequest(BaseModel):
+    uuid: UUID
+    roi: ConditionRoiDto
+    name: Optional[str] = None
+    type: Optional[ConditionTypeDto] = None
+    templateImageBase64: Optional[str] = None
+    templateFromLive: bool = True
+    clusterUuid: Optional[UUID] = None
+
+
+class ConditionUpsertRequest(BaseModel):
+    name: str
+    type: ConditionTypeDto
+    roi: ConditionRoiDto
+    templateImageBase64: Optional[str] = None
+    templateFromLive: bool = False
+    clusterUuid: Optional[UUID] = None
+
+
 def _config_counts(content: Dict[str, Any]) -> Dict[str, int]:
     def _count(key: str) -> int:
         items = content.get(key, [])
@@ -745,6 +910,833 @@ async def ApplyConfigBundle(configUuid: UUID, req: ApplyConfigRequest) -> Dict[s
         _try_save_state(svc)
     return {"ok": True, "results": results}
 
+
+# -----------------------------------------------------------------------------
+# Automation (global)
+# -----------------------------------------------------------------------------
+
+def _normalize_automation_content(content: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(content, dict):
+        content = {}
+
+    seeded = bool(content.get("seeded", False))
+    app = content.get("app", {})
+    if not isinstance(app, dict):
+        app = {}
+
+    def _list(key: str) -> List[Any]:
+        raw = content.get(key, [])
+        if isinstance(raw, list):
+            return list(raw)
+        return []
+
+    return {
+        "version": 1,
+        "seeded": seeded,
+        "app": dict(app),
+        "actions": _list("actions"),
+        "conditions": _list("conditions"),
+        "triggers": _list("triggers"),
+    }
+
+
+def _seed_automation_content(content: Dict[str, Any]) -> Dict[str, Any]:
+    if content.get("seeded"):
+        return content
+    if content.get("actions") or content.get("conditions") or content.get("triggers"):
+        return content
+
+    action_uuid = str(uuid4())
+    condition_uuid = str(uuid4())
+    trigger_uuid = str(uuid4())
+
+    seeded = dict(content)
+    seeded["seeded"] = True
+    seeded["actions"] = [
+        {
+            "uuid": action_uuid,
+            "name": "Sample Action",
+            "steps": [
+                {"action": "Delay", "parameters": {"ms": 250}},
+            ],
+        }
+    ]
+    seeded["conditions"] = [
+        {
+            "uuid": condition_uuid,
+            "name": "Sample Condition",
+            "type": "ImageMatchRoi",
+            "roi": {
+                "xNormalized": 0.1,
+                "yNormalized": 0.1,
+                "widthNormalized": 0.1,
+                "heightNormalized": 0.1,
+            },
+        }
+    ]
+    seeded["triggers"] = [
+        {
+            "uuid": trigger_uuid,
+            "name": "Sample Trigger",
+            "enabled": False,
+            "retriggerMs": 0,
+            "disableOnFire": False,
+            "criteriaMode": "All",
+            "action": action_uuid,
+            "triggerCiterias": [
+                {
+                    "conditionUuid": condition_uuid,
+                    "comparator": "GreaterThanOrEqual",
+                    "expectedValue": 0.9,
+                }
+            ],
+        }
+    ]
+    return seeded
+
+
+def _get_automation_content(svc: OrchestratorServices) -> Dict[str, Any]:
+    config = svc.EnsureAutomationConfig()
+    content = _normalize_automation_content(getattr(config, "content", None))
+    seeded = _seed_automation_content(content)
+    if seeded is not content:
+        _update_automation_content(svc, seeded)
+        return seeded
+    return content
+
+
+def _update_automation_content(svc: OrchestratorServices, content: Dict[str, Any]) -> Any:
+    config = svc.EnsureAutomationConfig()
+    record = svc.UpdateConfigBundle(config.uuid, content=content)
+    _try_save_state(svc)
+    return record
+
+
+def _find_item_index(items: List[Dict[str, Any]], uuid_str: str) -> int:
+    for i, item in enumerate(items):
+        if str(item.get("uuid", "")).strip() == uuid_str:
+            return i
+    return -1
+
+
+def _decode_image_b64(b64: Optional[str]) -> Optional[np.ndarray]:
+    raw = (b64 or "").strip()
+    if not raw:
+        return None
+    if "," in raw:
+        raw = raw.split(",", 1)[1]
+    try:
+        binary = base64.b64decode(raw, validate=True)
+    except Exception:
+        return None
+    arr = np.frombuffer(binary, dtype=np.uint8)
+    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+
+
+def _encode_jpeg_b64(img: Optional[np.ndarray]) -> Optional[str]:
+    if img is None or getattr(img, "size", 0) == 0:
+        return None
+    ok, encoded = cv2.imencode(".jpg", img)
+    if not ok:
+        return None
+    return base64.b64encode(encoded.tobytes()).decode("ascii")
+
+
+def _encode_png_b64(img: Optional[np.ndarray]) -> Optional[str]:
+    if img is None or getattr(img, "size", 0) == 0:
+        return None
+    ok, encoded = cv2.imencode(".png", img)
+    if not ok:
+        return None
+    return base64.b64encode(encoded.tobytes()).decode("ascii")
+
+
+def _crop_frame_normalized(frame: np.ndarray, roi: Dict[str, Any]) -> Optional[np.ndarray]:
+    if frame is None or getattr(frame, "size", 0) == 0:
+        return None
+    h, w = frame.shape[:2]
+    if w <= 0 or h <= 0:
+        return None
+
+    x = float(max(0.0, min(1.0, roi.get("xNormalized", 0.0) or 0.0)))
+    y = float(max(0.0, min(1.0, roi.get("yNormalized", 0.0) or 0.0)))
+    rw = float(max(0.0, min(1.0, roi.get("widthNormalized", 0.0) or 0.0)))
+    rh = float(max(0.0, min(1.0, roi.get("heightNormalized", 0.0) or 0.0)))
+
+    px = int(x * w)
+    py = int(y * h)
+    pw = int(rw * w)
+    ph = int(rh * h)
+
+    px = max(0, min(px, w - 1))
+    py = max(0, min(py, h - 1))
+    pw = max(1, min(pw, w - px))
+    ph = max(1, min(ph, h - py))
+    return frame[py:py + ph, px:px + pw].copy()
+
+
+async def _fetch_cluster_latest_frame(svc: OrchestratorServices, clusterUuid: UUID) -> Optional[np.ndarray]:
+    try:
+        base = _require_cluster_base_url(svc, clusterUuid)
+    except HTTPException:
+        return None
+
+    url = urljoin(base, "/api/capture/latest?fmt=png")
+    timeout = httpx.Timeout(connect=3.0, read=10.0, write=10.0, pool=3.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            res = await client.get(url)
+        except httpx.RequestError:
+            return None
+    if res.status_code >= 400:
+        return None
+    arr = np.frombuffer(res.content, dtype=np.uint8)
+    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+
+
+async def _push_automation_to_clusters(svc: OrchestratorServices, content: Dict[str, Any]) -> List[Dict[str, Any]]:
+    results: List[Dict[str, Any]] = []
+    clusters = svc.ListClusters(includeDecommissioned=False)
+    config = svc.EnsureAutomationConfig()
+    for cluster in clusters:
+        cu = cluster.uuid
+        try:
+            base = _require_cluster_base_url(svc, cu)
+            defaults_any = content.get("app", None)
+            if not isinstance(defaults_any, dict) or not defaults_any:
+                defaults_any = await _proxy_json("GET", base, "/api/app/defaults")
+            if not isinstance(defaults_any, dict):
+                raise HTTPException(status_code=502, detail="cluster /api/app/defaults returned invalid payload")
+
+            state_payload = {
+                "version": 1,
+                "savedAtUnix": float(time.time()),
+                "app": defaults_any,
+                "actions": list(content.get("actions", [])) if isinstance(content.get("actions", []), list) else [],
+                "conditions": list(content.get("conditions", [])) if isinstance(content.get("conditions", []), list) else [],
+                "triggers": list(content.get("triggers", [])) if isinstance(content.get("triggers", []), list) else [],
+            }
+            await _proxy_json(
+                "POST",
+                base,
+                "/api/state/import",
+                body={"state": state_payload, "keepServerUuid": True},
+            )
+            svc.AssignConfigBundle(cu, config.uuid)
+            results.append({"clusterUuid": str(cu), "ok": True})
+        except HTTPException as exc:
+            results.append({"clusterUuid": str(cu), "ok": False, "error": exc.detail})
+        except Exception as exc:
+            results.append({"clusterUuid": str(cu), "ok": False, "error": str(exc)})
+
+    _try_save_state(svc)
+    return results
+
+
+def _automation_state_payload(content: Dict[str, Any]) -> Dict[str, Any]:
+    app = content.get("app", {})
+    if not isinstance(app, dict):
+        app = {}
+    return {
+        "version": 1,
+        "savedAtUnix": float(time.time()),
+        "app": dict(app),
+        "actions": list(content.get("actions", [])) if isinstance(content.get("actions", []), list) else [],
+        "conditions": list(content.get("conditions", [])) if isinstance(content.get("conditions", []), list) else [],
+        "triggers": list(content.get("triggers", [])) if isinstance(content.get("triggers", []), list) else [],
+    }
+
+
+@app.get("/api/orchestrator/automation/state/path")
+def GetAutomationStatePath() -> Dict[str, Any]:
+    return {"path": str(_STATE_PATH)}
+
+
+@app.get("/api/orchestrator/automation/state/export")
+def ExportAutomationState(includeServerUuid: bool = False) -> Dict[str, Any]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    return _automation_state_payload(content)
+
+
+@app.post("/api/orchestrator/automation/state/import")
+async def ImportAutomationState(req: AutomationStateImportRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    raw_state = req.state if isinstance(req.state, dict) else {}
+    content = _get_automation_content(svc)
+    app_any = raw_state.get("app", {})
+    content["app"] = dict(app_any) if isinstance(app_any, dict) else {}
+    actions = raw_state.get("actions", [])
+    conditions = raw_state.get("conditions", [])
+    triggers = raw_state.get("triggers", [])
+    content["actions"] = list(actions) if isinstance(actions, list) else []
+    content["conditions"] = list(conditions) if isinstance(conditions, list) else []
+    content["triggers"] = list(triggers) if isinstance(triggers, list) else []
+    _update_automation_content(svc, content)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "results": results}
+
+
+@app.post("/api/orchestrator/automation/state/reload")
+def ReloadAutomationState() -> Dict[str, Any]:
+    svc = _get_services()
+    try:
+        svc.LoadState(_STATE_PATH)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="orchestrator_state.json not found")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Reload failed: {exc}")
+
+    _ensure_automation_config(svc)
+    try:
+        app.state.stateLoaded = True
+    except Exception:
+        pass
+
+    return {"ok": True, "orchestratorUuid": str(svc.GetOrchestratorUuid())}
+
+
+@app.get("/api/orchestrator/automation/actions")
+def GetAutomationActions() -> List[ActionItemDto]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    items: List[ActionItemDto] = []
+    for item in content.get("actions", []):
+        if not isinstance(item, dict):
+            continue
+        steps_any = item.get("steps", [])
+        steps: List[MacroStepDto] = []
+        if isinstance(steps_any, list):
+            for s in steps_any:
+                if not isinstance(s, dict):
+                    continue
+                action_raw = str(s.get("action", "") or "").strip()
+                try:
+                    action = MacroTypeDto(action_raw)
+                except Exception:
+                    continue
+                params = s.get("parameters", {})
+                if not isinstance(params, dict):
+                    params = {}
+                steps.append(MacroStepDto(action=action, parameters=dict(params)))
+        items.append(ActionItemDto(uuid=str(item.get("uuid", "")), name=str(item.get("name", "")), steps=steps))
+    return items
+
+
+@app.post("/api/orchestrator/automation/actions/upsert")
+async def UpsertAutomationAction(req: ActionUpsertRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name cannot be empty")
+
+    content = _get_automation_content(svc)
+    actions_any = content.get("actions", [])
+    actions: List[Dict[str, Any]] = list(actions_any) if isinstance(actions_any, list) else []
+
+    action_uuid = str(req.uuid) if req.uuid is not None else str(uuid4())
+
+    steps: List[Dict[str, Any]] = []
+    for s in req.steps or []:
+        steps.append({"action": s.action.value, "parameters": dict(s.parameters or {})})
+
+    new_item = {"uuid": action_uuid, "name": name, "steps": steps}
+    idx = _find_item_index(actions, action_uuid)
+    if idx >= 0:
+        actions[idx] = new_item
+    else:
+        actions.append(new_item)
+
+    content["actions"] = actions
+    _update_automation_content(svc, content)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "uuid": action_uuid, "results": results}
+
+
+@app.post("/api/orchestrator/automation/actions/remove_uuid")
+async def RemoveAutomationAction(req: ActionUuidRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    actions_any = content.get("actions", [])
+    actions: List[Dict[str, Any]] = list(actions_any) if isinstance(actions_any, list) else []
+    uuid_str = str(req.uuid)
+    idx = _find_item_index(actions, uuid_str)
+    if idx < 0:
+        raise HTTPException(status_code=404, detail="Action uuid not found")
+    actions.pop(idx)
+    content["actions"] = actions
+    _update_automation_content(svc, content)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "results": results}
+
+
+@app.post("/api/orchestrator/automation/actions/move")
+async def MoveAutomationAction(req: ActionMoveRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    actions_any = content.get("actions", [])
+    actions: List[Dict[str, Any]] = list(actions_any) if isinstance(actions_any, list) else []
+    uuid_str = str(req.uuid)
+    idx = _find_item_index(actions, uuid_str)
+    if idx < 0:
+        raise HTTPException(status_code=404, detail="Action uuid not found")
+    dir_norm = (req.direction or "").strip().lower()
+    if dir_norm == "up":
+        if idx > 0:
+            actions[idx - 1], actions[idx] = actions[idx], actions[idx - 1]
+    elif dir_norm == "down":
+        if idx < len(actions) - 1:
+            actions[idx + 1], actions[idx] = actions[idx], actions[idx + 1]
+    else:
+        raise HTTPException(status_code=400, detail="direction must be 'up' or 'down'")
+    content["actions"] = actions
+    _update_automation_content(svc, content)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "results": results}
+
+
+@app.get("/api/orchestrator/automation/conditions")
+def GetAutomationConditions() -> List[ConditionItemDto]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    items: List[ConditionItemDto] = []
+    for item in content.get("conditions", []):
+        if not isinstance(item, dict):
+            continue
+        roi_any = item.get("roi", {})
+        if not isinstance(roi_any, dict):
+            roi_any = {}
+        roi = ConditionRoiDto(
+            xNormalized=float(roi_any.get("xNormalized", 0.0) or 0.0),
+            yNormalized=float(roi_any.get("yNormalized", 0.0) or 0.0),
+            widthNormalized=float(roi_any.get("widthNormalized", 0.0) or 0.0),
+            heightNormalized=float(roi_any.get("heightNormalized", 0.0) or 0.0),
+        )
+        type_raw = str(item.get("type", "") or "ImageMatchRoi")
+        try:
+            ctype = ConditionTypeDto(type_raw)
+        except Exception:
+            ctype = ConditionTypeDto.ImageMatchRoi
+        items.append(ConditionItemDto(uuid=str(item.get("uuid", "")), name=str(item.get("name", "")), type=ctype, roi=roi))
+    return items
+
+
+@app.post("/api/orchestrator/automation/conditions")
+async def AddAutomationCondition(req: ConditionUpsertRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name cannot be empty")
+    if req.roi.widthNormalized <= 0 or req.roi.heightNormalized <= 0:
+        raise HTTPException(status_code=400, detail="roi width/height must be > 0")
+
+    content = _get_automation_content(svc)
+    conditions_any = content.get("conditions", [])
+    conditions: List[Dict[str, Any]] = list(conditions_any) if isinstance(conditions_any, list) else []
+    uuid_str = str(uuid4())
+    template_b64 = req.templateImageBase64
+    if not template_b64 and bool(req.templateFromLive):
+        if req.clusterUuid is None:
+            raise HTTPException(status_code=400, detail="clusterUuid is required for templateFromLive")
+        frame = await _fetch_cluster_latest_frame(svc, req.clusterUuid)
+        if frame is None:
+            raise HTTPException(status_code=404, detail="No captured frame available for templateFromLive. Start capture first.")
+        roi = {
+            "xNormalized": float(req.roi.xNormalized),
+            "yNormalized": float(req.roi.yNormalized),
+            "widthNormalized": float(req.roi.widthNormalized),
+            "heightNormalized": float(req.roi.heightNormalized),
+        }
+        crop = _crop_frame_normalized(frame, roi)
+        template_b64 = _encode_png_b64(crop)
+    new_item = {
+        "uuid": uuid_str,
+        "name": name,
+        "type": req.type.value,
+        "roi": {
+            "xNormalized": float(req.roi.xNormalized),
+            "yNormalized": float(req.roi.yNormalized),
+            "widthNormalized": float(req.roi.widthNormalized),
+            "heightNormalized": float(req.roi.heightNormalized),
+        },
+        "templateImageBase64": template_b64,
+    }
+    conditions.append(new_item)
+    content["conditions"] = conditions
+    _update_automation_content(svc, content)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "uuid": uuid_str, "results": results}
+
+
+@app.post("/api/orchestrator/automation/conditions/remove_uuid")
+async def RemoveAutomationCondition(req: ConditionUuidRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    conditions_any = content.get("conditions", [])
+    conditions: List[Dict[str, Any]] = list(conditions_any) if isinstance(conditions_any, list) else []
+    uuid_str = str(req.uuid)
+    idx = _find_item_index(conditions, uuid_str)
+    if idx < 0:
+        raise HTTPException(status_code=404, detail="Condition uuid not found")
+    conditions.pop(idx)
+    content["conditions"] = conditions
+    _update_automation_content(svc, content)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "results": results}
+
+
+@app.post("/api/orchestrator/automation/conditions/move")
+async def MoveAutomationCondition(req: ConditionMoveRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    conditions_any = content.get("conditions", [])
+    conditions: List[Dict[str, Any]] = list(conditions_any) if isinstance(conditions_any, list) else []
+    uuid_str = str(req.uuid)
+    idx = _find_item_index(conditions, uuid_str)
+    if idx < 0:
+        raise HTTPException(status_code=404, detail="Condition uuid not found")
+    dir_norm = (req.direction or "").strip().lower()
+    if dir_norm == "up":
+        if idx > 0:
+            conditions[idx - 1], conditions[idx] = conditions[idx], conditions[idx - 1]
+    elif dir_norm == "down":
+        if idx < len(conditions) - 1:
+            conditions[idx + 1], conditions[idx] = conditions[idx], conditions[idx + 1]
+    else:
+        raise HTTPException(status_code=400, detail="direction must be 'up' or 'down'")
+    content["conditions"] = conditions
+    _update_automation_content(svc, content)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "results": results}
+
+
+@app.post("/api/orchestrator/automation/conditions/set_from_live")
+async def SetAutomationCondition(req: ConditionSetFromLiveRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    conditions_any = content.get("conditions", [])
+    conditions: List[Dict[str, Any]] = list(conditions_any) if isinstance(conditions_any, list) else []
+    uuid_str = str(req.uuid)
+    idx = _find_item_index(conditions, uuid_str)
+    if idx < 0:
+        raise HTTPException(status_code=404, detail="Condition uuid not found")
+
+    item = dict(conditions[idx])
+    name = (req.name or "").strip() or str(item.get("name", ""))
+    ctype = req.type.value if req.type is not None else str(item.get("type", "ImageMatchRoi"))
+    item["name"] = name
+    item["type"] = ctype
+    item["roi"] = {
+        "xNormalized": float(req.roi.xNormalized),
+        "yNormalized": float(req.roi.yNormalized),
+        "widthNormalized": float(req.roi.widthNormalized),
+        "heightNormalized": float(req.roi.heightNormalized),
+    }
+    if req.templateImageBase64:
+        item["templateImageBase64"] = req.templateImageBase64
+    elif bool(req.templateFromLive):
+        if req.clusterUuid is None:
+            raise HTTPException(status_code=400, detail="clusterUuid is required for templateFromLive")
+        frame = await _fetch_cluster_latest_frame(svc, req.clusterUuid)
+        if frame is None:
+            raise HTTPException(status_code=404, detail="No captured frame available for templateFromLive. Start capture first.")
+        roi = item.get("roi", {})
+        crop = _crop_frame_normalized(frame, roi if isinstance(roi, dict) else {})
+        template_b64 = _encode_png_b64(crop)
+        if template_b64:
+            item["templateImageBase64"] = template_b64
+    conditions[idx] = item
+
+    content["conditions"] = conditions
+    _update_automation_content(svc, content)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "results": results}
+
+
+async def _automation_conditions_status_payload(
+    svc: OrchestratorServices,
+    clusterUuid: Optional[UUID] = None,
+) -> Dict[str, Any]:
+    content = _get_automation_content(svc)
+    order: List[str] = []
+    by_uuid: Dict[str, Any] = {}
+
+    frame = None
+    if clusterUuid is not None:
+        frame = await _fetch_cluster_latest_frame(svc, clusterUuid)
+
+    items = content.get("conditions", [])
+    if isinstance(items, list):
+        for idx, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            uuid_str = str(item.get("uuid", ""))
+            if not uuid_str:
+                continue
+            template_thumb = None
+            template_raw = item.get("templateImageBase64", None)
+            if template_raw:
+                template_img = _decode_image_b64(str(template_raw))
+                template_thumb = _encode_jpeg_b64(template_img)
+
+            crop_thumb = None
+            if frame is not None:
+                roi_any = item.get("roi", {})
+                roi = roi_any if isinstance(roi_any, dict) else {}
+                crop = _crop_frame_normalized(frame, roi)
+                crop_thumb = _encode_jpeg_b64(crop)
+
+            order.append(uuid_str)
+            by_uuid[uuid_str] = {
+                "uuid": uuid_str,
+                "index": int(idx),
+                "name": str(item.get("name", "")),
+                "type": str(item.get("type", "ImageMatchRoi")),
+                "templateThumbBase64": template_thumb,
+                "cropThumbBase64": crop_thumb,
+                "last": None,
+            }
+    return {"order": order, "byUuid": by_uuid}
+
+
+@app.get("/api/orchestrator/automation/conditions/status")
+async def GetAutomationConditionsStatus(clusterUuid: Optional[UUID] = None) -> Dict[str, Any]:
+    svc = _get_services()
+    return await _automation_conditions_status_payload(svc, clusterUuid=clusterUuid)
+
+
+@app.get("/api/orchestrator/automation/conditions/stream")
+async def AutomationConditionsStream(
+    request: Request,
+    clusterUuid: Optional[UUID] = None,
+) -> StreamingResponse:
+    svc = _get_services()
+
+    async def event_stream():
+        yield "retry: 1000\n\n"
+
+        last_data: Optional[str] = None
+        last_keepalive = time.monotonic()
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            payload = await _automation_conditions_status_payload(svc, clusterUuid=clusterUuid)
+            data = json.dumps(payload, separators=(",", ":"))
+            if data != last_data:
+                last_data = data
+                yield f"event: status\ndata: {data}\n\n"
+
+            now = time.monotonic()
+            if now - last_keepalive >= 10.0:
+                yield ": keepalive\n\n"
+                last_keepalive = now
+
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.get("/api/orchestrator/automation/triggers")
+def GetAutomationTriggers() -> List[TriggerItemDto]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    items: List[TriggerItemDto] = []
+    for item in content.get("triggers", []):
+        if not isinstance(item, dict):
+            continue
+        citerias_in = item.get("triggerCiterias", [])
+        citerias: List[TriggerCiteriaDto] = []
+        if isinstance(citerias_in, list):
+            for c in citerias_in:
+                if not isinstance(c, dict):
+                    continue
+                try:
+                    citerias.append(
+                        TriggerCiteriaDto(
+                            conditionUuid=UUID(str(c.get("conditionUuid", ""))),
+                            expectedValue=c.get("expectedValue", None),
+                            comparator=TriggerComparatorDto(str(c.get("comparator", "Equals"))),
+                        )
+                    )
+                except Exception:
+                    continue
+        mode_raw = str(item.get("criteriaMode", "All"))
+        try:
+            mode = TriggerCriteriaModeDto(mode_raw)
+        except Exception:
+            mode = TriggerCriteriaModeDto.All
+        items.append(
+            TriggerItemDto(
+                uuid=str(item.get("uuid", "")),
+                name=str(item.get("name", "")),
+                enabled=bool(item.get("enabled", False)),
+                retriggerMs=int(item.get("retriggerMs", 0) or 0),
+                disableOnFire=bool(item.get("disableOnFire", False)),
+                triggerCiterias=citerias,
+                criteriaMode=mode,
+                action=str(item.get("action", "")),
+            )
+        )
+    return items
+
+
+@app.post("/api/orchestrator/automation/triggers/upsert")
+async def UpsertAutomationTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name cannot be empty")
+
+    content = _get_automation_content(svc)
+    actions = content.get("actions", [])
+    conditions = content.get("conditions", [])
+    action_ids = {str(a.get("uuid", "")).strip() for a in actions if isinstance(a, dict)}
+    condition_ids = {str(c.get("uuid", "")).strip() for c in conditions if isinstance(c, dict)}
+    if str(req.action) not in action_ids:
+        raise HTTPException(status_code=404, detail="Action uuid not found")
+
+    citerias: List[Dict[str, Any]] = []
+    for c in req.triggerCiterias or []:
+        cond_uuid = str(c.conditionUuid)
+        if cond_uuid not in condition_ids:
+            raise HTTPException(status_code=404, detail="Condition uuid not found")
+        citerias.append(
+            {
+                "conditionUuid": cond_uuid,
+                "expectedValue": c.expectedValue,
+                "comparator": c.comparator.value,
+            }
+        )
+
+    uuid_str = str(req.uuid or uuid4())
+    criteria_mode = req.criteriaMode.value if req.criteriaMode is not None else "All"
+    new_item = {
+        "uuid": uuid_str,
+        "name": name,
+        "enabled": bool(req.enabled),
+        "retriggerMs": int(getattr(req, "retriggerMs", 0) or 0),
+        "disableOnFire": bool(req.disableOnFire),
+        "triggerCiterias": citerias,
+        "criteriaMode": criteria_mode,
+        "action": str(req.action),
+    }
+
+    triggers_any = content.get("triggers", [])
+    triggers: List[Dict[str, Any]] = list(triggers_any) if isinstance(triggers_any, list) else []
+    idx = _find_item_index(triggers, uuid_str)
+    if idx >= 0:
+        triggers[idx] = new_item
+    else:
+        triggers.append(new_item)
+    content["triggers"] = triggers
+    _update_automation_content(svc, content)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "uuid": uuid_str, "results": results}
+
+
+@app.post("/api/orchestrator/automation/triggers/remove_uuid")
+async def RemoveAutomationTrigger(req: TriggerUuidRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    triggers_any = content.get("triggers", [])
+    triggers: List[Dict[str, Any]] = list(triggers_any) if isinstance(triggers_any, list) else []
+    uuid_str = str(req.uuid)
+    idx = _find_item_index(triggers, uuid_str)
+    if idx < 0:
+        raise HTTPException(status_code=404, detail="Trigger uuid not found")
+    triggers.pop(idx)
+    content["triggers"] = triggers
+    _update_automation_content(svc, content)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "results": results}
+
+
+@app.post("/api/orchestrator/automation/triggers/move")
+async def MoveAutomationTrigger(req: TriggerMoveRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    triggers_any = content.get("triggers", [])
+    triggers: List[Dict[str, Any]] = list(triggers_any) if isinstance(triggers_any, list) else []
+    uuid_str = str(req.uuid)
+    idx = _find_item_index(triggers, uuid_str)
+    if idx < 0:
+        raise HTTPException(status_code=404, detail="Trigger uuid not found")
+    dir_norm = (req.direction or "").strip().lower()
+    if dir_norm == "up":
+        if idx > 0:
+            triggers[idx - 1], triggers[idx] = triggers[idx], triggers[idx - 1]
+    elif dir_norm == "down":
+        if idx < len(triggers) - 1:
+            triggers[idx + 1], triggers[idx] = triggers[idx], triggers[idx + 1]
+    else:
+        raise HTTPException(status_code=400, detail="direction must be 'up' or 'down'")
+    content["triggers"] = triggers
+    _update_automation_content(svc, content)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "results": results}
+
+
+@app.post("/api/orchestrator/automation/triggers/set_enabled")
+async def SetAutomationTriggerEnabled(req: TriggerSetEnabledRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    triggers_any = content.get("triggers", [])
+    triggers: List[Dict[str, Any]] = list(triggers_any) if isinstance(triggers_any, list) else []
+    uuid_str = str(req.uuid)
+    idx = _find_item_index(triggers, uuid_str)
+    if idx < 0:
+        raise HTTPException(status_code=404, detail="Trigger uuid not found")
+    item = dict(triggers[idx])
+    item["enabled"] = bool(req.enabled)
+    triggers[idx] = item
+    content["triggers"] = triggers
+    _update_automation_content(svc, content)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "uuid": uuid_str, "enabled": bool(req.enabled), "results": results}
+
+
+@app.get("/api/orchestrator/automation/triggers/status")
+def GetAutomationTriggerStatus() -> Dict[str, Any]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    actions = content.get("actions", [])
+    action_name_by_uuid = {}
+    if isinstance(actions, list):
+        for a in actions:
+            if not isinstance(a, dict):
+                continue
+            au = str(a.get("uuid", "")).strip()
+            if au:
+                action_name_by_uuid[au] = str(a.get("name", au))
+
+    items: List[Dict[str, Any]] = []
+    triggers = content.get("triggers", [])
+    if isinstance(triggers, list):
+        for t in triggers:
+            if not isinstance(t, dict):
+                continue
+            action_uuid = str(t.get("action", "")).strip()
+            items.append(
+                {
+                    "uuid": str(t.get("uuid", "")),
+                    "name": str(t.get("name", "")),
+                    "enabled": bool(t.get("enabled", False)),
+                    "retriggerMs": int(t.get("retriggerMs", 0) or 0),
+                    "isMet": False,
+                    "fireCount": 0,
+                    "lastFireUnix": None,
+                    "eval": [],
+                    "actionUuid": action_uuid,
+                    "actionName": action_name_by_uuid.get(action_uuid, action_uuid),
+                    "actionIsRunning": False,
+                    "actionRunCount": 0,
+                    "actionLastStartedUnix": None,
+                    "actionLastCompletedUnix": None,
+                }
+            )
+    return {"items": items, "lastError": None, "macro": {}}
 
 # -----------------------------------------------------------------------------
 # Screens (layouts + assignments)
@@ -1148,7 +2140,17 @@ async def ProxyActionsList(clusterUuid: UUID) -> Any:
 # --- Proxy body wrapper ---
 
 class ProxyBodyRequest(BaseModel):
-    body: Dict[str, Any]
+    body: Dict[str, Any] = {}
+
+    @root_validator(pre=True)
+    def _normalize_body(cls, values: Any) -> Dict[str, Any]:
+        if values is None:
+            return {"body": {}}
+        if isinstance(values, dict):
+            if "body" in values and isinstance(values.get("body"), dict):
+                return values
+            return {"body": values}
+        return {"body": {}}
 
 
 # --- App window + capture ---
@@ -1336,6 +2338,13 @@ async def ProxyTriggersStatus(clusterUuid: UUID) -> Any:
     svc = _get_services()
     base = _require_cluster_base_url(svc, clusterUuid)
     return await _proxy_json("GET", base, "/api/triggers/status")
+
+
+@app.get("/api/orchestrator/clusters/{clusterUuid}/triggers/status/stream")
+async def ProxyTriggersStatusStream(clusterUuid: UUID) -> StreamingResponse:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    return await _proxy_sse(base, "/api/triggers/status/stream")
 
 
 @app.post("/api/orchestrator/clusters/{clusterUuid}/triggers/upsert")

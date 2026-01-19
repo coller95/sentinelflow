@@ -320,7 +320,7 @@ function startTriggerStatusSse() {
     _triggerStatusHoverPaused = !!(triggerStatusHoverTarget && triggerStatusHoverTarget.matches(':hover'));
     refreshTriggerStatus().catch(() => {});
     try {
-        const es = new EventSource('/api/triggers/status/stream');
+        const es = new EventSource(apiPath('/api/triggers/status/stream'));
         _triggerStatusEventSource = es;
         es.addEventListener('status', (ev) => {
             try {

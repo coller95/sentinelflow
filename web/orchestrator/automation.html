@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>SentinelFlow Automation</title>
+    <link rel="stylesheet" href="/cluster-static/styles.css" />
+    <style>
+        .automationOverlay {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 6;
+            width: min(340px, 90vw);
+        }
+
+        .automationOverlay fieldset {
+            margin: 0;
+        }
+
+        .automationOverlay .helpText {
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+
+<main class="appRoot">
+
+    <!-- ================================================= -->
+    <!-- LIVE IMAGE VIEW (PRIMARY, NEVER AFFECTED)        -->
+    <!-- ================================================= -->
+    
+    <section class="livePreviewRoot">
+        <div class="livePreviewFrame" id="livePreviewFrame">
+            <div class="livePreviewToolbar" aria-label="Live preview tools">
+                <button id="btnPanToggle" type="button">Pan</button>
+                <button id="btnZoomOut" type="button">-</button>
+                <button id="btnZoomIn" type="button">+</button>
+            </div>
+            <div class="automationOverlay">
+                <fieldset>
+                    <legend>Automation</legend>
+                    <div class="row">
+                        <label for="previewCluster">Live preview cluster</label>
+                        <select id="previewCluster" class="selectLike"></select>
+                    </div>
+                    <p class="helpText">Used for capture, ROI, and app control.</p>
+                    <div class="row">
+                        <a href="/">Back to orchestrator dashboard</a>
+                    </div>
+                </fieldset>
+            </div>
+
+            <div id="livePreviewViewport" class="livePreviewViewport">
+                <img
+                    id="captureImage"
+                    class="captureImage"
+                    alt="Window capture preview"
+                />
+                <canvas id="roiOverlay" class="roiOverlay" aria-label="ROI overlay" tabindex="0"></canvas>
+            </div>
+        </div>
+    </section>
+
+    
+    <!-- ================================================= -->
+    <!-- CONTROL WORKSPACE (FUNCTION-SEPARATED TABS)      -->
+    <!-- ================================================= -->
+    <section class="controlWorkspace">
+        <button id="btnToggleTabs" class="tabToggle" type="button" aria-label="Show tabs" aria-expanded="false">&gt;</button>
+        <section class="statusPanel">
+            <fieldset>
+                <legend>Status</legend>
+                <div id="status" class="status" aria-live="polite"></div>
+            </fieldset>
+        </section>
+        <nav class="controlTabs">
+            <button class="active" data-tab="actions">Actions</button>
+            <button data-tab="conditions">Conditions</button>
+            <button data-tab="triggers">Triggers</button>
+            </nav>
+
+        <section id="tab-actions" class="tabPanel active">
+            <fieldset>
+                <legend>Actions</legend>
+                <div class="panelSplit">
+                    <div class="listPane">
+                        <div class="condToolbar">
+                            <button id="btnActionNew" class="primary" type="button">New</button>
+                            <button id="btnActionDelete" type="button">Delete</button>
+                            <button id="btnActionMoveUp" type="button">Up</button>
+                            <button id="btnActionMoveDown" type="button">Down</button>
+                            <button id="btnActionRun" class="primary" type="button">Run</button>
+                            <span class="condSpacer"></span>
+                            <button id="btnRefreshActions" class="primary" type="button">Refresh</button>
+                        </div>
+
+                        <p class="listHint">Select an action on the left to edit its steps.</p>
+
+                        <div class="condTableWrap">
+                            <table class="condTable" aria-label="Actions table">
+                                <thead>
+                                    <tr>
+                                        <th>Action</th>
+                                        <th>Steps</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="actionTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="editorPane">
+                        <div class="condBottom">
+                            <div class="formSection">
+                                <div class="sectionHead">
+                                    <div class="sectionTitle">1. Action details</div>
+                                    <p class="helpText">Name the action so you can reuse it in triggers.</p>
+                                </div>
+                                <div class="row">
+                                    <label for="actionName">Name</label>
+                                    <input id="actionName" type="text" placeholder="Example: Heal + Move" />
+                                </div>
+                            </div>
+
+                            <div class="formSection">
+                                <div class="sectionHead">
+                                    <div class="sectionTitle">2. Create steps</div>
+                                    <p class="helpText">Pick a step type, configure it, then add it.</p>
+                                </div>
+                                <div class="row">
+                                    <label for="actionStepType">Step type</label>
+                                    <select id="actionStepType" class="selectLike">
+                                        <option value="Keyboard">Keyboard</option>
+                                        <option value="Click">Click</option>
+                                        <option value="Delay">Delay</option>
+                                    </select>
+                                </div>
+
+                                <div id="actionDelayRow" class="row" style="display:none; margin-top: 10px;">
+                                    <label for="actionDelayMs">Delay (ms)</label>
+                                    <input id="actionDelayMs" type="number" min="0" step="10" value="50" />
+                                </div>
+
+                                <div class="buttons">
+                                    <button id="btnActionAddStep" class="primary" type="button">Add Step</button>
+                                    <button id="btnActionRemoveStep" type="button">Delete Step</button>
+                                </div>
+                            </div>
+
+                            <div class="formSection">
+                                <div class="sectionHead">
+                                    <div class="sectionTitle">3. Sequence</div>
+                                    <p class="helpText">Select a step to reorder or remove.</p>
+                                </div>
+                                <div class="actionSequenceBox">
+                                    <div id="actionStepList" class="actionStepList" role="listbox" aria-label="Action sequence" tabindex="0"></div>
+                                    <div class="actionStepReorder" aria-label="Reorder">
+                                        <button id="btnActionStepUp" type="button" title="Move up">Up</button>
+                                        <button id="btnActionStepDown" type="button" title="Move down">Down</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Hidden: kept for backwards compatibility / debugging -->
+                            <textarea id="actionSteps" class="monoBox" rows="8" style="display:none"></textarea>
+
+                            <div class="buttons">
+                                <button id="btnActionSave" class="primary" type="button">Save</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </fieldset>
+        </section>
+
+        <section id="tab-conditions" class="tabPanel">
+            <fieldset>
+                <legend>Conditions</legend>
+                <div class="panelSplit">
+                    <div class="listPane">
+                        <div class="condToolbar">
+                            <button id="btnCondAddRow" class="primary" type="button">New</button>
+                            <button id="btnCondRemoveRow" type="button">Delete</button>
+                            <button id="btnCondMoveUp" type="button">Up</button>
+                            <button id="btnCondMoveDown" type="button">Down</button>
+                            <span class="condSpacer"></span>
+                            <button id="btnRefreshConditions" class="primary" type="button">Refresh</button>
+                        </div>
+
+                        <p class="listHint">Select a condition on the left to edit, or click New.</p>
+
+                        <div class="condTableWrap">
+                            <table class="condTable" aria-label="Condition status table">
+                                <thead>
+                                    <tr>
+                                        <th>Condition</th>
+                                        <th>Type</th>
+                                        <th>Template</th>
+                                        <th>Crop</th>
+                                        <th>Last</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="condTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="editorPane">
+                        <div class="condBottom">
+                            <div class="formSection">
+                                <div class="sectionHead">
+                                    <div class="sectionTitle">1. Condition basics</div>
+                                    <p class="helpText">Name the condition and choose a detection type.</p>
+                                </div>
+                                <div class="row">
+                                    <label for="conditionName">Name</label>
+                                    <input id="conditionName" type="text" placeholder="Example: Hero Life" />
+                                </div>
+
+                                <div class="row">
+                                    <label for="conditionType">Type</label>
+                                    <select id="conditionType" class="selectLike">
+                                        <option value="ImageMatchRoi">ImageMatchRoi</option>
+                                        <option value="ProgressBar">ProgressBar</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="formSection">
+                                <div class="sectionHead">
+                                    <div class="sectionTitle">2. Region of interest</div>
+                                    <p class="helpText">Define the ROI (0 to 1) or capture from the live preview.</p>
+                                </div>
+                                <div class="grid2">
+                                    <div class="row">
+                                        <label for="roiX">ROI X (0~1)</label>
+                                        <input id="roiX" type="text" placeholder="0.100" />
+                                    </div>
+                                    <div class="row">
+                                        <label for="roiY">ROI Y (0~1)</label>
+                                        <input id="roiY" type="text" placeholder="0.100" />
+                                    </div>
+                                    <div class="row">
+                                        <label for="roiW">ROI W (0~1)</label>
+                                        <input id="roiW" type="text" placeholder="0.200" />
+                                    </div>
+                                    <div class="row">
+                                        <label for="roiH">ROI H (0~1)</label>
+                                        <input id="roiH" type="text" placeholder="0.050" />
+                                    </div>
+                                </div>
+
+                                <div class="buttons">
+                                    <button id="btnSetFromLive" class="primary" type="button">Set from Live</button>
+                                </div>
+                            </div>
+
+                            <div class="formSection">
+                                <div class="sectionHead">
+                                    <div class="sectionTitle">3. Template (optional)</div>
+                                    <p class="helpText">Upload a reference image for matching.</p>
+                                </div>
+                                <div class="row">
+                                    <label for="templateImage">Template image (optional)</label>
+                                    <input id="templateImage" type="file" accept="image/*" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </fieldset>
+        </section>
+
+        <section id="tab-triggers" class="tabPanel">
+            <fieldset>
+                <legend>Triggers</legend>
+                <div class="panelSplit">
+                    <div class="listPane">
+                        <div class="condToolbar">
+                            <button id="btnTriggerNew" class="primary" type="button">New</button>
+                            <button id="btnTriggerDelete" type="button">Delete</button>
+                            <button id="btnTriggerMoveUp" type="button">Up</button>
+                            <button id="btnTriggerMoveDown" type="button">Down</button>
+                            <span class="condSpacer"></span>
+                            <button id="btnRefreshTriggers" class="primary" type="button">Refresh</button>
+                        </div>
+
+                        <p class="listHint">Select a trigger on the left to edit its rules.</p>
+
+                        <div class="condTableWrap">
+                            <table class="condTable" aria-label="Triggers table">
+                                <thead>
+                                    <tr>
+                                        <th>Trigger</th>
+                                        <th>Enabled</th>
+                                        <th>Action</th>
+                                        <th>Criteria</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="triggerTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="editorPane">
+                        <div class="condBottom">
+                            <div class="formSection">
+                                <div class="sectionHead">
+                                    <div class="sectionTitle">1. Trigger basics</div>
+                                    <p class="helpText">Name the trigger and set its cooldown.</p>
+                                </div>
+                                <div class="row">
+                                    <label for="triggerName">Name</label>
+                                    <input id="triggerName" type="text" placeholder="Example: Low HP -> Heal" />
+                                </div>
+
+                                <div class="grid2">
+                                    <div class="row checkRow">
+                                        <label class="checkLabel">
+                                            <input id="triggerEnabled" type="checkbox" />
+                                            Enabled
+                                        </label>
+                                    </div>
+                                    <div class="row">
+                                        <label for="triggerRetriggerMs">Retrigger (ms)</label>
+                                        <input id="triggerRetriggerMs" type="number" min="0" step="100" value="0" />
+                                    </div>
+                                </div>
+
+                                <div class="row checkRow">
+                                    <label class="checkLabel">
+                                        <input id="triggerDisableOnFire" type="checkbox" />
+                                        Disable after fire
+                                    </label>
+                                </div>
+
+                                <div class="row">
+                                    <label for="triggerCriteriaMode">Criteria match</label>
+                                    <select id="triggerCriteriaMode" class="selectLike">
+                                        <option value="All">All must pass</option>
+                                        <option value="Any">Any can pass</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="formSection">
+                                <div class="sectionHead">
+                                    <div class="sectionTitle">2. Choose action</div>
+                                    <p class="helpText">What should run when the conditions match.</p>
+                                </div>
+                                <div class="row">
+                                    <label for="triggerAction">Action</label>
+                                    <select id="triggerAction" class="selectLike"></select>
+                                </div>
+                            </div>
+
+                            <div class="formSection">
+                                <div class="sectionHead">
+                                    <div class="sectionTitle">3. Conditions</div>
+                                    <p class="helpText">Add criteria, then choose All or Any to control matching.</p>
+                                </div>
+                                <div class="condTableWrap" style="max-height: 220px;">
+                                    <table class="condTable" aria-label="Trigger criteria">
+                                        <thead>
+                                            <tr>
+                                                <th>Condition</th>
+                                                <th>Comparator</th>
+                                                <th>Expected</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="triggerCriteriaBody"></tbody>
+                                    </table>
+                                </div>
+                                <div class="buttons">
+                                    <button id="btnTriggerAddCriteria" class="primary" type="button">Add Criteria</button>
+                                </div>
+                            </div>
+
+                            <div class="buttons">
+                                <button id="btnTriggerSave" class="primary" type="button">Save</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </fieldset>
+        </section>
+
+
+    </section>
+
+</main>
+<script>
+    (function () {
+        const saved = localStorage.getItem('automation.previewClusterUuid') || '';
+        const clean = String(saved).trim();
+        window.API_BASE = '/api/orchestrator/automation';
+        window.AUTOMATION_CLUSTER_UUID = clean;
+        window.APP_API_BASE = clean ? `/api/orchestrator/clusters/${encodeURIComponent(clean)}` : '';
+        window.STATE_API_BASE = '/api/orchestrator/automation';
+    })();
+</script>
+<script src="/cluster-static/domElements.js"></script>
+<script src="/cluster-static/utils.js"></script>
+<script src="/cluster-static/liveView.js"></script>
+<script src="/cluster-static/liveViewInput.js"></script>
+<script src="/cluster-static/actions.js"></script>
+<script src="/cluster-static/triggers.js"></script>
+<script src="/cluster-static/conditions.js"></script>
+<script src="/cluster-static/mainApp.js"></script>
+<script src="/static/automation.js"></script>
+</body>
+</html>

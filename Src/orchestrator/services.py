@@ -72,6 +72,7 @@ class OrchestratorServices:
         self._clusters: Dict[UUID, ClusterRecord] = {}
         self._configBundles: Dict[UUID, ConfigBundleRecord] = {}
         self._configAssignments: Dict[UUID, ConfigAssignmentRecord] = {}
+        self._automation_config_uuid: Optional[UUID] = None
         self._displayLayouts: Dict[UUID, DisplayLayoutRecord] = {}
         self._displayAssignments: Dict[UUID, DisplayAssignmentRecord] = {}
 
@@ -290,6 +291,12 @@ class OrchestratorServices:
         if not isinstance(content, dict):
             content = {}
 
+        app = content.get("app", {})
+        if not isinstance(app, dict):
+            app = {}
+
+        seeded = bool(content.get("seeded", False))
+
         def _list(key: str) -> List[Any]:
             raw = content.get(key, [])
             if isinstance(raw, list):
@@ -298,10 +305,37 @@ class OrchestratorServices:
 
         return {
             "version": 1,
+            "seeded": seeded,
+            "app": dict(app),
             "actions": _list("actions"),
             "conditions": _list("conditions"),
             "triggers": _list("triggers"),
         }
+
+    def GetAutomationConfigUuid(self) -> Optional[UUID]:
+        with self._lock:
+            return self._automation_config_uuid
+
+    def GetAutomationConfig(self) -> Optional[ConfigBundleRecord]:
+        with self._lock:
+            if self._automation_config_uuid is None:
+                return None
+            return self._configBundles.get(self._automation_config_uuid)
+
+    def EnsureAutomationConfig(self) -> ConfigBundleRecord:
+        existing = self.GetAutomationConfig()
+        if existing is not None:
+            return existing
+
+        record = self.CreateConfigBundle(
+            name="Automation",
+            description="Managed by orchestrator",
+            tags=["automation", "global"],
+            content={"version": 1, "actions": [], "conditions": [], "triggers": []},
+        )
+        with self._lock:
+            self._automation_config_uuid = record.uuid
+        return record
 
     def ListConfigBundles(self) -> List[ConfigBundleRecord]:
         with self._lock:
@@ -585,13 +619,15 @@ class OrchestratorServices:
             clusters = list(self._clusters.values())
             config_bundles = list(self._configBundles.values())
             config_assignments = list(self._configAssignments.values())
+            automation_uuid = self._automation_config_uuid
             display_layouts = list(self._displayLayouts.values())
             display_assignments = list(self._displayAssignments.values())
 
         return {
-            "version": 3,
+            "version": 4,
             "savedAtUnix": float(time.time()),
             "orchestratorUuid": str(orch_uuid),
+            "automationConfigUuid": (None if automation_uuid is None else str(automation_uuid)),
             "clusters": [
                 {
                     "uuid": str(c.uuid),
@@ -659,7 +695,7 @@ class OrchestratorServices:
 
     def ImportStateDict(self, obj: Dict[str, Any]) -> None:
         version = int(obj.get("version", 0) or 0)
-        if version not in (1, 2, 3):
+        if version not in (1, 2, 3, 4):
             raise ValueError(f"Unsupported orchestrator state version: {version}")
 
         orch_uuid_raw = str(obj.get("orchestratorUuid", "") or "").strip()
@@ -669,6 +705,14 @@ class OrchestratorServices:
                 orch_uuid = UUID(orch_uuid_raw)
         except Exception:
             orch_uuid = None
+
+        automation_uuid_raw = str(obj.get("automationConfigUuid", "") or "").strip()
+        automation_uuid: Optional[UUID] = None
+        try:
+            if automation_uuid_raw:
+                automation_uuid = UUID(automation_uuid_raw)
+        except Exception:
+            automation_uuid = None
 
         clusters_any: Any = obj.get("clusters", [])
         clusters: Dict[UUID, ClusterRecord] = {}
@@ -957,12 +1001,16 @@ class OrchestratorServices:
                     assignedAtUnix=assigned_at,
                 )
 
+        if automation_uuid is not None and automation_uuid not in bundles:
+            automation_uuid = None
+
         with self._lock:
             if orch_uuid is not None:
                 self._orchestrator_uuid = orch_uuid
             self._clusters = clusters
             self._configBundles = bundles
             self._configAssignments = assignments
+            self._automation_config_uuid = automation_uuid
             self._displayLayouts = layouts
             self._displayAssignments = display_assignments
 

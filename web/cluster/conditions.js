@@ -15,6 +15,16 @@ async function _getConditionsCached(force = false) {
     return _cachedConditions;
 }
 
+function _automationClusterQuery() {
+    const cu = String(globalThis.AUTOMATION_CLUSTER_UUID || '').trim();
+    if (!cu) return '';
+    return `?clusterUuid=${encodeURIComponent(cu)}`;
+}
+
+function _automationClusterUuid() {
+    return String(globalThis.AUTOMATION_CLUSTER_UUID || '').trim();
+}
+
 function _makePlaceholderName(prefix) {
     const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '-');
     return `${prefix} ${stamp}`;
@@ -44,7 +54,7 @@ function _fillConditionsSelect(selectEl, items, selectedUuid) {
 
 async function refreshConditions() {
     if (!condTableBody) return;
-    const payload = await getJson('/api/conditions/status');
+    const payload = await getJson(`/api/conditions/status${_automationClusterQuery()}`);
     const items = coerceConditionStatusItems(payload);
     _renderConditionsTable(items);
 }
@@ -164,7 +174,7 @@ async function loadSelectedConditionIntoEditor() {
 function startConditionsEventSource() {
     stopConditionsEventSource();
     if (!condTableBody) return;
-    conditionsEvents = new EventSource('/api/conditions/stream');
+    conditionsEvents = new EventSource(apiPath(`/api/conditions/stream${_automationClusterQuery()}`));
     conditionsEvents.addEventListener('status', (ev) => {
         try {
             const payload = JSON.parse(ev.data || '{}');
@@ -245,14 +255,17 @@ async function addConditionFromInputs() {
     if (file) {
         templateImageBase64 = await fileToDataUrl(file);
     }
-    const templateFromLive = !file;
-    const res = await postJson('/api/conditions', {
+    const clusterUuid = _automationClusterUuid();
+    const templateFromLive = !file && !!clusterUuid;
+    const payload = {
         name,
         type,
         roi: { xNormalized, yNormalized, widthNormalized, heightNormalized },
         templateImageBase64,
         templateFromLive,
-    });
+    };
+    if (clusterUuid) payload.clusterUuid = clusterUuid;
+    const res = await postJson('/api/conditions', payload);
     return res;
 }
 
@@ -368,15 +381,18 @@ if (btnSetFromLive) {
             if (file) {
                 templateImageBase64 = await fileToDataUrl(file);
             }
-            const templateFromLive = !file;
-            await postJson('/api/conditions/set_from_live', {
+            const clusterUuid = _automationClusterUuid();
+            const templateFromLive = !file && !!clusterUuid;
+            const payload = {
                 uuid: selectedConditionUuid,
                 name,
                 type,
                 roi: { xNormalized, yNormalized, widthNormalized, heightNormalized },
                 templateImageBase64,
                 templateFromLive,
-            });
+            };
+            if (clusterUuid) payload.clusterUuid = clusterUuid;
+            await postJson('/api/conditions/set_from_live', payload);
             await refreshConditions();
             setStatus('Updated.', 'ok');
         } catch (e) {
