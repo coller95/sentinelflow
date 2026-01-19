@@ -46,6 +46,7 @@ let _appAttached = false;
 
 function setAppAttached(attached) {
     _appAttached = !!attached;
+    globalThis._appAttached = _appAttached;
     if (appAttachStatusEl) {
         appAttachStatusEl.value = _appAttached ? 'Attached' : 'Detached';
     }
