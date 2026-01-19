@@ -16,7 +16,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from pydantic import BaseModel, root_validator
+from pydantic import BaseModel, model_validator
 from enum import Enum
 
 from .services import OrchestratorServices
@@ -562,6 +562,11 @@ class ActionUpsertRequest(BaseModel):
 
 class ActionUuidRequest(BaseModel):
     uuid: UUID
+
+
+class ActionRunRequest(BaseModel):
+    uuid: UUID
+    clusterUuid: Optional[UUID] = None
 
 
 class ActionMoveRequest(BaseModel):
@@ -1147,6 +1152,43 @@ def _automation_state_payload(content: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def _push_automation_to_cluster(
+    svc: OrchestratorServices,
+    content: Dict[str, Any],
+    clusterUuid: UUID,
+) -> Dict[str, Any]:
+    config = svc.EnsureAutomationConfig()
+    try:
+        base = _require_cluster_base_url(svc, clusterUuid)
+        defaults_any = content.get("app", None)
+        if not isinstance(defaults_any, dict) or not defaults_any:
+            defaults_any = await _proxy_json("GET", base, "/api/app/defaults")
+        if not isinstance(defaults_any, dict):
+            raise HTTPException(status_code=502, detail="cluster /api/app/defaults returned invalid payload")
+
+        state_payload = {
+            "version": 1,
+            "savedAtUnix": float(time.time()),
+            "app": defaults_any,
+            "actions": list(content.get("actions", [])) if isinstance(content.get("actions", []), list) else [],
+            "conditions": list(content.get("conditions", [])) if isinstance(content.get("conditions", []), list) else [],
+            "triggers": list(content.get("triggers", [])) if isinstance(content.get("triggers", []), list) else [],
+        }
+        await _proxy_json(
+            "POST",
+            base,
+            "/api/state/import",
+            body={"state": state_payload, "keepServerUuid": True},
+        )
+        svc.AssignConfigBundle(clusterUuid, config.uuid)
+        _try_save_state(svc)
+        return {"clusterUuid": str(clusterUuid), "ok": True}
+    except HTTPException as exc:
+        return {"clusterUuid": str(clusterUuid), "ok": False, "error": exc.detail}
+    except Exception as exc:
+        return {"clusterUuid": str(clusterUuid), "ok": False, "error": str(exc)}
+
+
 @app.get("/api/orchestrator/automation/state/path")
 def GetAutomationStatePath() -> Dict[str, Any]:
     return {"path": str(_STATE_PATH)}
@@ -1293,6 +1335,28 @@ async def MoveAutomationAction(req: ActionMoveRequest) -> Dict[str, Any]:
     _update_automation_content(svc, content)
     results = await _push_automation_to_clusters(svc, content)
     return {"ok": True, "results": results}
+
+
+@app.post("/api/orchestrator/automation/actions/run")
+async def RunAutomationAction(req: ActionRunRequest) -> Dict[str, Any]:
+    svc = _get_services()
+    cluster_uuid = req.clusterUuid
+    if cluster_uuid is None:
+        raise HTTPException(status_code=400, detail="clusterUuid is required")
+
+    content = _get_automation_content(svc)
+    actions_any = content.get("actions", [])
+    actions: List[Dict[str, Any]] = list(actions_any) if isinstance(actions_any, list) else []
+    uuid_str = str(req.uuid)
+    if _find_item_index(actions, uuid_str) < 0:
+        raise HTTPException(status_code=404, detail="Action uuid not found")
+
+    sync_result = await _push_automation_to_cluster(svc, content, cluster_uuid)
+    if not bool(sync_result.get("ok", False)):
+        raise HTTPException(status_code=502, detail=str(sync_result.get("error", "sync failed")))
+
+    base = _require_cluster_base_url(svc, cluster_uuid)
+    return await _proxy_json("POST", base, "/api/actions/run", body={"uuid": uuid_str})
 
 
 @app.get("/api/orchestrator/automation/conditions")
@@ -2142,14 +2206,17 @@ async def ProxyActionsList(clusterUuid: UUID) -> Any:
 class ProxyBodyRequest(BaseModel):
     body: Dict[str, Any] = {}
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def _normalize_body(cls, values: Any) -> Dict[str, Any]:
         if values is None:
             return {"body": {}}
         if isinstance(values, dict):
-            if "body" in values and isinstance(values.get("body"), dict):
-                return values
-            return {"body": values}
+            payload = cast(Dict[str, Any], values)
+            body = payload.get("body")
+            if isinstance(body, dict):
+                return payload
+            return {"body": payload}
         return {"body": {}}
 
 

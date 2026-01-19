@@ -48,7 +48,6 @@ function _isAppApiPath(path) {
     if (normalized.startsWith('/api/control')) return true;
     if (normalized.startsWith('/api/state')) return true;
     if (normalized.startsWith('/api/triggers/status')) return true;
-    if (normalized.startsWith('/api/actions/run')) return true;
     return false;
 }
 

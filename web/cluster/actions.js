@@ -425,7 +425,17 @@ if (btnActionRun) {
         }
         setStatus('Running action...', null);
         try {
-            await postJson('/api/actions/run', { uuid: selectedActionUuid });
+            const payload = { uuid: selectedActionUuid };
+            const clusterUuid = String(globalThis.AUTOMATION_CLUSTER_UUID || '').trim();
+            const apiBase = String(globalThis.API_BASE || '').trim();
+            if (apiBase && apiBase.includes('/api/orchestrator/automation') && !clusterUuid) {
+                setStatus('Select a live preview cluster first.', 'err');
+                return;
+            }
+            if (clusterUuid) {
+                payload.clusterUuid = clusterUuid;
+            }
+            await postJson('/api/actions/run', payload);
             setStatus('Action enqueued.', 'ok');
         } catch (e) {
             setStatus(`Run action failed: ${e.message}`, 'err');
