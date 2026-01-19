@@ -1181,6 +1181,13 @@ async def ProxyAppClose(clusterUuid: UUID) -> Any:
     return await _proxy_json("POST", base, "/api/app/close")
 
 
+@app.post("/api/orchestrator/clusters/{clusterUuid}/app/detach")
+async def ProxyAppDetach(clusterUuid: UUID) -> Any:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    return await _proxy_json("POST", base, "/api/app/detach")
+
+
 @app.post("/api/orchestrator/clusters/{clusterUuid}/app/focus")
 async def ProxyAppFocus(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
     svc = _get_services()

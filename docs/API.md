@@ -236,6 +236,7 @@ These map directly to the cluster server endpoints:
 - `POST {baseUrl}/api/app/launch`
 - `POST {baseUrl}/api/app/attach`
 - `POST {baseUrl}/api/app/close`
+- `POST {baseUrl}/api/app/detach`
 
 #### `POST /api/orchestrator/clusters/{clusterUuid}/app/launch`
 
@@ -254,6 +255,16 @@ Request (cluster format, wrapped):
 ```
 
 #### `POST /api/orchestrator/clusters/{clusterUuid}/app/close`
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+#### `POST /api/orchestrator/clusters/{clusterUuid}/app/detach`
+
+Detaches from the attached window without terminating the process.
 
 Response:
 
@@ -628,6 +639,16 @@ Notes:
 ### `POST /api/app/close`
 
 Closes/detaches the attached application.
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+### `POST /api/app/detach`
+
+Detaches from the attached window without terminating the process.
 
 Response:
 

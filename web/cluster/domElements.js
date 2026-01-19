@@ -8,6 +8,7 @@ const windowWidthEl = document.getElementById('windowWidth');
 const windowHeightEl = document.getElementById('windowHeight');
 const btnLaunch = document.getElementById('btnLaunch');
 const btnAttach = document.getElementById('btnAttach');
+const btnDetach = document.getElementById('btnDetach');
 const btnClose = document.getElementById('btnClose');
 const btnStartCapture = document.getElementById('btnStartCapture');
 const btnStopCapture = document.getElementById('btnStopCapture');

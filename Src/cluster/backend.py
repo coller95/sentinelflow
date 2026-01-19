@@ -536,6 +536,13 @@ def CloseApp():
     return {"ok": True}
 
 
+@app.post("/api/app/detach")
+def DetachApp():
+    svc = _get_services()
+    svc.DetachApp()
+    return {"ok": True}
+
+
 @app.post("/api/app/focus")
 def FocusApp(req: FocusRequest) -> Dict[str, Any]:
     svc = _get_services()

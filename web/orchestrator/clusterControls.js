@@ -43,6 +43,19 @@ async function _appCloseCluster(cluster) {
   }
 }
 
+async function _appDetachCluster(cluster) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu) return _setManageStatus('Select a cluster first.');
+  if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
+  _setManageStatus(`Detaching app on ${_clusterLabel(cluster)}...`);
+  try {
+    await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/app/detach`, {});
+    _setManageStatus(`App detached on ${_clusterLabel(cluster)}.`);
+  } catch (err) {
+    _setManageStatus(`Detach failed: ${err?.message ?? err}`);
+  }
+}
+
 async function _appFocusCluster(cluster, windowTitle) {
   const cu = String(cluster?.uuid ?? '').trim();
   if (!cu) return _setManageStatus('Select a cluster first.');

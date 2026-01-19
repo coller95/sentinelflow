@@ -385,6 +385,13 @@ function _ensureCctvCards() {
     closeBtn.addEventListener('click', () => _appCloseCluster(cluster));
     actionRow.appendChild(closeBtn);
 
+    const detachBtn = document.createElement('button');
+    detachBtn.type = 'button';
+    detachBtn.textContent = 'Detach';
+    detachBtn.disabled = !canProxy;
+    detachBtn.addEventListener('click', () => _appDetachCluster(cluster));
+    actionRow.appendChild(detachBtn);
+
     const resetUuidBtn = document.createElement('button');
     resetUuidBtn.type = 'button';
     resetUuidBtn.textContent = 'Reset UUID';

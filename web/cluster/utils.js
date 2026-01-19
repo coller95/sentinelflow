@@ -1,6 +1,7 @@
 function setBusy(isBusy) {
     btnLaunch.disabled = isBusy;
     btnAttach.disabled = isBusy;
+    btnDetach.disabled = isBusy;
     btnClose.disabled = isBusy;
 }
 

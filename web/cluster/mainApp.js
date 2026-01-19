@@ -145,6 +145,19 @@ btnAttach.addEventListener('click', async () => {
     }
 });
 
+btnDetach.addEventListener('click', async () => {
+    setBusy(true);
+    setStatus('Detaching...', null);
+    try {
+        await postJson('/api/app/detach');
+        setStatus('Detach OK.', 'ok');
+    } catch (e) {
+        setStatus(`Detach failed: ${e.message}`, 'err');
+    } finally {
+        setBusy(false);
+    }
+});
+
 btnClose.addEventListener('click', async () => {
     setBusy(true);
     setStatus('Closing...', null);

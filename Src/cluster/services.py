@@ -1430,6 +1430,22 @@ class ControllerServices:
         except queue.Empty:
             pass
 
+    def DetachApp(self) -> None:
+        """Detach from the currently attached window without killing the process."""
+        # Stop capture and clear attached handles, but do not terminate the process.
+        self.StopCapture()
+        with self._state_lock:
+            self._pid = 0
+            self._hwnd = 0
+
+        # Drain any queued control actions for the detached app.
+        try:
+            while True:
+                self._control_queue.get_nowait()
+                self._control_queue.task_done()
+        except queue.Empty:
+            pass
+
     def FocusApp(self, window_title: Optional[str] = None) -> None:
         target_title = str(window_title or "").strip()
         hwnd: HWND = 0
