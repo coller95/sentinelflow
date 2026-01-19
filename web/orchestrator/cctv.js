@@ -165,17 +165,24 @@ function _setClusterAttachedStatus(clusterUuid, attached) {
 
 function _applyAttachStateToElements(elements, attached) {
   if (!elements) return;
+  const canProxy = elements.canProxy !== undefined ? !!elements.canProxy : true;
   if (elements.attachStatusEl) {
     elements.attachStatusEl.textContent = attached ? 'attached' : 'detached';
   }
+  if (elements.launchBtn) {
+    elements.launchBtn.disabled = !canProxy || attached;
+  }
+  if (elements.attachBtn) {
+    elements.attachBtn.disabled = !canProxy || attached;
+  }
   if (elements.captureStartBtn) {
-    elements.captureStartBtn.disabled = !attached;
+    elements.captureStartBtn.disabled = !canProxy || !attached;
   }
   if (elements.captureStopBtn) {
-    elements.captureStopBtn.disabled = !attached;
+    elements.captureStopBtn.disabled = !canProxy || !attached;
   }
   if (elements.intervalInput) {
-    elements.intervalInput.disabled = !attached;
+    elements.intervalInput.disabled = !canProxy || !attached;
   }
 }
 
@@ -417,7 +424,7 @@ function _ensureCctvCards() {
     const launchBtn = document.createElement('button');
     launchBtn.type = 'button';
     launchBtn.textContent = 'Launch';
-    launchBtn.disabled = !canProxy;
+    launchBtn.disabled = !canProxy || attached;
     launchBtn.addEventListener('click', () => {
       const geometry = _geometryPayloadFromInputs(leftInput, topInput, widthInput, heightInput);
       _appLaunchCluster(cluster, appPathInput.value, geometry);
@@ -427,7 +434,7 @@ function _ensureCctvCards() {
     const attachBtn = document.createElement('button');
     attachBtn.type = 'button';
     attachBtn.textContent = 'Attach';
-    attachBtn.disabled = !canProxy;
+    attachBtn.disabled = !canProxy || attached;
     attachBtn.addEventListener('click', () => {
       const geometry = _geometryPayloadFromInputs(leftInput, topInput, widthInput, heightInput);
       _appAttachCluster(cluster, titleInput.value, geometry);
@@ -550,16 +557,22 @@ function _ensureCctvCards() {
       statusEl: status,
       pillEl: pill,
       attachStatusEl: attachStatus,
+      launchBtn: launchBtn,
+      attachBtn: attachBtn,
       captureStartBtn: captureStartBtn,
       captureStopBtn: captureStopBtn,
       intervalInput: intervalInput,
+      canProxy: canProxy,
     });
 
     _loadAppStatusForCluster(cluster, {
       attachStatusEl: attachStatus,
+      launchBtn: launchBtn,
+      attachBtn: attachBtn,
       captureStartBtn: captureStartBtn,
       captureStopBtn: captureStopBtn,
       intervalInput: intervalInput,
+      canProxy: canProxy,
     });
   }
 }

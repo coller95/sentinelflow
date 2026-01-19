@@ -522,7 +522,12 @@ def ServeIndex():
 @app.post("/api/app/launch")
 def LaunchApp(req: LaunchRequest):
     svc = _get_services()
-    svc.LaunchApp(req.app_path, left=req.left, top=req.top, width=req.width, height=req.height)
+    if svc.GetAppStatus().get("attached"):
+        raise HTTPException(status_code=409, detail="App already attached. Detach or close first.")
+    try:
+        svc.LaunchApp(req.app_path, left=req.left, top=req.top, width=req.width, height=req.height)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     _try_save_state(svc)
     return {"ok": True}
 
@@ -530,7 +535,12 @@ def LaunchApp(req: LaunchRequest):
 @app.post("/api/app/attach")
 def AttachApp(req: AttachRequest):
     svc = _get_services()
-    svc.AttachApp(req.window_title, left=req.left, top=req.top, width=req.width, height=req.height)
+    if svc.GetAppStatus().get("attached"):
+        raise HTTPException(status_code=409, detail="App already attached. Detach or close first.")
+    try:
+        svc.AttachApp(req.window_title, left=req.left, top=req.top, width=req.width, height=req.height)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     _try_save_state(svc)
     return {"ok": True}
 

@@ -1,8 +1,16 @@
+let _appBusy = false;
+
+function _applyAppControlState() {
+    const attached = !!globalThis._appAttached;
+    btnLaunch.disabled = _appBusy || attached;
+    btnAttach.disabled = _appBusy || attached;
+    btnDetach.disabled = _appBusy || !attached;
+    btnClose.disabled = _appBusy || !attached;
+}
+
 function setBusy(isBusy) {
-    btnLaunch.disabled = isBusy;
-    btnAttach.disabled = isBusy;
-    btnDetach.disabled = isBusy;
-    btnClose.disabled = isBusy;
+    _appBusy = !!isBusy;
+    _applyAppControlState();
 }
 
 function setStatus(message, kind) {

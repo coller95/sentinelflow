@@ -49,6 +49,9 @@ function setAppAttached(attached) {
     if (appAttachStatusEl) {
         appAttachStatusEl.value = _appAttached ? 'Attached' : 'Detached';
     }
+    if (typeof _applyAppControlState === 'function') {
+        _applyAppControlState();
+    }
     if (btnStartCapture) btnStartCapture.disabled = !_appAttached;
     if (btnStopCapture) btnStopCapture.disabled = !_appAttached;
     if (captureIntervalEl) captureIntervalEl.disabled = !_appAttached;
