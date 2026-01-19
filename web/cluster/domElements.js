@@ -10,6 +10,7 @@ const btnLaunch = document.getElementById('btnLaunch');
 const btnAttach = document.getElementById('btnAttach');
 const btnDetach = document.getElementById('btnDetach');
 const btnClose = document.getElementById('btnClose');
+const appAttachStatusEl = document.getElementById('appAttachStatus');
 const btnStartCapture = document.getElementById('btnStartCapture');
 const btnStopCapture = document.getElementById('btnStopCapture');
 const captureImage = document.getElementById('captureImage');

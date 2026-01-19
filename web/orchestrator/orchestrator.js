@@ -153,6 +153,7 @@ async function refreshClusters() {
     _cachedClusters = clusters;
     _dupCountByServerUuid = new Map();
     _appDefaultsCache = new Map();
+    _appStatusCache = new Map();
     for (const c of clusters) {
       const su = _serverUuidOf(c);
       if (!su) continue;

@@ -258,6 +258,12 @@ def GetAppDefaults() -> Dict[str, Any]:
     return svc.GetAppDefaults()
 
 
+@app.get("/api/app/status")
+def GetAppStatus() -> Dict[str, Any]:
+    svc = _get_services()
+    return svc.GetAppStatus()
+
+
 class AppDefaultsUpdateRequest(BaseModel):
     defaultAppPath: Optional[str] = None
     defaultWindowTitle: Optional[str] = None

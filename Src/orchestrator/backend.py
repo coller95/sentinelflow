@@ -1160,6 +1160,13 @@ async def ProxyAppDefaults(clusterUuid: UUID) -> Any:
     return await _proxy_json("GET", base, "/api/app/defaults")
 
 
+@app.get("/api/orchestrator/clusters/{clusterUuid}/app/status")
+async def ProxyAppStatus(clusterUuid: UUID) -> Any:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    return await _proxy_json("GET", base, "/api/app/status")
+
+
 @app.post("/api/orchestrator/clusters/{clusterUuid}/app/launch")
 async def ProxyAppLaunch(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
     svc = _get_services()

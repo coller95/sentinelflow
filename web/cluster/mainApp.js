@@ -42,6 +42,29 @@ let _lastSavedAppDefaults = {
     defaultWindowHeight: null
 };
 
+let _appAttached = false;
+
+function setAppAttached(attached) {
+    _appAttached = !!attached;
+    if (appAttachStatusEl) {
+        appAttachStatusEl.value = _appAttached ? 'Attached' : 'Detached';
+    }
+    if (btnStartCapture) btnStartCapture.disabled = !_appAttached;
+    if (btnStopCapture) btnStopCapture.disabled = !_appAttached;
+    if (captureIntervalEl) captureIntervalEl.disabled = !_appAttached;
+    if (btnSendClick) btnSendClick.disabled = !_appAttached;
+    if (btnSendKey) btnSendKey.disabled = !_appAttached;
+    if (clickXEl) clickXEl.disabled = !_appAttached;
+    if (clickYEl) clickYEl.disabled = !_appAttached;
+    if (keyNameEl) keyNameEl.disabled = !_appAttached;
+    if (inputInstantClickEl) inputInstantClickEl.disabled = !_appAttached;
+}
+
+async function refreshAppStatus() {
+    const status = await getJson('/api/app/status');
+    setAppAttached(!!(status && status.attached));
+}
+
 function _readIntInput(el) {
     const raw = (el && el.value ? String(el.value) : '').trim();
     if (!raw) return null;
@@ -119,6 +142,7 @@ btnLaunch.addEventListener('click', async () => {
         const geo = readWindowGeometry();
         await postJson('/api/app/launch', { app_path, ...geo });
         setStatus('Launch OK.', 'ok');
+        refreshAppStatus().catch(() => {});
     } catch (e) {
         setStatus(`Launch failed: ${e.message}`, 'err');
     } finally {
@@ -138,6 +162,7 @@ btnAttach.addEventListener('click', async () => {
         const geo = readWindowGeometry();
         await postJson('/api/app/attach', { window_title, ...geo });
         setStatus('Attach OK.', 'ok');
+        refreshAppStatus().catch(() => {});
     } catch (e) {
         setStatus(`Attach failed: ${e.message}`, 'err');
     } finally {
@@ -151,6 +176,9 @@ btnDetach.addEventListener('click', async () => {
     try {
         await postJson('/api/app/detach');
         setStatus('Detach OK.', 'ok');
+        stopEventSource();
+        captureImage.removeAttribute('src');
+        setAppAttached(false);
     } catch (e) {
         setStatus(`Detach failed: ${e.message}`, 'err');
     } finally {
@@ -164,6 +192,9 @@ btnClose.addEventListener('click', async () => {
     try {
         await postJson('/api/app/close');
         setStatus('Close OK.', 'ok');
+        stopEventSource();
+        captureImage.removeAttribute('src');
+        setAppAttached(false);
     } catch (e) {
         setStatus(`Close failed: ${e.message}`, 'err');
     } finally {
@@ -334,6 +365,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     tryLoadAppDefaults();
     _lastSavedAppDefaults = _readAppDefaultsFromInputs();
+    setAppAttached(false);
+    refreshAppStatus().catch(() => {});
     if (appPathEl) {
         appPathEl.addEventListener('input', queueAppDefaultsSave);
         appPathEl.addEventListener('change', queueAppDefaultsSave);

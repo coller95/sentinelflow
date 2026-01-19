@@ -9,6 +9,9 @@ async function _appLaunchCluster(cluster, appPath, geometry) {
   try {
     await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/app/launch', { app_path, ...payload });
     _setManageStatus(`App launched on ${_clusterLabel(cluster)}.`);
+    if (typeof _refreshClusterAppStatus === 'function') {
+      await _refreshClusterAppStatus(cluster);
+    }
   } catch (err) {
     _setManageStatus(`Launch failed: ${err?.message ?? err}`);
   }
@@ -25,6 +28,9 @@ async function _appAttachCluster(cluster, windowTitle, geometry) {
   try {
     await _postProxy(cu, '/api/orchestrator/clusters/{uuid}/app/attach', { window_title, ...payload });
     _setManageStatus(`App attached on ${_clusterLabel(cluster)}.`);
+    if (typeof _refreshClusterAppStatus === 'function') {
+      await _refreshClusterAppStatus(cluster);
+    }
   } catch (err) {
     _setManageStatus(`Attach failed: ${err?.message ?? err}`);
   }
@@ -50,7 +56,22 @@ async function _appDetachCluster(cluster) {
   _setManageStatus(`Detaching app on ${_clusterLabel(cluster)}...`);
   try {
     await _postJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/app/detach`, {});
+    if (typeof _closeCctvStream === 'function') {
+      _closeCctvStream(cu);
+    }
+    if (typeof _updateCctvCardState === 'function') {
+      _updateCctvCardState(cu, 'stopped', 'detached');
+    }
+    if (typeof _setCctvAttachUi === 'function') {
+      _setCctvAttachUi(cu, false);
+    } else if (typeof _setClusterAttachedStatus === 'function') {
+      _setClusterAttachedStatus(cu, false);
+    }
+    if (typeof _clearCctvPreview === 'function') {
+      _clearCctvPreview(cu);
+    }
     _setManageStatus(`App detached on ${_clusterLabel(cluster)}.`);
+    await refreshClusters();
   } catch (err) {
     _setManageStatus(`Detach failed: ${err?.message ?? err}`);
   }

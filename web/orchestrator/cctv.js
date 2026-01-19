@@ -148,6 +148,54 @@ function _cctvPillInfo(state) {
   }
 }
 
+function _isClusterAttached(cluster) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu) return false;
+  const status = _appStatusCache.get(cu);
+  return !!(status && status.attached);
+}
+
+function _setClusterAttachedStatus(clusterUuid, attached) {
+  const cu = String(clusterUuid ?? '').trim();
+  if (!cu) return;
+  const status = _appStatusCache.get(cu) || {};
+  status.attached = !!attached;
+  _appStatusCache.set(cu, status);
+}
+
+function _applyAttachStateToElements(elements, attached) {
+  if (!elements) return;
+  if (elements.attachStatusEl) {
+    elements.attachStatusEl.textContent = attached ? 'attached' : 'detached';
+  }
+  if (elements.captureStartBtn) {
+    elements.captureStartBtn.disabled = !attached;
+  }
+  if (elements.captureStopBtn) {
+    elements.captureStopBtn.disabled = !attached;
+  }
+  if (elements.intervalInput) {
+    elements.intervalInput.disabled = !attached;
+  }
+}
+
+function _setCctvAttachUi(clusterUuid, attached) {
+  const cu = String(clusterUuid ?? '').trim();
+  if (!cu) return;
+  _setClusterAttachedStatus(cu, attached);
+  const entry = _cctvCards.get(cu);
+  _applyAttachStateToElements(entry, !!attached);
+}
+
+function _clearCctvPreview(clusterUuid) {
+  const cu = String(clusterUuid ?? '').trim();
+  if (!cu) return;
+  const entry = _cctvCards.get(cu);
+  if (entry && entry.imgEl) {
+    entry.imgEl.removeAttribute('src');
+  }
+}
+
 function _intervalSecondsFromInput(el, fallback = 0.5) {
   const raw = String(el?.value || '').trim();
   const n = Number(raw);
@@ -185,6 +233,7 @@ async function _sendCctvClick(cluster, imgEl, ev) {
   if (!cu) return;
   if (!cluster?.baseUrl) return _setManageStatus('Cluster baseUrl is not set.');
   if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
+  if (!_isClusterAttached(cluster)) return _setManageStatus('Cluster app is not attached.');
 
   const norm = _computeImageNormalized(imgEl, ev);
   if (!norm) return;
@@ -199,6 +248,27 @@ async function _sendCctvClick(cluster, imgEl, ev) {
   } catch (err) {
     _setManageStatus(`Click failed: ${err?.message ?? err}`);
   }
+}
+
+async function _loadAppStatusForCluster(cluster, elements) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu || !cluster?.baseUrl || _isDuplicateCluster(cluster)) return;
+  try {
+    const data = await _getJson(`/api/orchestrator/clusters/${encodeURIComponent(cu)}/app/status`);
+    const attached = !!(data && data.attached);
+    _setClusterAttachedStatus(cu, attached);
+    const entry = elements || _cctvCards.get(cu);
+    _applyAttachStateToElements(entry, attached);
+  } catch (err) {
+    // Best-effort; leave existing state.
+  }
+}
+
+function _refreshClusterAppStatus(cluster) {
+  const cu = String(cluster?.uuid ?? '').trim();
+  if (!cu) return;
+  const entry = _cctvCards.get(cu);
+  return _loadAppStatusForCluster(cluster, entry);
 }
 
 function _ensureCctvCards() {
@@ -286,6 +356,11 @@ function _ensureCctvCards() {
     const status = document.createElement('div');
     status.className = 'cctvMeta';
     status.textContent = pillInfo.text;
+
+    const attached = _isClusterAttached(cluster);
+    const attachStatus = document.createElement('div');
+    attachStatus.className = 'cctvMeta';
+    attachStatus.textContent = attached ? 'attached' : 'detached';
 
     const controls = document.createElement('div');
     controls.className = 'cctvControls';
@@ -422,7 +497,7 @@ function _ensureCctvCards() {
     const captureStartBtn = document.createElement('button');
     captureStartBtn.type = 'button';
     captureStartBtn.textContent = 'Start Capture';
-    captureStartBtn.disabled = !canProxy;
+    captureStartBtn.disabled = !canProxy || !attached;
     captureStartBtn.addEventListener('click', () => {
       const interval = _intervalSecondsFromInput(intervalInput, 0.5);
       _captureStartCluster(cluster, interval);
@@ -432,11 +507,13 @@ function _ensureCctvCards() {
     const captureStopBtn = document.createElement('button');
     captureStopBtn.type = 'button';
     captureStopBtn.textContent = 'Stop Capture';
-    captureStopBtn.disabled = !canProxy;
+    captureStopBtn.disabled = !canProxy || !attached;
     captureStopBtn.addEventListener('click', () => _captureStopCluster(cluster));
     captureRow.appendChild(captureStopBtn);
 
-    for (const el of [appPathInput, titleInput, leftInput, topInput, widthInput, heightInput, intervalInput]) {
+    intervalInput.disabled = !canProxy || !attached;
+
+    for (const el of [appPathInput, titleInput, leftInput, topInput, widthInput, heightInput]) {
       if (!el) continue;
       el.disabled = !canProxy;
     }
@@ -463,6 +540,7 @@ function _ensureCctvCards() {
     card.appendChild(meta);
     card.appendChild(img);
     card.appendChild(status);
+    card.appendChild(attachStatus);
     card.appendChild(controls);
     card.appendChild(manage);
 
@@ -471,6 +549,17 @@ function _ensureCctvCards() {
       imgEl: img,
       statusEl: status,
       pillEl: pill,
+      attachStatusEl: attachStatus,
+      captureStartBtn: captureStartBtn,
+      captureStopBtn: captureStopBtn,
+      intervalInput: intervalInput,
+    });
+
+    _loadAppStatusForCluster(cluster, {
+      attachStatusEl: attachStatus,
+      captureStartBtn: captureStartBtn,
+      captureStopBtn: captureStopBtn,
+      intervalInput: intervalInput,
     });
   }
 }
@@ -522,6 +611,7 @@ async function _captureStartCluster(cluster, intervalSeconds) {
   if (!cu) return _setManageStatus('Select a cluster first.');
   if (!cluster?.baseUrl) return _setManageStatus('Cluster baseUrl is not set.');
   if (_isDuplicateCluster(cluster)) return _setManageStatus('Duplicate cluster UUID detected.');
+  if (!_isClusterAttached(cluster)) return _setManageStatus('Cluster app is not attached.');
   const interval = Math.max(0.1, Number(intervalSeconds) || 0.5);
   _setManageStatus(`Starting capture on ${_clusterLabel(cluster)}...`);
   try {

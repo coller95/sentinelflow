@@ -204,6 +204,19 @@ class ControllerServices:
             self._server_uuid = uuid4()
             return self._server_uuid
 
+    def GetAppStatus(self) -> Dict[str, Any]:
+        with self._state_lock:
+            attached = bool(self._hwnd)
+            pid = int(self._pid) if self._pid else None
+            hwnd = int(self._hwnd) if self._hwnd else None
+            return {
+                "attached": attached,
+                "pid": pid,
+                "hwnd": hwnd,
+                "defaultAppPath": str(self._default_app_path or ""),
+                "defaultWindowTitle": str(self._default_window_title or ""),
+            }
+
     def GetAppDefaults(self) -> Dict[str, Any]:
         with self._state_lock:
             return {

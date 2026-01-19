@@ -237,6 +237,7 @@ These map directly to the cluster server endpoints:
 - `POST {baseUrl}/api/app/attach`
 - `POST {baseUrl}/api/app/close`
 - `POST {baseUrl}/api/app/detach`
+- `GET  {baseUrl}/api/app/status`
 
 #### `POST /api/orchestrator/clusters/{clusterUuid}/app/launch`
 
@@ -270,6 +271,16 @@ Response:
 
 ```json
 { "ok": true }
+```
+
+#### `GET /api/orchestrator/clusters/{clusterUuid}/app/status`
+
+Returns attachment status for the cluster.
+
+Response:
+
+```json
+{ "attached": true, "pid": 1234, "hwnd": 5678, "defaultAppPath": "...", "defaultWindowTitle": "..." }
 ```
 
 ### App defaults (query path / program name)
@@ -654,6 +665,16 @@ Response:
 
 ```json
 { "ok": true }
+```
+
+### `GET /api/app/status`
+
+Returns whether a window is attached.
+
+Response:
+
+```json
+{ "attached": true, "pid": 1234, "hwnd": 5678, "defaultAppPath": "...", "defaultWindowTitle": "..." }
 ```
 
 ## Capture (Frames)
