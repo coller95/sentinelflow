@@ -14,6 +14,7 @@ class ClusterRecord:
     label: str
     baseUrl: Optional[str]
     commissionedAtUnix: float
+    lastSeenUnix: Optional[float] = None
     decommissionedAtUnix: Optional[float] = None
 
 
@@ -136,6 +137,7 @@ class OrchestratorServices:
                     label=existing.label,
                     baseUrl=existing.baseUrl,
                     commissionedAtUnix=existing.commissionedAtUnix,
+                    lastSeenUnix=existing.lastSeenUnix,
                     decommissionedAtUnix=existing.decommissionedAtUnix,
                 )
                 self._clusters[old_uuid] = existing
@@ -149,6 +151,7 @@ class OrchestratorServices:
                 label=existing.label,
                 baseUrl=existing.baseUrl,
                 commissionedAtUnix=existing.commissionedAtUnix,
+                lastSeenUnix=existing.lastSeenUnix,
                 decommissionedAtUnix=existing.decommissionedAtUnix,
             )
         else:
@@ -164,6 +167,7 @@ class OrchestratorServices:
                 label=merged_label,
                 baseUrl=merged_base,
                 commissionedAtUnix=merged_commissioned,
+                lastSeenUnix=target.lastSeenUnix or existing.lastSeenUnix,
                 decommissionedAtUnix=merged_decommissioned,
             )
 
@@ -195,6 +199,7 @@ class OrchestratorServices:
                     label=clean_label,
                     baseUrl=clean_base,
                     commissionedAtUnix=existing.commissionedAtUnix,
+                    lastSeenUnix=existing.lastSeenUnix,
                     decommissionedAtUnix=None,
                 )
             else:
@@ -204,6 +209,7 @@ class OrchestratorServices:
                     label=clean_label,
                     baseUrl=clean_base,
                     commissionedAtUnix=now,
+                    lastSeenUnix=None,
                     decommissionedAtUnix=None,
                 )
             self._clusters[record.uuid] = record
@@ -229,6 +235,7 @@ class OrchestratorServices:
                 label=clean_label,
                 baseUrl=clean_base,
                 commissionedAtUnix=existing.commissionedAtUnix,
+                lastSeenUnix=existing.lastSeenUnix,
                 decommissionedAtUnix=existing.decommissionedAtUnix,
             )
             self._clusters[clusterUuid] = record
@@ -237,6 +244,23 @@ class OrchestratorServices:
     def UpdateClusterServerUuid(self, clusterUuid: UUID, serverUuid: UUID) -> ClusterRecord:
         with self._lock:
             return self._rekey_cluster_locked(clusterUuid, serverUuid)
+
+    def UpdateClusterLastSeen(self, clusterUuid: UUID, timestamp: float) -> Optional[ClusterRecord]:
+        with self._lock:
+            existing = self._clusters.get(clusterUuid)
+            if existing is None:
+                return None
+            record = ClusterRecord(
+                uuid=existing.uuid,
+                serverUuid=existing.serverUuid,
+                label=existing.label,
+                baseUrl=existing.baseUrl,
+                commissionedAtUnix=existing.commissionedAtUnix,
+                lastSeenUnix=timestamp,
+                decommissionedAtUnix=existing.decommissionedAtUnix,
+            )
+            self._clusters[clusterUuid] = record
+            return record
 
     def UpdateClustersServerUuidByBaseUrl(self, baseUrl: str, serverUuid: UUID) -> List[ClusterRecord]:
         clean_base = (baseUrl or "").strip()
@@ -265,6 +289,7 @@ class OrchestratorServices:
                 label=existing.label,
                 baseUrl=existing.baseUrl,
                 commissionedAtUnix=existing.commissionedAtUnix,
+                lastSeenUnix=existing.lastSeenUnix,
                 decommissionedAtUnix=now,
             )
             self._clusters[clusterUuid] = record
@@ -635,6 +660,7 @@ class OrchestratorServices:
                     "label": c.label,
                     "baseUrl": c.baseUrl,
                     "commissionedAtUnix": float(c.commissionedAtUnix),
+                    "lastSeenUnix": (None if c.lastSeenUnix is None else float(c.lastSeenUnix)),
                     "decommissionedAtUnix": (None if c.decommissionedAtUnix is None else float(c.decommissionedAtUnix)),
                 }
                 for c in clusters
@@ -770,6 +796,7 @@ class OrchestratorServices:
                     label=label,
                     baseUrl=base_url,
                     commissionedAtUnix=commissioned_at if commissioned_at > 0 else float(time.time()),
+                    lastSeenUnix=float(item.get("lastSeenUnix", 0)) if item.get("lastSeenUnix") else None,
                     decommissionedAtUnix=decomm_at,
                 )
                 if cu is not None:

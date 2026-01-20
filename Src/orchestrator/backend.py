@@ -39,6 +39,79 @@ from .utils import (
 
 app = FastAPI()
 
+httpx_async_client: Optional[httpx.AsyncClient] = None
+_cluster_monitor_task: Optional[asyncio.Task] = None
+
+@app.on_event("startup")
+async def startup_event():
+    global httpx_async_client, _cluster_monitor_task
+    # Use limits that allow for higher concurrency if needed
+    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+    timeout = httpx.Timeout(connect=3.0, read=20.0, write=20.0, pool=5.0)
+    httpx_async_client = httpx.AsyncClient(limits=limits, timeout=timeout)
+    _cluster_monitor_task = asyncio.create_task(_monitor_clusters())
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    global httpx_async_client, _cluster_monitor_task
+    if _cluster_monitor_task:
+        _cluster_monitor_task.cancel()
+        try:
+            await _cluster_monitor_task
+        except asyncio.CancelledError:
+            pass
+    if httpx_async_client:
+        await httpx_async_client.aclose()
+
+
+async def _monitor_clusters():
+    """Background task to poll clusters for health/online status."""
+    while True:
+        try:
+            # We must wait for services to be initialized purely by side-effect or check
+            # but _get_services() handles lazy init.
+            # However, app.state might not be ready in the very first tick?
+            # It's safer to wait a bit or handle errors.
+            await asyncio.sleep(5)
+            
+            svc = _get_services()
+            clusters = svc.ListClusters(includeDecommissioned=False)
+            
+            # Simple serial poll (or parallel if we want)
+            # Since we have a global client, we can do parallel requests easily.
+            tasks = []
+            for c in clusters:
+                base = (c.baseUrl or "").strip()
+                if not base:
+                    continue
+                if not (base.startswith("http://") or base.startswith("https://")):
+                    base = "http://" + base
+                if not base.endswith("/"):
+                    base += "/"
+                
+                url = urljoin(base, "api/server/info")
+                tasks.append(_check_cluster_health(svc, c.uuid, url))
+            
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[_monitor_clusters] error: {e}")
+            await asyncio.sleep(5)
+
+async def _check_cluster_health(svc: OrchestratorServices, cluster_uuid: UUID, url: str):
+    global httpx_async_client
+    if not httpx_async_client:
+        return
+    try:
+        resp = await httpx_async_client.get(url)
+        if resp.status_code == 200:
+            svc.UpdateClusterLastSeen(cluster_uuid, time.time())
+    except Exception:
+        pass
+
 
 
 # -----------------------------------------------------------------------------
@@ -145,12 +218,15 @@ def _require_cluster_base_url(
 
 async def _proxy_json(method: str, baseUrl: str, path: str, body: Optional[Dict[str, Any]] = None) -> Any:
     url = urljoin(baseUrl, path.lstrip("/"))
-    timeout = httpx.Timeout(connect=3.0, read=20.0, write=10.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            res = await client.request(method.upper(), url, json=body)
-        except httpx.RequestError as exc:
-            raise HTTPException(status_code=502, detail=f"cluster request failed: {exc}")
+    try:
+        global httpx_async_client
+        if httpx_async_client:
+             res = await httpx_async_client.request(method.upper(), url, json=body)
+        else:
+             async with httpx.AsyncClient(timeout=30.0) as client:
+                 res = await client.request(method.upper(), url, json=body)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"cluster request failed: {exc}")
 
     content_type = res.headers.get("content-type", "")
     if res.status_code >= 400:
@@ -182,12 +258,15 @@ async def _proxy_json(method: str, baseUrl: str, path: str, body: Optional[Dict[
 
 async def _proxy_bytes(method: str, baseUrl: str, path: str) -> Response:
     url = urljoin(baseUrl, path.lstrip("/"))
-    timeout = httpx.Timeout(connect=3.0, read=20.0, write=10.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            res = await client.request(method.upper(), url)
-        except httpx.RequestError as exc:
-            raise HTTPException(status_code=502, detail=f"cluster request failed: {exc}")
+    try:
+        global httpx_async_client
+        if httpx_async_client:
+            res = await httpx_async_client.request(method.upper(), url)
+        else:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.request(method.upper(), url)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"cluster request failed: {exc}")
 
     if res.status_code >= 400:
         content_type = res.headers.get("content-type", "")
@@ -256,6 +335,19 @@ def GetOrchestratorInfo() -> Dict[str, Any]:
 
 
 
+
+
+def _to_dto(record: Any, duplicate_count: int = 0) -> ClusterItemDto:
+    return ClusterItemDto(
+        uuid=str(record.uuid),
+        serverUuid=str(record.serverUuid),
+        label=record.label,
+        baseUrl=record.baseUrl,
+        commissionedAtUnix=float(record.commissionedAtUnix),
+        decommissionedAtUnix=(None if record.decommissionedAtUnix is None else float(record.decommissionedAtUnix)),
+        duplicateCount=int(duplicate_count),
+        isDuplicate=bool(duplicate_count > 1),
+    )
 
 
 def _duplicate_server_uuid_counts(clusters: list[Any]) -> Dict[UUID, int]:
@@ -332,39 +424,6 @@ async def CommissionClusterFromUrl(req: CommissionClusterFromUrlRequest) -> Dict
 async def ListClusters(includeDecommissioned: bool = False, refreshServerUuid: bool = True) -> Dict[str, Any]:
     svc = _get_services()
     clusters = svc.ListClusters(includeDecommissioned=bool(includeDecommissioned))
-
-    if bool(refreshServerUuid):
-        base_to_clusters: Dict[str, List[Any]] = {}
-        for c in clusters:
-            if getattr(c, "decommissionedAtUnix", None) is not None:
-                continue
-            base = str(getattr(c, "baseUrl", "") or "").strip()
-            if not base:
-                continue
-            if not (base.startswith("http://") or base.startswith("https://")):
-                base = "http://" + base
-            base_to_clusters.setdefault(base, []).append(c)
-
-        tasks: List[asyncio.Task[Any]] = []
-        bases: List[str] = []
-        for base in base_to_clusters.keys():
-            bases.append(base)
-            tasks.append(asyncio.create_task(_proxy_json("GET", base, "/api/server/info")))
-
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for base, res in zip(bases, results):
-                if isinstance(res, Exception):
-                    continue
-                if not isinstance(res, dict) or "serverUuid" not in res:
-                    continue
-                try:
-                    new_uuid = UUID(str(res.get("serverUuid") or "").strip())
-                except Exception:
-                    continue
-                svc.UpdateClustersServerUuidByBaseUrl(base, new_uuid)
-
-            clusters = svc.ListClusters(includeDecommissioned=bool(includeDecommissioned))
 
     dup_counts = _duplicate_server_uuid_counts(clusters)
     return {"clusters": [_to_dto(c, dup_counts.get(c.uuid, 0)).model_dump() for c in clusters]}
@@ -795,12 +854,15 @@ async def _fetch_cluster_latest_frame(svc: OrchestratorServices, clusterUuid: UU
         return None
 
     url = urljoin(base, "/api/capture/latest?fmt=png")
-    timeout = httpx.Timeout(connect=3.0, read=10.0, write=10.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            res = await client.get(url)
-        except httpx.RequestError:
-            return None
+    try:
+        global httpx_async_client
+        if httpx_async_client:
+            res = await httpx_async_client.get(url)
+        else:
+             async with httpx.AsyncClient(timeout=10.0) as client:
+                 res = await client.get(url)
+    except httpx.RequestError:
+        return None
     if res.status_code >= 400:
         return None
     arr = np.frombuffer(res.content, dtype=np.uint8)

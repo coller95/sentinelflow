@@ -849,16 +849,11 @@ class ControllerServices:
 
         while True:
             try:
-                # Clear stale errors after we successfully enter the loop.
+                # Batch all state reads under one lock for reduced contention.
                 with self._state_lock:
                     self._trigger_last_error = None
-
-                with self._state_lock:
                     interval = float(self._trigger_interval_seconds)
                     triggers = list(self._triggerItemList.values())
-
-                # Snapshot condition names.
-                with self._state_lock:
                     cond_name_by_uuid: Dict[UUID, str] = {k: v.name for k, v in self._conditionItemList.items()}
 
                 # Snapshot last values by condition UUID.
@@ -1323,22 +1318,21 @@ class ControllerServices:
         pixelW = max(1, min(pixelW, imageWidth - pixelX))
         pixelH = max(1, min(pixelH, imageHeight - pixelY))
 
-        return frame[pixelY : pixelY + pixelH, pixelX : pixelX + pixelW].copy()
+        # Return a view (no copy) since callers use this read-only.
+        return frame[pixelY : pixelY + pixelH, pixelX : pixelX + pixelW]
 
     def _condition_status_worker(self) -> None:
         while True:
+            # Batch state reads under one lock for reduced contention.
             with self._state_lock:
                 interval = float(self._condition_status_interval_seconds)
+                items = list(self._conditionItemList.values())
             if interval <= 0:
                 interval = 0.5
 
-            # Snapshot conditions.
-            with self._state_lock:
-                items = list(self._conditionItemList.values())
-
-            # Snapshot latest capture.
+            # Snapshot latest capture (read-only reference, no copy needed).
             with self._capture_lock:
-                frame = self._latest_capture.copy() if self._latest_capture is not None else None
+                frame = self._latest_capture
 
             snapshots: List[ConditionStatusSnapshot] = []
 
@@ -1588,11 +1582,9 @@ class ControllerServices:
         self._capture_enabled_event.clear()
 
     def GetLatestCapture(self) -> Optional[NDArray[np.uint8]]:
+        """Return the latest captured frame (read-only; do not mutate)."""
         with self._capture_lock:
-            if self._latest_capture is None:
-                return None
-            # Defensive copy so callers can't mutate internal state.
-            return self._latest_capture.copy()
+            return self._latest_capture
 
     def GetCaptureSequence(self) -> int:
         with self._capture_lock:
