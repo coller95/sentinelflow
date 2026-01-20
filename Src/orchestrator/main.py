@@ -3,14 +3,13 @@
 Runs the centralized SentinelFlow orchestrator API that keeps track of cluster nodes
 by UUID and human label.
 
-Tech stack matches the cluster server: FastAPI + Uvicorn.
+Tech stack matches the cluster server: FastAPI + Hypercorn.
 """
 
 import os
 import sys
 from pathlib import Path
-
-import uvicorn
+from typing import Any, cast
 
 # Ensure project root is on sys.path so `import Src.*` works regardless of CWD.
 _PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
@@ -34,8 +33,16 @@ def main() -> int:
     app.state.services = svc
 
     port = int(os.getenv("SENTINELFLOW_ORCH_PORT", os.getenv("PORT", "8010")))
-    print(f"[orchestrator] UI: http://127.0.0.1:{port}/")
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+
+    print(f"[orchestrator] Starting server on port {port}...")
+    import asyncio
+    from hypercorn.config import Config  # type: ignore
+    from hypercorn.asyncio import serve  # type: ignore
+
+    config = Config()
+    config.bind = [f"0.0.0.0:{port}"]
+    asyncio.run(cast(Any, serve)(cast(Any, app), config))
+
     return 0
 
 

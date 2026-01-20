@@ -1,0 +1,7 @@
+{
+  "include": ["Src"],
+  "stubPath": "typings",
+  "typeCheckingMode": "strict",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false
+}

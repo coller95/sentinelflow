@@ -1,9 +1,7 @@
-PySide6
+numpy
 opencv-python
-pyautogui
-pywin32
-pillow
-EasyOCR 
+pywin32; sys_platform == 'win32'
 fastapi
 uvicorn[standard]
+hypercorn
 httpx

@@ -1,5 +1,4 @@
 from enum import Enum, auto
-import base64
 import json
 import queue
 import threading
@@ -12,8 +11,15 @@ from uuid import UUID, uuid4
 import numpy as np
 from numpy.typing import NDArray
 
-from .helper import *
+from Src.domain.interfaces import (
+    IWindowManager,
+    IScreenCapturer,
+    IInputController,
+    IComputerVision,
+)
 
+# We need to map our internal ConditionRoi to the interface's tuple or just use the dataclass
+# The interface uses Tuple[float, float, float, float].
 
 @dataclass(frozen=True)
 class _ControlAction:
@@ -29,6 +35,9 @@ class ConditionRoi:
     widthNormalized: float
     heightNormalized: float
 
+    def to_tuple(self) -> Any:
+        return (self.xNormalized, self.yNormalized, self.widthNormalized, self.heightNormalized)
+
 
 class ConditionType(Enum):
     ImageMatchRoi = auto()
@@ -41,7 +50,7 @@ class ConditionItem:
     name: str
     roi: ConditionRoi
     type: ConditionType
-    templateImage: Optional[np.ndarray[Any, Any]] = None
+    templateImage: Optional[NDArray[np.uint8]] = None
 
 
 @dataclass(frozen=True)
@@ -99,7 +108,21 @@ class TriggerItem:
     criteriaMode: TriggerCriteriaMode = TriggerCriteriaMode.All
 
 class ControllerServices:
-    def __init__(self):
+    def __init__(
+        self,
+        window_manager: IWindowManager,
+        screen_capturer: IScreenCapturer,
+        input_controller: IInputController,
+        computer_vision: IComputerVision,
+    ):
+        if not window_manager or not screen_capturer or not input_controller or not computer_vision:
+             raise ValueError("All dependencies (adapters) must be provided to ControllerServices.")
+
+        self._window_manager = window_manager
+        self._screen_capturer = screen_capturer
+        self._input_controller = input_controller
+        self._computer_vision = computer_vision
+
         # Stable server identity for future centralized orchestration.
         # Persisted in state.json. Generated once if missing.
         self._server_uuid: UUID = uuid4()
@@ -112,8 +135,8 @@ class ControllerServices:
         self._default_window_width: int = 640
         self._default_window_height: int = 480
 
-        self._pid: PID = 0
-        self._hwnd: HWND = 0
+        self._pid: int = 0
+        self._hwnd: Any = 0
 
         self._state_lock = threading.Lock()
 
@@ -288,15 +311,11 @@ class ControllerServices:
             actions = list(self._actionItemList.values())
             triggers = list(self._triggerItemList.values())
 
-        def encode_png_b64(img: Optional[np.ndarray[Any, Any]]) -> Optional[str]:
+        # Use injected CV adapter
+        def encode_png_b64(img: Optional[Any]) -> Optional[str]:
             if img is None:
                 return None
-            if getattr(img, "size", 0) == 0:
-                return None
-            ok, encoded = cv2.imencode(".png", img)
-            if not ok:
-                return None
-            return base64.b64encode(encoded.tobytes()).decode("ascii")
+            return self._computer_vision.encode_image_to_b64(img)
 
         data: Dict[str, Any] = {
             "version": 1,
@@ -425,21 +444,8 @@ class ControllerServices:
                 parsed_uuid = None
             new_server_uuid = parsed_uuid if parsed_uuid is not None else uuid4()
 
-        def decode_png_b64(b64: Optional[str]) -> Optional[NDArray[np.uint8]]:
-            raw_b64 = (b64 or "").strip()
-            if not raw_b64:
-                return None
-            if "," in raw_b64:
-                raw_b64 = raw_b64.split(",", 1)[1]
-            try:
-                binary = base64.b64decode(raw_b64, validate=True)
-            except Exception:
-                return None
-            arr = np.frombuffer(binary, dtype=np.uint8)
-            decoded = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-            if decoded is None:
-                return None
-            return cast(NDArray[np.uint8], decoded)
+        def decode_png_b64(b64: Optional[str]) -> Optional[Any]:
+             return self._computer_vision.decode_image_from_b64(b64 or "")
 
         cond_list: Any = obj.get("conditions", [])
         act_list: Any = obj.get("actions", [])
@@ -1199,7 +1205,7 @@ class ControllerServices:
         name: str,
         roi: ConditionRoi,
         type: ConditionType,
-        templateImage: Optional[np.ndarray[Any, Any]] = None,
+        templateImage: Optional[Any] = None,
     ) -> ConditionItem:
         new_item = ConditionItem(uuid=uuid4(), name=name, roi=roi, type=type, templateImage=templateImage)
         self.AddConditionItem(new_item)
@@ -1281,10 +1287,19 @@ class ControllerServices:
 
             raise ValueError("direction must be 'up' or 'down'")
 
-    def _encode_thumb_b64(self, img: np.ndarray[Any, Any], maxSize: int = 64) -> Optional[str]:
-        if getattr(img, "size", 0) == 0:
+    def _encode_thumb_b64(self, img: Any, maxSize: int = 64) -> Optional[str]:
+        if img is None:
             return None
-        h, w = img.shape[:2]
+        # We need to get width/height.
+        # Since we use numpy array as Image, we can check shape.
+        # But to be clean we should probably expose "get_size" in interface,
+        # or just assume numpy since Services uses numpy heavily.
+        # Services.py is domain logic, but it's tied to numpy data structures.
+        try:
+            h, w = img.shape[:2]
+        except AttributeError:
+             return None
+
         if h <= 0 or w <= 0:
             return None
 
@@ -1293,33 +1308,9 @@ class ControllerServices:
         if scale < 1.0:
             new_w = max(1, int(round(w * scale)))
             new_h = max(1, int(round(h * scale)))
-            out = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            out = self._computer_vision.resize_image(img, new_w, new_h)
 
-        ok, encoded = cv2.imencode(".jpg", out)
-        if not ok:
-            return None
-        return base64.b64encode(encoded.tobytes()).decode("ascii")
-
-    def _crop_frame(self, frame: NDArray[np.uint8], roi: ConditionRoi) -> NDArray[np.uint8]:
-        imageHeight, imageWidth = frame.shape[:2]
-
-        x = float(max(0.0, min(1.0, roi.xNormalized)))
-        y = float(max(0.0, min(1.0, roi.yNormalized)))
-        rw = float(max(0.0, min(1.0, roi.widthNormalized)))
-        rh = float(max(0.0, min(1.0, roi.heightNormalized)))
-
-        pixelX = int(x * imageWidth)
-        pixelY = int(y * imageHeight)
-        pixelW = int(rw * imageWidth)
-        pixelH = int(rh * imageHeight)
-
-        pixelX = max(0, min(pixelX, imageWidth - 1))
-        pixelY = max(0, min(pixelY, imageHeight - 1))
-        pixelW = max(1, min(pixelW, imageWidth - pixelX))
-        pixelH = max(1, min(pixelH, imageHeight - pixelY))
-
-        # Return a view (no copy) since callers use this read-only.
-        return frame[pixelY : pixelY + pixelH, pixelX : pixelX + pixelW]
+        return self._computer_vision.encode_image_to_b64(out)
 
     def _condition_status_worker(self) -> None:
         while True:
@@ -1344,14 +1335,14 @@ class ControllerServices:
 
                 if frame is not None:
                     try:
-                        crop = self._crop_frame(frame, item.roi)
+                        crop = self._computer_vision.crop_image(frame, item.roi.to_tuple())
                         crop_thumb = self._encode_thumb_b64(crop)
 
                         if item.type == ConditionType.ImageMatchRoi:
                             if item.templateImage is not None:
-                                last = float(MatchTemplate(crop, item.templateImage))
+                                last = float(self._computer_vision.match_template(crop, item.templateImage))
                         elif item.type == ConditionType.ProgressBar:
-                            last = float(EstimateProgressBarPercentage(crop))
+                            last = float(self._computer_vision.estimate_progress_bar(crop))
                     except BaseException:
                         crop_thumb = None
                         last = None
@@ -1383,11 +1374,11 @@ class ControllerServices:
                 self._default_window_width = int(width)
             if int(height) > 0:
                 self._default_window_height = int(height)
-        self.LaucnhApp(app_path, left=left, top=top, width=width, height=height)
+        self._launch_app_internal(app_path, left=left, top=top, width=width, height=height)
 
-    def LaucnhApp(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
-        self._pid = LaunchProcessByExecutable(app_path)
-        foundHwnd = FindHwndByPid(self._pid)
+    def _launch_app_internal(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
+        self._pid = int(self._window_manager.launch_process(app_path))
+        foundHwnd = self._window_manager.find_window_by_pid(self._pid)
         if foundHwnd is None:
             raise Exception("Failed to find window handle for launched application.")
         with self._state_lock:
@@ -1395,7 +1386,7 @@ class ControllerServices:
 
         if width <= 0 or height <= 0:
             raise ValueError("width and height must be > 0")
-        ResizeAndRepositionWindow(self._hwnd, int(left), int(top), int(width), int(height))
+        self._window_manager.move_and_resize_window(self._hwnd, int(left), int(top), int(width), int(height))
 
     def AttachApp(self, window_title: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
         with self._state_lock:
@@ -1406,28 +1397,28 @@ class ControllerServices:
                 self._default_window_width = int(width)
             if int(height) > 0:
                 self._default_window_height = int(height)
-        foundHwnd = FindHwndByTitle(window_title)
+        foundHwnd = self._window_manager.find_window_by_title(window_title)
         if foundHwnd is None:
             raise Exception("Failed to find window handle for the specified title.")
         with self._state_lock:
             self._hwnd = foundHwnd
-            self._pid = FindPidByHwnd(self._hwnd)
+            self._pid = self._window_manager.find_pid_by_window(self._hwnd)
 
         if width <= 0 or height <= 0:
             raise ValueError("width and height must be > 0")
-        ResizeAndRepositionWindow(self._hwnd, int(left), int(top), int(width), int(height))
+        self._window_manager.move_and_resize_window(self._hwnd, int(left), int(top), int(width), int(height))
 
     def CloseApp(self) -> None:
         # Ensure any capture loop is stopped before tearing down the window/process.
         self.StopCapture()
-        pidToKill: PID = 0
+        pidToKill = 0
         with self._state_lock:
             pidToKill = self._pid
             self._pid = 0
             self._hwnd = 0
 
         if pidToKill != 0:
-            TerminateProcessByPid(pidToKill)
+            self._window_manager.terminate_process(pidToKill)
 
         # Drain any queued control actions for the closed app.
         try:
@@ -1455,10 +1446,10 @@ class ControllerServices:
 
     def FocusApp(self, window_title: Optional[str] = None) -> None:
         target_title = str(window_title or "").strip()
-        hwnd: HWND = 0
+        hwnd = 0
 
         if target_title:
-            found = FindHwndByTitle(target_title)
+            found = self._window_manager.find_window_by_title(target_title)
             if found is None:
                 raise Exception("Failed to find window handle for the specified title.")
             hwnd = found
@@ -1468,7 +1459,7 @@ class ControllerServices:
                 target_title = str(self._default_window_title or "").strip()
 
             if hwnd == 0 and target_title:
-                found = FindHwndByTitle(target_title)
+                found = self._window_manager.find_window_by_title(target_title)
                 if found is None:
                     raise Exception("Failed to find window handle for the default title.")
                 hwnd = found
@@ -1476,13 +1467,13 @@ class ControllerServices:
         if hwnd == 0:
             raise Exception("No application is attached for focus.")
 
-        TryFocusWindow(hwnd)
+        self._window_manager.focus_window(hwnd)
 
         with self._state_lock:
             self._hwnd = hwnd
             if hwnd:
                 try:
-                    self._pid = FindPidByHwnd(hwnd)
+                    self._pid = self._window_manager.find_pid_by_window(hwnd)
                 except Exception:
                     pass
 
@@ -1490,14 +1481,14 @@ class ControllerServices:
         if int(width) <= 0 or int(height) <= 0:
             raise ValueError("width and height must be > 0")
 
-        hwnd: HWND = 0
+        hwnd = 0
         default_title = ""
         with self._state_lock:
             hwnd = self._hwnd
             default_title = str(self._default_window_title or "").strip()
 
         if hwnd == 0 and default_title:
-            found = FindHwndByTitle(default_title)
+            found = self._window_manager.find_window_by_title(default_title)
             if found is None:
                 raise Exception("Failed to find window handle for the default title.")
             hwnd = found
@@ -1505,7 +1496,7 @@ class ControllerServices:
         if hwnd == 0:
             raise Exception("No application is attached for resize.")
 
-        ResizeAndRepositionWindow(hwnd, int(left), int(top), int(width), int(height))
+        self._window_manager.move_and_resize_window(hwnd, int(left), int(top), int(width), int(height))
 
         with self._state_lock:
             self._hwnd = hwnd
@@ -1514,7 +1505,7 @@ class ControllerServices:
             self._default_window_width = int(width)
             self._default_window_height = int(height)
             try:
-                self._pid = FindPidByHwnd(hwnd)
+                self._pid = self._window_manager.find_pid_by_window(hwnd)
             except Exception:
                 pass
 
@@ -1555,9 +1546,9 @@ class ControllerServices:
                     continue
 
                 try:
-                    frame = CaptureWindowByHwnd(hwnd)
+                    frame = self._screen_capturer.capture_window(hwnd)
                     with self._capture_lock:
-                        self._latest_capture = cast(NDArray[np.uint8], frame)
+                        self._latest_capture = frame
                         self._capture_last_error = None
                         self._capture_seq += 1
                 except BaseException as exc:
@@ -1604,7 +1595,7 @@ class ControllerServices:
         if hwnd == 0:
             raise Exception("No application is attached for control.")
 
-        SendMouseClickToWindow(hwnd, x, y)
+        self._input_controller.click(hwnd, x, y)
 
     def EnqueueClick(self, normalizedX: float, normalizedY: float) -> None:
         action = _ControlAction(kind="click", x=float(normalizedX), y=float(normalizedY))
@@ -1633,8 +1624,7 @@ class ControllerServices:
         if hwnd == 0:
             raise Exception("No application is attached for control.")
 
-        vk = VkFromKeyName(name)
-        SendKeystrokeToWindow(hwnd, vk)
+        self._input_controller.press_key(hwnd, name)
 
     def EnqueueKeyStroke(self, keyName: str) -> None:
         action = _ControlAction(kind="key", x=0.0, y=0.0, key=str(keyName))
@@ -1655,4 +1645,3 @@ class ControllerServices:
     def GetLastControlError(self) -> Optional[BaseException]:
         with self._state_lock:
             return self._control_last_error
-        

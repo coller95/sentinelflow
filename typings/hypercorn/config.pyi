@@ -1,0 +1,9 @@
+from typing import Any, Optional
+
+class Config:
+    def __init__(self) -> None: ...
+    def from_mapping(self, mapping: Any) -> None: ...
+    def from_object(self, obj: Any) -> None: ...
+    bind: list[str]
+    accesslog: Optional[str]
+    errorlog: Optional[str]

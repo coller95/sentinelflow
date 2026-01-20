@@ -106,7 +106,7 @@ celerybeat.pid
 
 # Environments
 .env
-.venv
+.venv*
 env/
 venv/
 ENV/
@@ -151,5 +151,8 @@ Desktop.ini
 # PyCharm
 .idea/
 *.iml
+# SentinelFlow Data
 state.json
 orchestrator_state.json
+*.json.tmp
+*.log

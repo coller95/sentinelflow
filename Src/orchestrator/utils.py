@@ -4,7 +4,6 @@ import base64
 from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional
-from uuid import UUID
 
 import cv2
 import numpy as np
@@ -102,7 +101,7 @@ def encode_png_b64(img: Optional[np.ndarray]) -> Optional[str]:
     return base64.b64encode(encoded.tobytes()).decode("ascii")
 
 
-def crop_frame_normalized(frame: np.ndarray, roi: Dict[str, Any]) -> Optional[np.ndarray]:
+def crop_frame_normalized(frame: Optional[np.ndarray], roi: Dict[str, Any]) -> Optional[np.ndarray]:
     if frame is None or getattr(frame, "size", 0) == 0:
         return None
     h, w = frame.shape[:2]

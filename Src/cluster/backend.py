@@ -20,7 +20,7 @@ from numpy.typing import NDArray
 
 from typing import List, Optional, Any, Dict, cast
 
-from .services import ControllerServices
+from Src.cluster.services import ControllerServices
 
 app = FastAPI()
 services: Optional[ControllerServices] = None
@@ -182,7 +182,28 @@ def _get_services() -> ControllerServices:
 
     global services
     if services is None:
-        services = ControllerServices()
+        import sys
+        from Src.infrastructure.media.cv_handler import CvComputerVision
+        
+        # OS Detection
+        if sys.platform == "win32":
+            from Src.infrastructure.os.windows_handler import WindowsWindowManager, WindowsScreenCapturer, WindowsInputController
+            win_mgr = WindowsWindowManager()
+            capturer = WindowsScreenCapturer()
+            input_ctrl = WindowsInputController(win_mgr)
+        else:
+            print(f"[Backend] Running on non-Windows platform ({sys.platform}). Using Mock handlers.")
+            from Src.infrastructure.os.mock_handler import MockWindowManager, MockScreenCapturer, MockInputController
+            win_mgr = MockWindowManager()
+            capturer = MockScreenCapturer()
+            input_ctrl = MockInputController()
+
+        services = ControllerServices(
+            window_manager=win_mgr,
+            screen_capturer=capturer,
+            input_controller=input_ctrl,
+            computer_vision=CvComputerVision(),
+        )
         _try_load_state(services)
         _ensure_state_file(services)
     return services
@@ -1137,7 +1158,7 @@ def SetConditionFromLive(req: ConditionSetFromLiveRequest):
     # - If templateImageBase64 provided: use it.
     # - Else if templateFromLive: crop from latest frame.
     # - Else: keep existing.
-    template: Optional[NDArray[np.uint8]] = cast(Optional[NDArray[np.uint8]], item.templateImage)
+    template: Optional[NDArray[np.uint8]] = item.templateImage
     raw_b64 = (req.templateImageBase64 or "").strip()
     if raw_b64:
         if "," in raw_b64:

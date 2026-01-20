@@ -303,7 +303,7 @@ class OrchestratorServices:
 
     def _normalize_tags(self, tags: Optional[List[str]]) -> List[str]:
         clean: List[str] = []
-        seen: set = set()
+        seen: set[str] = set()
         for t in (tags or []):
             label = str(t or "").strip()
             if not label or label in seen:
@@ -325,13 +325,14 @@ class OrchestratorServices:
         def _list(key: str) -> List[Any]:
             raw = content.get(key, [])
             if isinstance(raw, list):
-                return list(raw)
+                val: List[Any] = list(cast(List[Any], raw))
+                return val
             return []
 
         return {
             "version": 1,
             "seeded": seeded,
-            "app": dict(app),
+            "app": dict(cast(Dict[str, Any], app)),
             "actions": _list("actions"),
             "conditions": _list("conditions"),
             "triggers": _list("triggers"),
@@ -488,11 +489,9 @@ class OrchestratorServices:
 
     def _normalize_screens(self, screens: Optional[List[Dict[str, Any]]]) -> List[DisplayScreenRecord]:
         out: List[DisplayScreenRecord] = []
-        seen: set = set()
+        seen: set[str] = set()
 
         for s_any in (screens or []):
-            if not isinstance(s_any, dict):
-                continue
             label = str(s_any.get("label", "") or "").strip()
             if not label or label in seen:
                 continue
@@ -1045,8 +1044,6 @@ class OrchestratorServices:
         p = Path(path)
         text = p.read_text(encoding="utf-8")
         parsed = json.loads(text)
-        if not isinstance(parsed, dict):
-            raise ValueError("Invalid orchestrator state: expected object")
         self.ImportStateDict(cast(Dict[str, Any], parsed))
 
     def SaveState(self, path: Union[str, Path]) -> None:

@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
-import sys
 import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 from urllib.parse import urljoin
 from uuid import UUID, uuid4
@@ -16,10 +13,8 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from pydantic import BaseModel, model_validator
-from enum import Enum
 
-from .services import OrchestratorServices
+from .services import OrchestratorServices, ClusterRecord
 from .models import (
     ActionItemDto, ActionMoveRequest, ActionRunRequest, ActionUpsertRequest, ActionUuidRequest,
     ApplyConfigRequest, AutomationStateImportRequest, ClusterItemDto, CommissionClusterFromUrlRequest,
@@ -27,7 +22,7 @@ from .models import (
     ConditionSetFromLiveRequest, ConditionTypeDto, ConditionUpsertRequest, ConditionUuidRequest,
     ConfigBundleCreateRequest, ConfigBundleFromClusterRequest, ConfigBundleUpdateRequest,
     DisplayApplyRequest, DisplayAssignmentRequest, DisplayLayoutCreateRequest, DisplayLayoutUpdateRequest,
-    DisplayScreenDto, DisplayUnassignRequest, MacroStepDto, MacroTypeDto, OrchestratorImportRequest,
+    DisplayUnassignRequest, MacroStepDto, MacroTypeDto, OrchestratorImportRequest,
     ProxyBodyRequest, TriggerCiteriaDto, TriggerComparatorDto, TriggerCriteriaModeDto, TriggerItemDto,
     TriggerMoveRequest, TriggerSetEnabledRequest, TriggerUpsertRequest, TriggerUuidRequest, UpdateClusterRequest
 )
@@ -40,7 +35,7 @@ from .utils import (
 app = FastAPI()
 
 httpx_async_client: Optional[httpx.AsyncClient] = None
-_cluster_monitor_task: Optional[asyncio.Task] = None
+_cluster_monitor_task: Optional[asyncio.Task[Any]] = None
 
 @app.on_event("startup")
 async def startup_event():
@@ -79,7 +74,7 @@ async def _monitor_clusters():
             
             # Simple serial poll (or parallel if we want)
             # Since we have a global client, we can do parallel requests easily.
-            tasks = []
+            tasks: List[asyncio.Task[None]] = []
             for c in clusters:
                 base = (c.baseUrl or "").strip()
                 if not base:
@@ -90,7 +85,7 @@ async def _monitor_clusters():
                     base += "/"
                 
                 url = urljoin(base, "api/server/info")
-                tasks.append(_check_cluster_health(svc, c.uuid, url))
+                tasks.append(asyncio.create_task(_check_cluster_health(svc, c.uuid, url)))
             
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
@@ -235,7 +230,7 @@ async def _proxy_json(method: str, baseUrl: str, path: str, body: Optional[Dict[
             try:
                 payload_any: Any = res.json()
                 if isinstance(payload_any, dict):
-                    payload = cast(Dict[str, Any], payload_any)
+                    payload: Dict[str, Any] = cast(Dict[str, Any], payload_any)
                     if "detail" in payload:
                         detail = str(payload.get("detail") or "")
                     else:
@@ -275,7 +270,7 @@ async def _proxy_bytes(method: str, baseUrl: str, path: str) -> Response:
             try:
                 payload_any: Any = res.json()
                 if isinstance(payload_any, dict):
-                    payload = cast(Dict[str, Any], payload_any)
+                    payload: Dict[str, Any] = cast(Dict[str, Any], payload_any)
                     if "detail" in payload:
                         detail = str(payload.get("detail") or "")
                     else:
@@ -512,7 +507,7 @@ def _config_counts(content: Dict[str, Any]) -> Dict[str, int]:
     def _count(key: str) -> int:
         items = content.get(key, [])
         if isinstance(items, list):
-            return len(items)
+            return len(cast(List[Any], items))
         return 0
 
     return {
@@ -525,7 +520,7 @@ def _config_counts(content: Dict[str, Any]) -> Dict[str, int]:
 def _config_content_dict(record: Any) -> Dict[str, Any]:
     raw = getattr(record, "content", None)
     if isinstance(raw, dict):
-        return dict(raw)
+        return cast(Dict[str, Any], raw)
     return {}
 
 
@@ -592,14 +587,15 @@ async def CreateConfigBundleFromCluster(req: ConfigBundleFromClusterRequest) -> 
     if not isinstance(state_any, dict):
         raise HTTPException(status_code=502, detail="cluster /api/state/export returned invalid payload")
 
-    actions = state_any.get("actions", [])
-    conditions = state_any.get("conditions", [])
-    triggers = state_any.get("triggers", [])
-    content = {
+    state_dict = cast(Dict[str, Any], state_any)
+    actions: Any = state_dict.get("actions", [])
+    conditions: Any = state_dict.get("conditions", [])
+    triggers: Any = state_dict.get("triggers", [])
+    content: Dict[str, Any] = {
         "version": 1,
-        "actions": list(actions) if isinstance(actions, list) else [],
-        "conditions": list(conditions) if isinstance(conditions, list) else [],
-        "triggers": list(triggers) if isinstance(triggers, list) else [],
+        "actions": list(cast(List[Any], actions)),
+        "conditions": list(cast(List[Any], conditions)),
+        "triggers": list(cast(List[Any], triggers)),
     }
 
     try:
@@ -693,7 +689,7 @@ async def ApplyConfigBundle(configUuid: UUID, req: ApplyConfigRequest) -> Dict[s
 
     content = _config_content_dict(config)
     counts = _config_counts(content)
-    seen: set = set()
+    seen: set[UUID] = set()
     results: List[Dict[str, Any]] = []
 
     for cluster_uuid in targets:
@@ -719,7 +715,7 @@ async def ApplyConfigBundle(configUuid: UUID, req: ApplyConfigRequest) -> Dict[s
         if not isinstance(defaults_any, dict):
             raise HTTPException(status_code=502, detail="cluster /api/app/defaults returned invalid payload")
 
-        state_payload = {
+        state_payload: Dict[str, Any] = {
             "version": 1,
             "savedAtUnix": float(time.time()),
             "app": defaults_any,
@@ -915,10 +911,10 @@ def _automation_state_payload(content: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "version": 1,
         "savedAtUnix": float(time.time()),
-        "app": dict(app),
-        "actions": list(content.get("actions", [])) if isinstance(content.get("actions", []), list) else [],
-        "conditions": list(content.get("conditions", [])) if isinstance(content.get("conditions", []), list) else [],
-        "triggers": list(content.get("triggers", [])) if isinstance(content.get("triggers", []), list) else [],
+        "app": dict(cast(Dict[str, Any], app)),
+        "actions": list(cast(List[Any], content.get("actions", []))) if isinstance(content.get("actions", []), list) else [],
+        "conditions": list(cast(List[Any], content.get("conditions", []))) if isinstance(content.get("conditions", []), list) else [],
+        "triggers": list(cast(List[Any], content.get("triggers", []))) if isinstance(content.get("triggers", []), list) else [],
     }
 
 
@@ -936,13 +932,13 @@ async def _push_automation_to_cluster(
         if not isinstance(defaults_any, dict):
             raise HTTPException(status_code=502, detail="cluster /api/app/defaults returned invalid payload")
 
-        state_payload = {
+        state_payload: Dict[str, Any] = {
             "version": 1,
             "savedAtUnix": float(time.time()),
             "app": defaults_any,
-            "actions": list(content.get("actions", [])) if isinstance(content.get("actions", []), list) else [],
-            "conditions": list(content.get("conditions", [])) if isinstance(content.get("conditions", []), list) else [],
-            "triggers": list(content.get("triggers", [])) if isinstance(content.get("triggers", []), list) else [],
+            "actions": list(cast(List[Any], content.get("actions", []))),
+            "conditions": list(cast(List[Any], content.get("conditions", []))),
+            "triggers": list(cast(List[Any], content.get("triggers", []))),
         }
         await _proxy_json(
             "POST",
@@ -974,7 +970,7 @@ def ExportAutomationState(includeServerUuid: bool = False) -> Dict[str, Any]:
 @app.post("/api/orchestrator/automation/state/import")
 async def ImportAutomationState(req: AutomationStateImportRequest) -> Dict[str, Any]:
     svc = _get_services()
-    raw_state = req.state if isinstance(req.state, dict) else {}
+    raw_state = req.state
     content = _get_automation_content(svc)
     app_any = raw_state.get("app", {})
     content["app"] = dict(app_any) if isinstance(app_any, dict) else {}
@@ -1013,15 +1009,18 @@ def GetAutomationActions() -> List[ActionItemDto]:
     svc = _get_services()
     content = _get_automation_content(svc)
     items: List[ActionItemDto] = []
-    for item in content.get("actions", []):
-        if not isinstance(item, dict):
+    actions_list = cast(List[Any], content.get("actions", []))
+    for item_any in actions_list:
+        if not isinstance(item_any, dict):
             continue
+        item: Dict[str, Any] = cast(Dict[str, Any], item_any)
         steps_any = item.get("steps", [])
         steps: List[MacroStepDto] = []
         if isinstance(steps_any, list):
-            for s in steps_any:
-                if not isinstance(s, dict):
+            for s_any in cast(List[Any], steps_any):
+                if not isinstance(s_any, dict):
                     continue
+                s: Dict[str, Any] = cast(Dict[str, Any], s_any)
                 action_raw = str(s.get("action", "") or "").strip()
                 try:
                     action = MacroTypeDto(action_raw)
@@ -1030,7 +1029,7 @@ def GetAutomationActions() -> List[ActionItemDto]:
                 params = s.get("parameters", {})
                 if not isinstance(params, dict):
                     params = {}
-                steps.append(MacroStepDto(action=action, parameters=dict(params)))
+                steps.append(MacroStepDto(action=action, parameters=dict(cast(Dict[str, Any], params))))
         items.append(ActionItemDto(uuid=str(item.get("uuid", "")), name=str(item.get("name", "")), steps=steps))
     return items
 
@@ -1134,17 +1133,17 @@ def GetAutomationConditions() -> List[ConditionItemDto]:
     svc = _get_services()
     content = _get_automation_content(svc)
     items: List[ConditionItemDto] = []
-    for item in content.get("conditions", []):
-        if not isinstance(item, dict):
+    for item_any in content.get("conditions", []):
+        if not isinstance(item_any, dict):
             continue
+        item: Dict[str, Any] = cast(Dict[str, Any], item_any)
         roi_any = item.get("roi", {})
-        if not isinstance(roi_any, dict):
-            roi_any = {}
+        roi_dict = cast(Dict[str, Any], roi_any) if isinstance(roi_any, dict) else {}
         roi = ConditionRoiDto(
-            xNormalized=float(roi_any.get("xNormalized", 0.0) or 0.0),
-            yNormalized=float(roi_any.get("yNormalized", 0.0) or 0.0),
-            widthNormalized=float(roi_any.get("widthNormalized", 0.0) or 0.0),
-            heightNormalized=float(roi_any.get("heightNormalized", 0.0) or 0.0),
+            xNormalized=float(roi_dict.get("xNormalized", 0.0) or 0.0),
+            yNormalized=float(roi_dict.get("yNormalized", 0.0) or 0.0),
+            widthNormalized=float(roi_dict.get("widthNormalized", 0.0) or 0.0),
+            heightNormalized=float(roi_dict.get("heightNormalized", 0.0) or 0.0),
         )
         type_raw = str(item.get("type", "") or "ImageMatchRoi")
         try:
@@ -1301,9 +1300,10 @@ async def _automation_conditions_status_payload(
 
     items = content.get("conditions", [])
     if isinstance(items, list):
-        for idx, item in enumerate(items):
-            if not isinstance(item, dict):
+        for idx, item_any in enumerate(cast(List[Any], items)):
+            if not isinstance(item_any, dict):
                 continue
+            item: Dict[str, Any] = cast(Dict[str, Any], item_any)
             uuid_str = str(item.get("uuid", ""))
             if not uuid_str:
                 continue
@@ -1316,8 +1316,8 @@ async def _automation_conditions_status_payload(
             crop_thumb = None
             if frame is not None:
                 roi_any = item.get("roi", {})
-                roi = roi_any if isinstance(roi_any, dict) else {}
-                crop = crop_frame_normalized(frame, roi)
+                roi_dict = cast(Dict[str, Any], roi_any) if isinstance(roi_any, dict) else {}
+                crop = crop_frame_normalized(frame, roi_dict)
                 crop_thumb = encode_jpeg_b64(crop)
 
             order.append(uuid_str)
@@ -1377,15 +1377,18 @@ def GetAutomationTriggers() -> List[TriggerItemDto]:
     svc = _get_services()
     content = _get_automation_content(svc)
     items: List[TriggerItemDto] = []
-    for item in content.get("triggers", []):
-        if not isinstance(item, dict):
+    triggers_list = cast(List[Any], content.get("triggers", []))
+    for item_any in triggers_list:
+        if not isinstance(item_any, dict):
             continue
+        item: Dict[str, Any] = cast(Dict[str, Any], item_any)
         citerias_in = item.get("triggerCiterias", [])
         citerias: List[TriggerCiteriaDto] = []
         if isinstance(citerias_in, list):
-            for c in citerias_in:
-                if not isinstance(c, dict):
+            for c_any in cast(List[Any], citerias_in):
+                if not isinstance(c_any, dict):
                     continue
+                c: Dict[str, Any] = cast(Dict[str, Any], c_any)
                 try:
                     citerias.append(
                         TriggerCiteriaDto(
@@ -1424,10 +1427,10 @@ async def UpsertAutomationTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="name cannot be empty")
 
     content = _get_automation_content(svc)
-    actions = content.get("actions", [])
-    conditions = content.get("conditions", [])
-    action_ids = {str(a.get("uuid", "")).strip() for a in actions if isinstance(a, dict)}
-    condition_ids = {str(c.get("uuid", "")).strip() for c in conditions if isinstance(c, dict)}
+    actions = cast(List[Dict[str, Any]], content.get("actions", []))
+    conditions = cast(List[Dict[str, Any]], content.get("conditions", []))
+    action_ids = {str(a.get("uuid", "")).strip() for a in actions}
+    condition_ids = {str(c.get("uuid", "")).strip() for c in conditions}
     if str(req.action) not in action_ids:
         raise HTTPException(status_code=404, detail="Action uuid not found")
 
@@ -1445,7 +1448,7 @@ async def UpsertAutomationTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
         )
 
     uuid_str = str(req.uuid or uuid4())
-    criteria_mode = req.criteriaMode.value if req.criteriaMode is not None else "All"
+    criteria_mode = str(req.criteriaMode.value) if req.criteriaMode is not None else "All"
     new_item = {
         "uuid": uuid_str,
         "name": name,
@@ -1458,7 +1461,7 @@ async def UpsertAutomationTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
     }
 
     triggers_any = content.get("triggers", [])
-    triggers: List[Dict[str, Any]] = list(triggers_any) if isinstance(triggers_any, list) else []
+    triggers: List[Dict[str, Any]] = list(cast(List[Any], triggers_any)) if isinstance(triggers_any, list) else []
     idx = find_item_index(triggers, uuid_str)
     if idx >= 0:
         triggers[idx] = new_item
@@ -1535,25 +1538,19 @@ async def SetAutomationTriggerEnabled(req: TriggerSetEnabledRequest) -> Dict[str
 def GetAutomationTriggerStatus() -> Dict[str, Any]:
     svc = _get_services()
     content = _get_automation_content(svc)
-    actions = content.get("actions", [])
-    action_name_by_uuid = {}
-    if isinstance(actions, list):
-        for a in actions:
-            if not isinstance(a, dict):
-                continue
-            au = str(a.get("uuid", "")).strip()
-            if au:
-                action_name_by_uuid[au] = str(a.get("name", au))
+    actions = cast(List[Dict[str, Any]], content.get("actions", []))
+    action_name_by_uuid: Dict[str, str] = {}
+    for a in actions:
+        au = str(a.get("uuid", "")).strip()
+        if au:
+            action_name_by_uuid[au] = str(a.get("name", au))
 
     items: List[Dict[str, Any]] = []
-    triggers = content.get("triggers", [])
-    if isinstance(triggers, list):
-        for t in triggers:
-            if not isinstance(t, dict):
-                continue
-            action_uuid = str(t.get("action", "")).strip()
-            items.append(
-                {
+    triggers = cast(List[Dict[str, Any]], content.get("triggers", []))
+    for t in triggers:
+        action_uuid = str(t.get("action", "")).strip()
+        items.append(
+            {
                     "uuid": str(t.get("uuid", "")),
                     "name": str(t.get("name", "")),
                     "enabled": bool(t.get("enabled", False)),
@@ -1748,7 +1745,7 @@ async def ApplyDisplayLayouts(req: DisplayApplyRequest) -> Dict[str, Any]:
     assignments = {a.clusterUuid: a for a in svc.ListDisplayAssignments()}
     layouts = {l.uuid: l for l in svc.ListDisplayLayouts()}
 
-    seen: set = set()
+    seen: set[UUID] = set()
     results: List[Dict[str, Any]] = []
     for cu in targets:
         if cu in seen:
@@ -1903,7 +1900,7 @@ async def ProxyServerResetUuid(clusterUuid: UUID) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail="cluster /api/server/reset_uuid returned invalid serverUuid")
 
     base_url = str(record.baseUrl or "").strip()
-    updated: List[Any] = []
+    updated: List[ClusterRecord] = []
     if base_url:
         updated = svc.UpdateClustersServerUuidByBaseUrl(base_url, new_uuid)
     else:
