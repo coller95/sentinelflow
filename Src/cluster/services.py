@@ -196,6 +196,27 @@ class ControllerServices:
         # Persisted in state.json to survive restarts and updates from Orchestrator.
         self._trigger_overrides: Dict[UUID, bool] = {}
 
+    def _attempt_auto_attach(self) -> None:
+        """Helper to try attaching to the default window title if configured."""
+        with self._state_lock:
+            title = self._default_window_title
+            l = self._default_window_left
+            t = self._default_window_top
+            w = self._default_window_width
+            h = self._default_window_height
+        
+        if not title:
+            return
+
+        try:
+            # Check if we can find it
+            found = self._window_manager.find_window_by_title(title)
+            if found:
+                print(f"[Cluster] Auto-attaching to found window: '{title}'")
+                self.AttachApp(title, left=l, top=t, width=w, height=h)
+        except Exception:
+            pass
+
     async def Start(self) -> None:
         if self._running:
             return
@@ -203,24 +224,12 @@ class ControllerServices:
         self._running = True
         self._shutdown_event.clear()
 
-        # Try to restore attachment if detached and we have a default title
+        # Try to restore attachment on startup
         with self._state_lock:
-            title = self._default_window_title
-            l = self._default_window_left
-            t = self._default_window_top
-            w = self._default_window_width
-            h = self._default_window_height
             is_detached = (self._hwnd == 0)
-
-        if is_detached and title:
-            try:
-                # We use the internal method or public one? 
-                # Public AttachApp updates defaults (which are already set), but handles logic.
-                # It also finds PID.
-                print(f"[Cluster] Auto-attaching to '{title}'...")
-                self.AttachApp(title, left=l, top=t, width=w, height=h)
-            except Exception as e:
-                print(f"[Cluster] Auto-attach failed: {e}")
+        
+        if is_detached:
+            self._attempt_auto_attach()
         
         # Start async tasks
         self._control_task = asyncio.create_task(self._control_worker())
@@ -1658,6 +1667,14 @@ class ControllerServices:
                 except BaseException as exc:
                     with self._capture_lock:
                         self._capture_last_error = exc
+                    
+                    # If capture failed, the window might be dead/closed.
+                    # Attempt to recover by re-scanning for the target window.
+                    # This makes the capture loop self-healing if the app restarts.
+                    try:
+                        self._attempt_auto_attach()
+                    except:
+                        pass
 
                 if self._shutdown_event.wait(interval):
                     break
