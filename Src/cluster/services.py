@@ -192,6 +192,10 @@ class ControllerServices:
         self._trigger_status_seq: int = 0
         self._trigger_task: Optional[asyncio.Task[None]] = None
 
+        # Local activation overrides (TriggerUUID -> Enabled).
+        # Persisted in state.json to survive restarts and updates from Orchestrator.
+        self._trigger_overrides: Dict[UUID, bool] = {}
+
     async def Start(self) -> None:
         if self._running:
             return
@@ -329,6 +333,7 @@ class ControllerServices:
             conditions = list(self._conditionItemList.values())
             actions = list(self._actionItemList.values())
             triggers = list(self._triggerItemList.values())
+            overrides = dict(self._trigger_overrides)
 
         # Use injected CV adapter
         def encode_png_b64(img: Optional[Any]) -> Optional[str]:
@@ -350,6 +355,7 @@ class ControllerServices:
             "conditions": [],
             "actions": [],
             "triggers": [],
+            "triggerOverrides": {str(k): v for k, v in overrides.items()},
         }
         if includeServerUuid:
             data["serverUuid"] = str(server_uuid)
@@ -449,6 +455,8 @@ class ControllerServices:
             current_window_top = self._default_window_top
             current_window_width = self._default_window_width
             current_window_height = self._default_window_height
+            # If not loading from file (e.g. push from Orchestrator), preserve existing overrides.
+            current_overrides = dict(self._trigger_overrides)
 
         new_server_uuid: UUID
         if keepServerUuid:
@@ -462,6 +470,24 @@ class ControllerServices:
             except Exception:
                 parsed_uuid = None
             new_server_uuid = parsed_uuid if parsed_uuid is not None else uuid4()
+
+        # Load overrides from input if present (e.g. from local file)
+        # If missing (e.g. from Orchestrator), we use current_overrides (if valid) or empty?
+        # Actually, ImportStateDict is destructive for definitions.
+        # If input has "triggerOverrides", use them. If not, preserve existing?
+        # Scenario 1: Load local file -> has overrides -> use them.
+        # Scenario 2: Push from Orchestrator -> no overrides -> preserve existing.
+        loaded_overrides: Dict[UUID, bool] = {}
+        overrides_any = obj.get("triggerOverrides", None)
+        if overrides_any is not None and isinstance(overrides_any, dict):
+            for k, v in cast(Dict[str, Any], overrides_any).items():
+                try:
+                    loaded_overrides[UUID(str(k))] = bool(v)
+                except Exception:
+                    pass
+        else:
+            # Preserve existing overrides if input didn't specify any (e.g. partial update or orchestrator push)
+            loaded_overrides = current_overrides
 
         def decode_png_b64(b64: Optional[str]) -> Optional[Any]:
              return self._computer_vision.decode_image_from_b64(b64 or "")
@@ -557,7 +583,12 @@ class ControllerServices:
                     continue
                 if action_uuid not in loaded_actions:
                     continue
-                enabled = bool(t.get("enabled", False))
+                
+                # Definition default
+                default_enabled = bool(t.get("enabled", False))
+                # Apply override if present
+                final_enabled = loaded_overrides.get(tu, default_enabled)
+
                 retrigger_ms = int(t.get("retriggerMs", 0) or 0)
                 if retrigger_ms < 0:
                     retrigger_ms = 0
@@ -598,7 +629,7 @@ class ControllerServices:
                     name=name,
                     triggerCiterias=crit_out,
                     action=action_uuid,
-                    enabled=enabled,
+                    enabled=final_enabled,
                     retriggerMs=retrigger_ms,
                     disableOnFire=disable_on_fire,
                     criteriaMode=mode,
@@ -619,6 +650,9 @@ class ControllerServices:
             self._conditionItemList = dict(loaded_conditions)
             self._actionItemList = dict(loaded_actions)
             self._triggerItemList = dict(loaded_triggers)
+            
+            # Prune overrides for UUIDs that no longer exist in the definition list (cleanup orphans).
+            self._trigger_overrides = {k: v for k, v in loaded_overrides.items() if k in loaded_triggers}
 
             # Reset runtime caches/counters.
             self._trigger_last_match.clear()
@@ -689,12 +723,18 @@ class ControllerServices:
                     raise KeyError("Condition uuid not found")
 
             trig_uuid = uuid or uuid4()
+            
+            # If inserting a new trigger (or updating), check for override
+            final_enabled = bool(enabled)
+            if trig_uuid in self._trigger_overrides:
+                final_enabled = self._trigger_overrides[trig_uuid]
+
             item = TriggerItem(
                 uuid=trig_uuid,
                 name=clean_name,
                 triggerCiterias=list(triggerCiterias or []),
                 action=action,
-                enabled=bool(enabled),
+                enabled=final_enabled,
                 retriggerMs=retrigger_ms_int,
                 disableOnFire=bool(disableOnFire),
                 criteriaMode=criteriaMode,
@@ -707,6 +747,10 @@ class ControllerServices:
             existing = self._triggerItemList.get(uuid)
             if existing is None:
                 raise KeyError("Trigger uuid not found")
+            
+            # Save override
+            self._trigger_overrides[uuid] = bool(enabled)
+
             updated = TriggerItem(
                 uuid=existing.uuid,
                 name=existing.name,
@@ -774,6 +818,7 @@ class ControllerServices:
             if uuid not in self._triggerItemList:
                 raise KeyError("Trigger uuid not found")
             del self._triggerItemList[uuid]
+            self._trigger_overrides.pop(uuid, None)
             self._trigger_last_match.pop(uuid, None)
             self._trigger_fire_count.pop(uuid, None)
             self._trigger_last_fire_unix.pop(uuid, None)
