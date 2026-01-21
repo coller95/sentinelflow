@@ -7,7 +7,6 @@ from pydantic import BaseModel
 import sys
 import os
 import time
-import asyncio
 from pathlib import Path
 from enum import Enum
 import base64
@@ -25,16 +24,27 @@ from Src.cluster.services import ControllerServices
 app = FastAPI()
 services: Optional[ControllerServices] = None
 
+@app.on_event("startup")
+async def startup_event():
+    svc = _get_services()
+    await svc.Start()
+
 @app.on_event("shutdown")
 def shutdown_event():
     # Shutdown global services if initialized
     if services:
-        services.Shutdown()
+        # We need to run async Stop() from sync shutdown_event if it's sync?
+        # But shutdown_event can be async.
+        pass # handled in async_shutdown_event below
+
+@app.on_event("shutdown")
+async def async_shutdown_event():
+    if services:
+        await services.Stop()
     
-    # Shutdown state services if initialized
     svc = getattr(app.state, "services", None)
     if svc and svc is not services:
-        svc.Shutdown()
+        await svc.Stop()
 
 
 
@@ -747,16 +757,16 @@ def CaptureStream(request: Request, fmt: str = "jpg", quality: int = 70):
 
 
 @app.post("/api/control/click")
-def ControlClick(req: ClickRequest):
+async def ControlClick(req: ClickRequest):
     svc = _get_services()
-    svc.EnqueueClick(req.x, req.y)
+    await svc.EnqueueClick(req.x, req.y)
     return {"ok": True}
 
 
 @app.post("/api/control/key")
-def ControlKey(req: KeyRequest):
+async def ControlKey(req: KeyRequest):
     svc = _get_services()
-    svc.EnqueueKeyStroke(req.keyName)
+    await svc.EnqueueKeyStroke(req.keyName)
     return {"ok": True}
 
 
@@ -1014,10 +1024,10 @@ def MoveAction(req: ActionMoveRequest) -> Dict[str, Any]:
 
 
 @app.post("/api/actions/run")
-def RunAction(req: ActionUuidRequest) -> Dict[str, Any]:
+async def RunAction(req: ActionUuidRequest) -> Dict[str, Any]:
     svc = _get_services()
     try:
-        svc.EnqueueRunActionByUuid(req.uuid)
+        await svc.EnqueueRunActionByUuid(req.uuid)
     except KeyError:
         raise HTTPException(status_code=404, detail="Action uuid not found")
     return {"ok": True}

@@ -1,6 +1,6 @@
+import asyncio
 from enum import Enum, auto
 import json
-import queue
 import threading
 import time
 from dataclasses import dataclass
@@ -139,7 +139,7 @@ class ControllerServices:
         self._hwnd: Any = 0
 
         self._state_lock = threading.Lock()
-        self._running = True
+        self._running = False
         self._shutdown_event = threading.Event()
 
         self._capture_thread: Optional[threading.Thread] = None
@@ -150,27 +150,14 @@ class ControllerServices:
         self._capture_last_error: Optional[BaseException] = None
         self._capture_seq = 0
 
-        # Create the capture worker thread at startup to avoid runtime thread-creation instability.
-        self._capture_thread = threading.Thread(
-            target=self._capture_worker,
-            name="SentinelFlowCapture",
-            daemon=True,
-        )
-        self._capture_thread.start()
-
-        # Control (macro) queue executed by a dedicated worker thread.
-        self._control_queue: queue.Queue[Optional[_ControlAction]] = queue.Queue(maxsize=256)
+        # Control (macro) queue executed by a dedicated worker task.
+        self._control_queue: asyncio.Queue[_ControlAction] = asyncio.Queue(maxsize=256)
         self._control_last_error: Optional[BaseException] = None
-        self._control_thread = threading.Thread(
-            target=self._control_worker,
-            name="SentinelFlowControl",
-            daemon=True,
-        )
-        self._control_thread.start()
+        self._control_task: Optional[asyncio.Task[None]] = None
 
         # Action (macro) definitions and execution.
         self._actionItemList: Dict[UUID, ActionItem] = {}
-        self._macro_queue: queue.Queue[Optional[UUID]] = queue.Queue(maxsize=64)
+        self._macro_queue: asyncio.Queue[UUID] = asyncio.Queue(maxsize=64)
         self._macro_last_error: Optional[BaseException] = None
         self._macro_current_action_uuid: Optional[UUID] = None
         self._macro_current_started_unix: Optional[float] = None
@@ -181,12 +168,7 @@ class ControllerServices:
         self._action_run_count: Dict[UUID, int] = {}
         self._action_last_started_unix: Dict[UUID, float] = {}
         self._action_last_completed_unix: Dict[UUID, float] = {}
-        self._macro_thread = threading.Thread(
-            target=self._macro_worker,
-            name="SentinelFlowMacro",
-            daemon=True,
-        )
-        self._macro_thread.start()
+        self._macro_task: Optional[asyncio.Task[None]] = None
 
         # Dict preserves insertion order (Python 3.7+). We also rely on it for up/down moves.
         self._conditionItemList: Dict[UUID, ConditionItem] = {}
@@ -196,12 +178,7 @@ class ControllerServices:
         self._condition_status: Dict[UUID, ConditionStatusSnapshot] = {}
         self._condition_status_seq = 0
         self._condition_status_interval_seconds = 0.5
-        self._condition_status_thread = threading.Thread(
-            target=self._condition_status_worker,
-            name="SentinelFlowConditionStatus",
-            daemon=True,
-        )
-        self._condition_status_thread.start()
+        self._condition_status_thread: Optional[threading.Thread] = None
 
         # Trigger definitions and evaluation.
         self._triggerItemList: Dict[UUID, TriggerItem] = {}
@@ -213,12 +190,52 @@ class ControllerServices:
         self._trigger_last_fire_mono: Dict[UUID, float] = {}
         self._trigger_last_eval: Dict[UUID, List[Dict[str, Any]]] = {}
         self._trigger_status_seq: int = 0
-        self._trigger_thread = threading.Thread(
-            target=self._trigger_worker,
-            name="SentinelFlowTrigger",
+        self._trigger_task: Optional[asyncio.Task[None]] = None
+
+    async def Start(self) -> None:
+        if self._running:
+            return
+        
+        self._running = True
+        self._shutdown_event.clear()
+        
+        # Start async tasks
+        self._control_task = asyncio.create_task(self._control_worker())
+        self._macro_task = asyncio.create_task(self._macro_worker())
+        self._trigger_task = asyncio.create_task(self._trigger_worker())
+        
+        # Start persistent threads (heavy I/O or CPU)
+        self._capture_thread = threading.Thread(
+            target=self._capture_worker,
+            name="SentinelFlowCapture",
             daemon=True,
         )
-        self._trigger_thread.start()
+        self._capture_thread.start()
+        
+        self._condition_status_thread = threading.Thread(
+            target=self._condition_status_worker,
+            name="SentinelFlowConditionStatus",
+            daemon=True,
+        )
+        self._condition_status_thread.start()
+
+    async def Stop(self) -> None:
+        self._running = False
+        self._shutdown_event.set()
+        self._capture_enabled_event.set()
+        
+        # Cancel async tasks
+        for task in [self._control_task, self._macro_task, self._trigger_task]:
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        
+        # Wait for threads (they check _running and _shutdown_event)
+        # We don't join them to avoid blocking the async loop if they are stuck,
+        # but the flags should make them exit quickly.
 
     def GetServerUuid(self) -> UUID:
         with self._state_lock:
@@ -811,7 +828,7 @@ class ControllerServices:
         except Exception:
             return 0
 
-    def _trigger_worker(self) -> None:
+    async def _trigger_worker(self) -> None:
         def to_float(v: Any) -> Optional[float]:
             try:
                 if v is None:
@@ -930,7 +947,7 @@ class ControllerServices:
 
                     if should_fire:
                         try:
-                            self.EnqueueRunActionByUuid(t.action)
+                            await self.EnqueueRunActionByUuid(t.action)
                             now_unix = float(time.time())
                             now_mono = float(time.monotonic())
                             with self._state_lock:
@@ -959,11 +976,15 @@ class ControllerServices:
                 with self._state_lock:
                     self._trigger_status_seq += 1
 
+            except asyncio.CancelledError:
+                break
             except BaseException as exc:
                 with self._state_lock:
                     self._trigger_last_error = exc
             
-            if self._shutdown_event.wait(max(0.05, interval)):
+            try:
+                await asyncio.sleep(max(0.05, interval))
+            except asyncio.CancelledError:
                 break
 
     def GetActionItemByUuid(self, uuid: UUID) -> Optional[ActionItem]:
@@ -1022,7 +1043,7 @@ class ControllerServices:
 
             raise ValueError("direction must be 'up' or 'down'")
 
-    def EnqueueRunActionByUuid(self, uuid: UUID) -> None:
+    async def EnqueueRunActionByUuid(self, uuid: UUID) -> None:
         with self._state_lock:
             if uuid not in self._actionItemList:
                 raise KeyError("Action uuid not found")
@@ -1031,16 +1052,16 @@ class ControllerServices:
 
         try:
             self._macro_queue.put_nowait(uuid)
-        except queue.Full:
+        except asyncio.QueueFull:
             # Drop oldest and enqueue newest.
             try:
                 self._macro_queue.get_nowait()
                 self._macro_queue.task_done()
-            except queue.Empty:
+            except asyncio.QueueEmpty:
                 pass
             try:
                 self._macro_queue.put_nowait(uuid)
-            except queue.Full:
+            except asyncio.QueueFull:
                 pass
 
     def GetLastMacroError(self) -> Optional[BaseException]:
@@ -1077,12 +1098,11 @@ class ControllerServices:
                 }
             return out
 
-    def _macro_worker(self) -> None:
-        while True:
-            action_uuid = self._macro_queue.get()
-            if action_uuid is None:
-                # Poison pill received.
-                self._macro_queue.task_done()
+    async def _macro_worker(self) -> None:
+        while self._running:
+            try:
+                action_uuid = await self._macro_queue.get()
+            except asyncio.CancelledError:
                 break
 
             try:
@@ -1112,7 +1132,10 @@ class ControllerServices:
                             seconds = float(step.parameters.get("ms", 0.0)) / 1000.0
                         else:
                             seconds = 0.0
-                        time.sleep(max(0.0, seconds))
+                        # interruptible sleep
+                        await asyncio.sleep(max(0.0, seconds))
+            except asyncio.CancelledError:
+                break
             except BaseException as exc:
                 with self._state_lock:
                     self._macro_last_error = exc
@@ -1434,7 +1457,7 @@ class ControllerServices:
             while True:
                 self._control_queue.get_nowait()
                 self._control_queue.task_done()
-        except queue.Empty:
+        except asyncio.QueueEmpty:
             pass
 
     def DetachApp(self) -> None:
@@ -1450,7 +1473,7 @@ class ControllerServices:
             while True:
                 self._control_queue.get_nowait()
                 self._control_queue.task_done()
-        except queue.Empty:
+        except asyncio.QueueEmpty:
             pass
 
     def FocusApp(self, window_title: Optional[str] = None) -> None:
@@ -1518,12 +1541,11 @@ class ControllerServices:
             except Exception:
                 pass
 
-    def _control_worker(self) -> None:
-        while True:
-            action = self._control_queue.get()
-            if action is None:
-                # Poison pill received.
-                self._control_queue.task_done()
+    async def _control_worker(self) -> None:
+        while self._running:
+            try:
+                action = await self._control_queue.get()
+            except asyncio.CancelledError:
                 break
 
             print("Processing control action:", action)
@@ -1592,20 +1614,11 @@ class ControllerServices:
         self._capture_enabled_event.clear()
 
     def Shutdown(self) -> None:
+        # Backward compatibility for sync callers, though Start/Stop are async now.
+        # Ideally, main.py calls Stop() which awaits.
         self._running = False
         self._shutdown_event.set()
         self._capture_enabled_event.set()
-        
-        # Inject poison pills to wake up worker threads immediately
-        try:
-            self._macro_queue.put_nowait(None)
-        except queue.Full:
-            pass # Thread will eventually check _running if queue is full, or we could force it
-            
-        try:
-            self._control_queue.put_nowait(None)
-        except queue.Full:
-            pass
 
     def IsRunning(self) -> bool:
         return self._running
@@ -1639,20 +1652,20 @@ class ControllerServices:
 
         self._input_controller.click(hwnd, x, y)
 
-    def EnqueueClick(self, normalizedX: float, normalizedY: float) -> None:
+    async def EnqueueClick(self, normalizedX: float, normalizedY: float) -> None:
         action = _ControlAction(kind="click", x=float(normalizedX), y=float(normalizedY))
         try:
             self._control_queue.put_nowait(action)
-        except queue.Full:
+        except asyncio.QueueFull:
             # KISS stability: drop oldest action and enqueue newest.
             try:
                 self._control_queue.get_nowait()
                 self._control_queue.task_done()
-            except queue.Empty:
+            except asyncio.QueueEmpty:
                 pass
             try:
                 self._control_queue.put_nowait(action)
-            except queue.Full:
+            except asyncio.QueueFull:
                 pass
 
     def _execute_key(self, keyName: str) -> None:
@@ -1668,20 +1681,20 @@ class ControllerServices:
 
         self._input_controller.press_key(hwnd, name)
 
-    def EnqueueKeyStroke(self, keyName: str) -> None:
+    async def EnqueueKeyStroke(self, keyName: str) -> None:
         action = _ControlAction(kind="key", x=0.0, y=0.0, key=str(keyName))
         try:
             self._control_queue.put_nowait(action)
-        except queue.Full:
+        except asyncio.QueueFull:
             # Same policy: drop oldest and keep newest.
             try:
                 self._control_queue.get_nowait()
                 self._control_queue.task_done()
-            except queue.Empty:
+            except asyncio.QueueEmpty:
                 pass
             try:
                 self._control_queue.put_nowait(action)
-            except queue.Full:
+            except asyncio.QueueFull:
                 pass
 
     def GetLastControlError(self) -> Optional[BaseException]:
