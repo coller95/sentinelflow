@@ -1368,13 +1368,13 @@ async def GetAutomationConditionsStatus(clusterUuid: Optional[UUID] = None) -> D
 
 
 @app.get("/api/orchestrator/automation/conditions/stream")
-def AutomationConditionsStream(
+async def AutomationConditionsStream(
     request: Request,
     clusterUuid: Optional[UUID] = None,
 ) -> StreamingResponse:
     svc = _get_services()
 
-    def event_stream():
+    async def event_stream():
         yield "retry: 1000\n\n"
 
         last_data: Optional[str] = None
@@ -1384,16 +1384,12 @@ def AutomationConditionsStream(
             if not svc.IsRunning():
                 break
 
-            # Note: payload generation is async in original, but here we must make it sync
-            # or handle it carefully. Actually _automation_conditions_status_payload is async.
-            # Starlette StreamingResponse with sync generator runs in a thread.
-            # We can run the async payload generation in the event loop from the thread.
-            
-            loop = asyncio.new_event_loop()
+            # Now we can safely await the async function on the main loop
             try:
-                payload = loop.run_until_complete(_automation_conditions_status_payload(svc, clusterUuid=clusterUuid))
-            finally:
-                loop.close()
+                payload = await _automation_conditions_status_payload(svc, clusterUuid=clusterUuid)
+            except Exception:
+                # If fetching fails (e.g. cluster offline), skip this frame but keep stream alive
+                payload = {"order": [], "byUuid": {}}
 
             data = json.dumps(payload, separators=(",", ":"))
             if data != last_data:
@@ -1405,7 +1401,10 @@ def AutomationConditionsStream(
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            if svc.WaitShutdown(0.5):
+            # Use async sleep instead of blocking thread
+            await asyncio.sleep(0.5)
+            
+            if await request.is_disconnected():
                 break
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
