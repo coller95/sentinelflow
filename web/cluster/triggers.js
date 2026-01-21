@@ -503,6 +503,57 @@ if (btnTriggerNew) {
     });
 }
 
+if (btnTriggerClone) {
+    btnTriggerClone.addEventListener('click', async () => {
+        setStatus('Cloning trigger...', null);
+        try {
+            if (!selectedTriggerUuid) throw new Error('Select a trigger first');
+            const state = await getJson('/api/state/export');
+            const triggers = Array.isArray(state?.triggers) ? state.triggers : [];
+            const source = triggers.find((it) => String(it?.uuid ?? '') === String(selectedTriggerUuid));
+            if (!source) throw new Error('Selected trigger not found');
+
+            const baseName = String(source.name ?? 'Trigger').trim() || 'Trigger';
+            const name = `${baseName} (copy)`;
+            const actionUuid = String(source.action ?? '').trim();
+            if (!actionUuid) throw new Error('Trigger action is missing');
+            const triggerCiterias = Array.isArray(source.triggerCiterias)
+                ? source.triggerCiterias.map((c) => ({
+                    conditionUuid: String(c?.conditionUuid ?? ''),
+                    comparator: String(c?.comparator ?? 'Equals'),
+                    expectedValue: (c?.expectedValue !== undefined && c?.expectedValue !== null) ? c.expectedValue : '',
+                }))
+                : [];
+            const targetClusterUuids = Array.isArray(source.targetClusterUuids)
+                ? source.targetClusterUuids.map((u) => String(u))
+                : [];
+
+            const payload = {
+                name,
+                enabled: !!source.enabled,
+                retriggerMs: Number(source.retriggerMs ?? 0),
+                disableOnFire: !!source.disableOnFire,
+                criteriaMode: String(source.criteriaMode ?? 'All'),
+                action: actionUuid,
+                triggerCiterias,
+                targetClusterUuids,
+            };
+            const res = await postJson('/api/triggers/upsert', payload);
+            if (!res || !res.uuid) throw new Error('Trigger cloned without uuid');
+            selectedTriggerUuid = String(res.uuid);
+            await _loadActionsForSelect(triggerActionEl, actionUuid);
+            _applyTriggerToEditor({
+                uuid: selectedTriggerUuid,
+                ...payload,
+            });
+            await refreshTriggers();
+            setStatus('Trigger cloned.', 'ok');
+        } catch (e) {
+            setStatus(`Clone trigger failed: ${e.message}`, 'err');
+        }
+    });
+}
+
 if (btnTriggerMoveUp) {
     btnTriggerMoveUp.addEventListener('click', async () => {
         setStatus('Moving trigger up...', null);

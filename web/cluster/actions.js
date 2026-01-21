@@ -31,6 +31,14 @@ async function _fetchOrchestratorClusters() {
     return Array.isArray(data?.clusters) ? data.clusters : [];
 }
 
+async function _getAutomationStateForClone() {
+    const state = await getJson('/api/state/export');
+    if (!state || typeof state !== 'object') {
+        throw new Error('Failed to load automation state');
+    }
+    return state;
+}
+
 function _getDelayMsFromInput() {
     const raw = actionDelayMsEl ? String(actionDelayMsEl.value || '').trim() : '';
     const ms = Number(raw);
@@ -368,6 +376,38 @@ if (btnActionNew) {
             setStatus('New action created.', 'ok');
         } catch (e) {
             setStatus(`Create action failed: ${e.message}`, 'err');
+        }
+    });
+}
+
+if (btnActionClone) {
+    btnActionClone.addEventListener('click', async () => {
+        setStatus('Cloning action...', null);
+        try {
+            if (!selectedActionUuid) throw new Error('Select an action first');
+            const state = await _getAutomationStateForClone();
+            const actions = Array.isArray(state.actions) ? state.actions : [];
+            const source = actions.find((it) => String(it?.uuid ?? '') === String(selectedActionUuid));
+            if (!source) throw new Error('Selected action not found');
+            const baseName = String(source.name ?? 'Action').trim() || 'Action';
+            const name = `${baseName} (copy)`;
+            const rawSteps = Array.isArray(source.steps) ? source.steps : [];
+            const steps = rawSteps.map((step) => {
+                const actionRaw = String(step?.action ?? '').trim();
+                const action = actionRaw === 'Keyboard' ? 'KeyStroke' : actionRaw;
+                const params = (step && typeof step === 'object' && step.parameters && typeof step.parameters === 'object')
+                    ? { ...step.parameters }
+                    : {};
+                return { action, parameters: params };
+            });
+            const res = await postJson('/api/actions/upsert', { name, steps });
+            if (!res || !res.uuid) throw new Error('Action cloned without uuid');
+            selectedActionUuid = String(res.uuid);
+            applyActionToEditor({ uuid: selectedActionUuid, name, steps });
+            await refreshActions();
+            setStatus('Action cloned.', 'ok');
+        } catch (e) {
+            setStatus(`Clone action failed: ${_errorMessage(e)}`, 'err');
         }
     });
 }

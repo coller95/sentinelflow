@@ -317,6 +317,50 @@ if (btnCondAddRow) {
     });
 }
 
+if (btnCondClone) {
+    btnCondClone.addEventListener('click', async () => {
+        setStatus('Cloning condition...', null);
+        try {
+            if (!selectedConditionUuid) throw new Error('Select a row first');
+            const state = await getJson('/api/state/export');
+            const conditions = Array.isArray(state?.conditions) ? state.conditions : [];
+            const source = conditions.find((it) => String(it?.uuid ?? '') === String(selectedConditionUuid));
+            if (!source) throw new Error('Selected condition not found');
+
+            const baseName = String(source.name ?? 'Condition').trim() || 'Condition';
+            const name = `${baseName} (copy)`;
+            const type = String(source.type ?? 'ImageMatchRoi');
+            const roiRaw = (source && typeof source.roi === 'object') ? source.roi : {};
+            let xNormalized = Number(roiRaw?.xNormalized ?? 0.1);
+            let yNormalized = Number(roiRaw?.yNormalized ?? 0.1);
+            let widthNormalized = Number(roiRaw?.widthNormalized ?? 0.2);
+            let heightNormalized = Number(roiRaw?.heightNormalized ?? 0.1);
+            if (!Number.isFinite(xNormalized)) xNormalized = 0.1;
+            if (!Number.isFinite(yNormalized)) yNormalized = 0.1;
+            if (!Number.isFinite(widthNormalized) || widthNormalized <= 0) widthNormalized = 0.2;
+            if (!Number.isFinite(heightNormalized) || heightNormalized <= 0) heightNormalized = 0.1;
+
+            const templateImageBase64 = typeof source.templateImageBase64 === 'string' ? source.templateImageBase64 : null;
+            const payload = {
+                name,
+                type,
+                roi: { xNormalized, yNormalized, widthNormalized, heightNormalized },
+                templateImageBase64,
+                templateFromLive: false,
+            };
+            const res = await postJson('/api/conditions', payload);
+            if (res && res.uuid) {
+                selectedConditionUuid = String(res.uuid);
+            }
+            await refreshConditions();
+            await loadSelectedConditionIntoEditor();
+            setStatus('Condition cloned.', 'ok');
+        } catch (e) {
+            setStatus(`Clone condition failed: ${e.message}`, 'err');
+        }
+    });
+}
+
 if (btnCondRemoveRow) {
     btnCondRemoveRow.addEventListener('click', async () => {
         setStatus('Deleting condition...', null);
