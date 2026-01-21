@@ -35,17 +35,26 @@ from .utils import (
 app = FastAPI()
 
 httpx_async_client: Optional[httpx.AsyncClient] = None
+_monitor_client: Optional[httpx.AsyncClient] = None
 _cluster_monitor_task: Optional[asyncio.Task[Any]] = None
 _stop_event: Optional[asyncio.Event] = None
 
 @app.on_event("startup")
 async def startup_event():
-    global httpx_async_client, _cluster_monitor_task, _stop_event
+    global httpx_async_client, _monitor_client, _cluster_monitor_task, _stop_event
     _stop_event = asyncio.Event()
-    # Use limits that allow for higher concurrency if needed
+    
+    # 1. Main Client (User/UI Proxy) - High concurrency, standard timeouts
     limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
-    timeout = httpx.Timeout(connect=3.0, read=20.0, write=20.0, pool=5.0)
+    timeout = httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=5.0)
     httpx_async_client = httpx.AsyncClient(limits=limits, timeout=timeout)
+    
+    # 2. Monitor Client (Background Health) - Low concurrency, strict fail-fast timeouts
+    # We use a separate pool so background checks never starve UI requests.
+    mon_limits = httpx.Limits(max_keepalive_connections=0, max_connections=20)
+    mon_timeout = httpx.Timeout(connect=2.0, read=2.0, write=2.0, pool=1.0)
+    _monitor_client = httpx.AsyncClient(limits=mon_limits, timeout=mon_timeout)
+    
     _cluster_monitor_task = asyncio.create_task(_monitor_clusters())
 
 @app.on_event("shutdown")
@@ -61,11 +70,16 @@ async def shutdown_event():
             pass
     if httpx_async_client:
         await httpx_async_client.aclose()
+    if _monitor_client:
+        await _monitor_client.aclose()
 
 
 async def _monitor_clusters():
     """Background task to poll clusters for health/online status."""
     svc = _get_services()
+    # Limit concurrent health checks to avoid flooding the loop/DNS
+    sem = asyncio.Semaphore(20)
+
     while svc.IsRunning():
         try:
             # Wait for 5s or until shutdown event
@@ -83,8 +97,11 @@ async def _monitor_clusters():
 
             clusters = svc.ListClusters(includeDecommissioned=False)
             
-            # Simple serial poll (or parallel if we want)
-            # Since we have a global client, we can do parallel requests easily.
+            # Use gather with semaphore-limited wrappers
+            async def _bounded_check(c_uuid: UUID, c_url: str):
+                async with sem:
+                    await _check_cluster_health(svc, c_uuid, c_url)
+
             tasks: List[asyncio.Task[None]] = []
             for c in clusters:
                 base = (c.baseUrl or "").strip()
@@ -96,7 +113,7 @@ async def _monitor_clusters():
                     base += "/"
                 
                 url = urljoin(base, "api/server/info")
-                tasks.append(asyncio.create_task(_check_cluster_health(svc, c.uuid, url)))
+                tasks.append(asyncio.create_task(_bounded_check(c.uuid, url)))
             
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
@@ -108,11 +125,11 @@ async def _monitor_clusters():
             await asyncio.sleep(5)
 
 async def _check_cluster_health(svc: OrchestratorServices, cluster_uuid: UUID, url: str):
-    global httpx_async_client
-    if not httpx_async_client:
+    global _monitor_client
+    if not _monitor_client:
         return
     try:
-        resp = await httpx_async_client.get(url)
+        resp = await _monitor_client.get(url)
         if resp.status_code == 200:
             svc.UpdateClusterLastSeen(cluster_uuid, time.time())
     except Exception:
