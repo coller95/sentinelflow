@@ -55,15 +55,9 @@ async function _stopPreviewCapture(clusterUuid) {
 
 async function _switchPreviewCluster(nextUuid) {
   const next = String(nextUuid || '').trim();
-  const prev = _previewCaptureClusterUuid;
-  if (prev && prev !== next) {
-    try {
-      await _stopPreviewCapture(prev);
-    } catch (err) {
-      setStatus(`Stop capture failed: ${err?.message ?? err}`, 'err');
-    }
-  }
-
+  // We no longer stop capture on the previous cluster because other clients (or the CCTV grid) might be watching.
+  // The backend capture is cheap to keep running.
+  
   _previewCaptureClusterUuid = next;
   _setClusterContext(next);
   _clearLivePreview();
@@ -71,6 +65,7 @@ async function _switchPreviewCluster(nextUuid) {
 
   if (next) {
     try {
+      // Ensure capture is running on the target (idempotent)
       await _startPreviewCapture(next);
       if (typeof startEventSource === 'function') startEventSource();
     } catch (err) {
@@ -159,8 +154,5 @@ document.addEventListener('DOMContentLoaded', () => {
   _loadPreviewClusters().catch(() => {});
 });
 
-window.addEventListener('beforeunload', () => {
-  if (_previewCaptureClusterUuid) {
-    _stopPreviewCapture(_previewCaptureClusterUuid).catch(() => {});
-  }
-});
+// Remove beforeunload stop listener to prevent killing capture for other users
+// window.addEventListener('beforeunload', () => { ... });
