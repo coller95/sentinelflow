@@ -739,6 +739,43 @@ input:focus {
     min-width: 42px;
 }
 
+/* ===================================================== */
+/* TAG INPUTS (TARGET CLUSTERS)                          */
+/* ===================================================== */
+
+.tagContainer:empty::before {
+    content: "All Clusters";
+    color: var(--muted);
+    font-style: italic;
+    padding: 2px 4px;
+}
+
+.clusterTag {
+    background: rgba(10, 122, 107, 0.12);
+    color: var(--ink);
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: default;
+    border: 1px solid var(--border);
+}
+
+.clusterTag .remove {
+    cursor: pointer;
+    font-weight: bold;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1;
+}
+
+.clusterTag .remove:hover {
+    color: var(--danger);
+}
+
 button {
     appearance: none;
     border: none;

@@ -139,6 +139,7 @@ class TriggerItemDto(BaseModel):
     triggerCiterias: List[TriggerCiteriaDto] = []
     criteriaMode: TriggerCriteriaModeDto = TriggerCriteriaModeDto.All
     action: str
+    targetClusterUuids: List[UUID] = []
 
 
 class TriggerUpsertRequest(BaseModel):
@@ -150,6 +151,7 @@ class TriggerUpsertRequest(BaseModel):
     triggerCiterias: List[TriggerCiteriaDto] = []
     criteriaMode: Optional[TriggerCriteriaModeDto] = None
     action: UUID
+    targetClusterUuids: List[UUID] = []
 
 
 class TriggerUuidRequest(BaseModel):

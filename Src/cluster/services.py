@@ -106,6 +106,7 @@ class TriggerItem:
     retriggerMs: int = 0
     disableOnFire: bool = False
     criteriaMode: TriggerCriteriaMode = TriggerCriteriaMode.All
+    targetClusterUuids: Optional[List[UUID]] = None  # None/Empty = All clusters. Otherwise only these.
 
 class ControllerServices:
     def __init__(
@@ -424,6 +425,10 @@ class ControllerServices:
                     "comparator": c.comparator.name,
                 })
             mode = getattr(t, "criteriaMode", TriggerCriteriaMode.All)
+            target_uuids_out = []
+            if t.targetClusterUuids:
+                target_uuids_out = [str(tu) for tu in t.targetClusterUuids]
+            
             data["triggers"].append({
                 "uuid": str(t.uuid),
                 "name": t.name,
@@ -433,6 +438,7 @@ class ControllerServices:
                 "action": str(t.action),
                 "triggerCiterias": crit_out,
                 "criteriaMode": mode.name,
+                "targetClusterUuids": target_uuids_out,
             })
 
         return data
@@ -444,9 +450,27 @@ class ControllerServices:
         data = self.ExportStateDict(includeServerUuid=True)
 
         tmp = p.with_suffix(p.suffix + ".tmp")
-        text = json.dumps(data, ensure_ascii=False, indent=2)
-        tmp.write_text(text, encoding="utf-8")
-        tmp.replace(p)
+        try:
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+            tmp.write_text(text, encoding="utf-8")
+            
+            # Simple retry loop for Windows file locking issues (AV, indexer, etc.)
+            for i in range(5):
+                try:
+                    tmp.replace(p)
+                    return
+                except OSError:
+                    if i == 4:
+                        raise
+                    time.sleep(0.1)
+        except Exception as e:
+            # Clean up temp file on failure if possible
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except Exception:
+                pass
+            raise e
 
     def ImportStateDict(self, obj: Dict[str, Any], keepServerUuid: bool = True) -> None:
         version = int(obj.get("version", 0) or 0)
@@ -652,6 +676,18 @@ class ControllerServices:
                 except Exception:
                     mode = TriggerCriteriaMode.All
 
+                targets_any = t.get("targetClusterUuids", [])
+                target_uuids: Optional[List[UUID]] = None
+                if isinstance(targets_any, list) and targets_any:
+                    target_uuids = []
+                    for raw_tu in cast(List[Any], targets_any):
+                        try:
+                            target_uuids.append(UUID(str(raw_tu)))
+                        except Exception:
+                            pass
+                    if not target_uuids:
+                        target_uuids = None
+
                 loaded_triggers[tu] = TriggerItem(
                     uuid=tu,
                     name=name,
@@ -661,6 +697,7 @@ class ControllerServices:
                     retriggerMs=retrigger_ms,
                     disableOnFire=disable_on_fire,
                     criteriaMode=mode,
+                    targetClusterUuids=target_uuids,
                 )
 
         with self._state_lock:
@@ -732,6 +769,7 @@ class ControllerServices:
         retriggerMs: int = 0,
         disableOnFire: bool = False,
         criteriaMode: TriggerCriteriaMode = TriggerCriteriaMode.All,
+        targetClusterUuids: Optional[List[UUID]] = None,
     ) -> TriggerItem:
         clean_name = (name or "").strip()
         if not clean_name:
@@ -766,6 +804,7 @@ class ControllerServices:
                 retriggerMs=retrigger_ms_int,
                 disableOnFire=bool(disableOnFire),
                 criteriaMode=criteriaMode,
+                targetClusterUuids=targetClusterUuids,
             )
             self._triggerItemList[trig_uuid] = item
             return item
@@ -788,6 +827,7 @@ class ControllerServices:
                 retriggerMs=int(getattr(existing, "retriggerMs", 0) or 0),
                 disableOnFire=bool(getattr(existing, "disableOnFire", False)),
                 criteriaMode=getattr(existing, "criteriaMode", TriggerCriteriaMode.All),
+                targetClusterUuids=getattr(existing, "targetClusterUuids", None),
             )
             self._triggerItemList[uuid] = updated
             return updated
@@ -959,8 +999,23 @@ class ControllerServices:
                 with self._condition_status_lock:
                     last_by_uuid: Dict[UUID, Optional[float]] = {k: v.last for k, v in self._condition_status.items()}
 
+                with self._state_lock:
+                    current_server_uuid = self._server_uuid
+
                 for t in triggers:
                     eval_rows: List[Dict[str, Any]] = []
+                    
+                    # Check cluster targeting
+                    targets = getattr(t, "targetClusterUuids", None)
+                    if targets:
+                        # If list is not empty, current cluster MUST be in it
+                        if current_server_uuid not in targets:
+                            # Not targeted -> Treat as disabled (or just skip logic)
+                            with self._state_lock:
+                                self._trigger_last_match[t.uuid] = False
+                                self._trigger_last_eval[t.uuid] = []
+                            continue
+
                     if not bool(t.enabled):
                         with self._state_lock:
                             self._trigger_last_match[t.uuid] = False
@@ -1040,6 +1095,7 @@ class ControllerServices:
                                             retriggerMs=int(getattr(existing, "retriggerMs", 0) or 0),
                                             disableOnFire=bool(getattr(existing, "disableOnFire", False)),
                                             criteriaMode=getattr(existing, "criteriaMode", TriggerCriteriaMode.All),
+                                            targetClusterUuids=getattr(existing, "targetClusterUuids", None),
                                         )
                                         self._trigger_last_match[t.uuid] = False
                         except Exception as exc:

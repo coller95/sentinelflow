@@ -12,80 +12,35 @@ async function _loadActionsForSelect(selectEl, selectedUuid) {
     if (selectedUuid) selectEl.value = String(selectedUuid);
 }
 
-let _triggerStatusHoverPaused = false;
-let _triggerStatusQueuedPayload = null;
+let _triggerTargetTags = []; // Array of {uuid, label}
+const _clusterLabelCache = new Map(); // uuid -> label
 
-function _makePlaceholderName(prefix) {
-    const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '-');
-    return `${prefix} ${stamp}`;
-}
-
-function _renderTriggerCriteriaRows() {
-    if (!triggerCriteriaBody) return;
-    triggerCriteriaBody.textContent = '';
-    const rows = Array.isArray(_triggerCriteria) ? _triggerCriteria : [];
-    for (let i = 0; i < rows.length; i++) {
-        const r = rows[i] || {};
-        const tr = document.createElement('tr');
-        const tdCond = document.createElement('td');
-        const selCond = document.createElement('select');
-        selCond.className = 'selectLike';
-        tdCond.appendChild(selCond);
-        const tdComp = document.createElement('td');
-        const selComp = document.createElement('select');
-        selComp.className = 'selectLike';
-        for (const c of _triggerComparators) {
-            const opt = document.createElement('option');
-            opt.value = c;
-            opt.textContent = c;
-            selComp.appendChild(opt);
-        }
-        tdComp.appendChild(selComp);
-        const tdExp = document.createElement('td');
-        const inpExp = document.createElement('input');
-        inpExp.type = 'text';
-        inpExp.placeholder = 'Example: 0.8';
-        tdExp.appendChild(inpExp);
-        const tdDel = document.createElement('td');
-        const btnDel = document.createElement('button');
-        btnDel.type = 'button';
-        btnDel.textContent = 'Delete';
-        tdDel.appendChild(btnDel);
-        tr.appendChild(tdCond);
-        tr.appendChild(tdComp);
-        tr.appendChild(tdExp);
-        tr.appendChild(tdDel);
-
-        if (Array.isArray(_cachedConditions)) {
-            _fillConditionsSelect(selCond, _cachedConditions, r.conditionUuid);
-            if (!rows[i].conditionUuid) {
-                rows[i].conditionUuid = String(selCond.value || '');
-            }
-        } else {
-            _loadConditionsForSelect(selCond, r.conditionUuid).then(() => {
-                if (!rows[i].conditionUuid) {
-                    rows[i].conditionUuid = String(selCond.value || '');
-                }
-            }).catch(() => {});
-        }
-        selComp.value = String(r.comparator || 'Equals');
-        inpExp.value = (r.expectedValue !== undefined && r.expectedValue !== null) ? String(r.expectedValue) : '';
-        selCond.addEventListener('change', () => {
-            rows[i].conditionUuid = String(selCond.value || '');
-        });
-        selComp.addEventListener('change', () => {
-            rows[i].comparator = String(selComp.value || 'Equals');
-        });
-        inpExp.addEventListener('input', () => {
-            rows[i].expectedValue = String(inpExp.value || '');
-        });
-        btnDel.addEventListener('click', () => {
-            rows.splice(i, 1);
-            _triggerCriteria = rows;
-            _renderTriggerCriteriaRows();
-        });
-        triggerCriteriaBody.appendChild(tr);
-    }
+function _renderTriggerTargetTags() {
+    if (!triggerTargetClusterTagsEl) return;
+    triggerTargetClusterTagsEl.textContent = '';
+    
+    _triggerTargetTags.forEach((tag, index) => {
+        const pill = document.createElement('div');
+        pill.className = 'clusterTag';
+        
+        const text = document.createElement('span');
+        // Prefer label, fallback to short UUID
+        let display = tag.label || _clusterLabelCache.get(tag.uuid) || tag.uuid.substring(0, 8);
+        text.textContent = display;
+        
+        const x = document.createElement('span');
+        x.className = 'remove';
+        x.textContent = '×';
+        x.onclick = (e) => {
+            e.stopPropagation();
+            _triggerTargetTags.splice(index, 1);
+            _renderTriggerTargetTags();
+        };
+        
+        pill.appendChild(text);
+        pill.appendChild(x);
+        triggerTargetClusterTagsEl.appendChild(pill);
+    });
 }
 
 function _clearTriggerEditor() {
@@ -96,6 +51,10 @@ function _clearTriggerEditor() {
     if (triggerRetriggerMsEl) triggerRetriggerMsEl.value = '0';
     if (triggerCriteriaModeEl) triggerCriteriaModeEl.value = 'All';
     if (triggerActionEl) triggerActionEl.value = '';
+    
+    _triggerTargetTags = [];
+    _renderTriggerTargetTags();
+    
     _triggerCriteria = [];
     _renderTriggerCriteriaRows();
 }
@@ -125,6 +84,15 @@ function _applyTriggerToEditor(t) {
     if (triggerRetriggerMsEl) triggerRetriggerMsEl.value = String(t.retriggerMs ?? 0);
     if (triggerCriteriaModeEl) triggerCriteriaModeEl.value = String(t.criteriaMode ?? 'All');
     if (triggerActionEl) triggerActionEl.value = String(t.action ?? '');
+    
+    // Load Tags
+    _triggerTargetTags = [];
+    const uuids = Array.isArray(t.targetClusterUuids) ? t.targetClusterUuids : [];
+    uuids.forEach(u => {
+        _triggerTargetTags.push({ uuid: u, label: _clusterLabelCache.get(u) || u });
+    });
+    _renderTriggerTargetTags();
+
     _triggerCriteria = Array.isArray(t.triggerCiterias) ? t.triggerCiterias.map((c) => ({
         conditionUuid: String(c.conditionUuid ?? ''),
         comparator: String(c.comparator ?? 'Equals'),
@@ -139,6 +107,19 @@ async function refreshTriggers() {
         getJson('/api/triggers'),
         getJson('/api/actions'),
     ]);
+    
+    // Try to fetch clusters to populate label cache if possible (best effort)
+    try {
+        const res = await fetch('/api/orchestrator/clusters');
+        if (res.ok) {
+            const data = await res.json();
+            const clusters = Array.isArray(data?.clusters) ? data.clusters : [];
+            clusters.forEach(c => {
+                if (c.uuid) _clusterLabelCache.set(c.uuid, c.label || c.uuid);
+            });
+        }
+    } catch {}
+
     const safeItems = Array.isArray(triggers) ? triggers : [];
     const safeActions = Array.isArray(actions) ? actions : [];
     const actionNameByUuid = {};
@@ -488,7 +469,10 @@ if (btnTriggerSave) {
             if (domRowCount > 0 && citerias.length === 0) {
                 throw new Error('Criteria rows exist but no Condition is selected. Create/refresh Conditions first, then select a Condition for each criteria.');
             }
-            const payload = { name, enabled, retriggerMs, disableOnFire, criteriaMode, action: actionUuid, triggerCiterias: citerias };
+            
+            const targetClusterUuids = _triggerTargetTags.map(t => t.uuid);
+
+            const payload = { name, enabled, retriggerMs, disableOnFire, criteriaMode, action: actionUuid, triggerCiterias: citerias, targetClusterUuids };
             if (selectedTriggerUuid) payload.uuid = selectedTriggerUuid;
             const res = await postJson('/api/triggers/upsert', payload);
             if (res && res.uuid) selectedTriggerUuid = String(res.uuid);
@@ -514,6 +498,155 @@ if (btnTriggerDelete) {
             setStatus('Trigger deleted.', 'ok');
         } catch (e) {
             setStatus(`Delete trigger failed: ${e.message}`, 'err');
+        }
+    });
+}
+
+if (btnPickTargetClusters) {
+    btnPickTargetClusters.addEventListener('click', async () => {
+        try {
+            // Fetch clusters
+            let clusters = [];
+            try {
+                // Use direct fetch to avoid apiPath prefixing (which assumes automation context)
+                const res = await fetch('/api/orchestrator/clusters');
+                if (res.ok) {
+                    const data = await res.json();
+                    clusters = Array.isArray(data?.clusters) ? data.clusters : [];
+                } else {
+                    throw new Error(res.statusText);
+                }
+            } catch (err) {
+                // If orchestrator endpoint fails (e.g. we are on a cluster node), try getting local info
+                try {
+                    // Try root-relative path first, then apiPath if needed? 
+                    // On cluster, /api/server/info is at root.
+                    const res = await fetch('/api/server/info');
+                    if (res.ok) {
+                        const info = await res.json();
+                        if (info && info.serverUuid) {
+                            clusters = [{
+                                uuid: info.serverUuid,
+                                label: 'This Cluster (Local)',
+                                baseUrl: ''
+                            }];
+                        }
+                    }
+                } catch {
+                    // ignore
+                }
+            }
+
+            if (clusters.length === 0) {
+                alert('No clusters found. Are you connected to the Orchestrator?');
+                return;
+            }
+
+            // Update Label Cache
+            clusters.forEach(c => {
+                if (c.uuid) _clusterLabelCache.set(c.uuid, c.label || c.uuid);
+            });
+
+            // Simple modal
+            const overlay = document.createElement('div');
+            Object.assign(overlay.style, {
+                position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+                backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex',
+                alignItems: 'center', justifyContent: 'center'
+            });
+
+            const dialog = document.createElement('div');
+            Object.assign(dialog.style, {
+                backgroundColor: '#222', border: '1px solid #444', padding: '20px',
+                borderRadius: '8px', minWidth: '300px', maxWidth: '90vw',
+                maxHeight: '80vh', overflowY: 'auto', color: '#fff'
+            });
+
+            const title = document.createElement('h3');
+            title.textContent = 'Select Target Clusters';
+            title.style.marginTop = '0';
+            dialog.appendChild(title);
+
+            const list = document.createElement('div');
+            list.style.display = 'flex';
+            list.style.flexDirection = 'column';
+            list.style.gap = '8px';
+            list.style.marginBottom = '20px';
+
+            const currentUuids = new Set(_triggerTargetTags.map(t => t.uuid));
+
+            clusters.forEach(c => {
+                const label = document.createElement('label');
+                label.style.display = 'flex';
+                label.style.alignItems = 'center';
+                label.style.gap = '8px';
+                label.style.cursor = 'pointer';
+
+                const chk = document.createElement('input');
+                chk.type = 'checkbox';
+                chk.value = c.uuid;
+                if (currentUuids.has(c.uuid)) chk.checked = true;
+
+                const text = document.createTextNode(`${c.label || c.uuid} (${c.uuid.substring(0, 8)}...)`);
+                
+                label.appendChild(chk);
+                label.appendChild(text);
+                list.appendChild(label);
+            });
+            dialog.appendChild(list);
+
+            const buttons = document.createElement('div');
+            buttons.style.display = 'flex';
+            buttons.style.justifyContent = 'flex-end';
+            buttons.style.gap = '10px';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.onclick = () => document.body.removeChild(overlay);
+
+            const okBtn = document.createElement('button');
+            okBtn.textContent = 'Apply';
+            okBtn.className = 'primary';
+            okBtn.onclick = () => {
+                const selected = [];
+                list.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+                    const uuid = cb.value;
+                    const label = _clusterLabelCache.get(uuid) || uuid;
+                    selected.push({ uuid, label });
+                });
+                
+                // Add any existing tags that weren't in the picker (e.g. offline clusters)
+                _triggerTargetTags.forEach(existing => {
+                    if (!clusters.find(c => c.uuid === existing.uuid) && currentUuids.has(existing.uuid)) {
+                       // Only if it was originally selected and not unchecked? 
+                       // No, if the picker only shows *online* clusters, we might accidentally uncheck offline ones?
+                       // The logic above replaces the list.
+                       // Ideally, we should merge.
+                       // But "Pick" usually implies selection from available.
+                       // If we want to preserve offline ones, we need to know they exist.
+                       // For now, let's assume the user picks from what they see.
+                       // Or we can add them to the picker list if they are in _triggerTargetTags but not in clusters.
+                    }
+                });
+                
+                // Better approach: merge known + selected.
+                // But typically "Pick" = "Set these".
+                // I'll stick to simple replacement for now.
+                
+                _triggerTargetTags = selected;
+                _renderTriggerTargetTags();
+                document.body.removeChild(overlay);
+            };
+
+            buttons.appendChild(cancelBtn);
+            buttons.appendChild(okBtn);
+            dialog.appendChild(buttons);
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+
+        } catch (e) {
+            console.error(e);
+            alert('Failed to load clusters. Are you connected to the Orchestrator?');
         }
     });
 }

@@ -1071,5 +1071,22 @@ class OrchestratorServices:
         p.parent.mkdir(parents=True, exist_ok=True)
         data = self.ExportStateDict()
         tmp = p.with_suffix(p.suffix + ".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(p)
+        try:
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            
+            # Simple retry loop for Windows file locking issues
+            for i in range(5):
+                try:
+                    tmp.replace(p)
+                    return
+                except OSError:
+                    if i == 4:
+                        raise
+                    time.sleep(0.1)
+        except Exception as e:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except Exception:
+                pass
+            raise e

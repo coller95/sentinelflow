@@ -43,9 +43,9 @@ _automation_cond: Optional[asyncio.Condition] = None
 
 @app.on_event("startup")
 async def startup_event():
-    global httpx_async_client, _monitor_client, _cluster_monitor_task, _stop_event, _automation_cond
+    global httpx_async_client, _monitor_client, _cluster_monitor_task, _stop_event
     _stop_event = asyncio.Event()
-    _automation_cond = asyncio.Condition()
+    app.state.automation_cond = asyncio.Condition()
     
     # 1. Main Client (User/UI Proxy) - High concurrency, standard timeouts
     limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
@@ -948,10 +948,11 @@ def _get_automation_content(svc: OrchestratorServices) -> Dict[str, Any]:
 
 
 async def _notify_automation_change():
-    global _automation_cond
-    if _automation_cond:
-        async with _automation_cond:
-            _automation_cond.notify_all()
+    print("[Orchestrator] Notifying automation change...")
+    cond = getattr(app.state, "automation_cond", None)
+    if cond:
+        async with cond:
+            cond.notify_all()
 
 def _update_automation_content(svc: OrchestratorServices, content: Dict[str, Any]) -> Any:
 
@@ -1306,14 +1307,17 @@ async def AutomationActionsStream(request: Request) -> StreamingResponse:
 
             now = time.monotonic()
             # Wait for condition or keepalive timeout
-            global _automation_cond
-            if _automation_cond:
+            cond = getattr(app.state, "automation_cond", None)
+            if cond:
                 try:
-                    async with _automation_cond:
+                    async with cond:
                         # Wait up to 10s for a change
                         try:
-                            await asyncio.wait_for(_automation_cond.wait(), timeout=10.0)
+                            # print(f"[ActionsStream] Waiting on condition... seq={seq}")
+                            await asyncio.wait_for(cond.wait(), timeout=10.0)
+                            print("[ActionsStream] Woke up from condition!")
                         except asyncio.TimeoutError:
+                            # print("[ActionsStream] Keepalive")
                             yield ": keepalive\n\n"
                             last_keepalive = time.monotonic()
                 except asyncio.CancelledError:
@@ -1623,6 +1627,7 @@ def GetAutomationTriggers() -> List[TriggerItemDto]:
                 triggerCiterias=citerias,
                 criteriaMode=mode,
                 action=str(item.get("action", "")),
+                targetClusterUuids=[UUID(str(u)) for u in item.get("targetClusterUuids", []) if u],
             )
         )
     return items
@@ -1658,6 +1663,8 @@ async def UpsertAutomationTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
 
     uuid_str = str(req.uuid or uuid4())
     criteria_mode = str(req.criteriaMode.value) if req.criteriaMode is not None else "All"
+    target_uuids = [str(u) for u in req.targetClusterUuids] if req.targetClusterUuids else []
+    
     new_item = {
         "uuid": uuid_str,
         "name": name,
@@ -1667,6 +1674,7 @@ async def UpsertAutomationTrigger(req: TriggerUpsertRequest) -> Dict[str, Any]:
         "triggerCiterias": citerias,
         "criteriaMode": criteria_mode,
         "action": str(req.action),
+        "targetClusterUuids": target_uuids,
     }
 
     triggers_any = content.get("triggers", [])
