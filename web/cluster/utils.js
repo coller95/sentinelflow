@@ -137,7 +137,13 @@ async function postJson(path, body) {
 }
 
 async function getJson(path) {
-    const res = await fetch(apiPath(path), { method: 'GET' });
+    const ts = Date.now();
+    const separator = path.includes('?') ? '&' : '?';
+    const url = `${apiPath(path)}${separator}_=${ts}`;
+    const res = await fetch(url, {
+        method: 'GET',
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+    });
     const text = await res.text();
     let data = null;
     try {

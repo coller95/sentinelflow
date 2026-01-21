@@ -587,36 +587,72 @@ function _updateCctvCardState(clusterUuid, state, detail) {
   entry.statusEl.textContent = `${pillInfo.text}${detailText}`;
 }
 
+let _cctvSocket = null;
+let _cctvSubscribedUuids = new Set();
+
+function _ensureCctvSocket() {
+    if (_cctvSocket && (_cctvSocket.readyState === WebSocket.OPEN || _cctvSocket.readyState === WebSocket.CONNECTING)) {
+        return;
+    }
+
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const url = `${proto}//${host}/api/orchestrator/cctv/ws`;
+
+    _cctvSocket = new WebSocket(url);
+
+    _cctvSocket.onopen = () => {
+        _sendCctvSubscriptions();
+    };
+
+    _cctvSocket.onmessage = (ev) => {
+        try {
+            const updates = JSON.parse(ev.data);
+            if (Array.isArray(updates)) {
+                for (const item of updates) {
+                    const cu = String(item.uuid ?? '');
+                    const b64 = String(item.b64 ?? '');
+                    const entry = _cctvCards.get(cu);
+                    if (entry && entry.imgEl && b64) {
+                        entry.imgEl.src = `data:image/jpeg;base64,${b64}`;
+                        _updateCctvCardState(cu, 'live', '');
+                    }
+                }
+            }
+        } catch {
+            // ignore
+        }
+    };
+
+    _cctvSocket.onclose = () => {
+        // Retry after delay if we still have subscriptions
+        if (_cctvSubscribedUuids.size > 0) {
+            setTimeout(_ensureCctvSocket, 2000);
+        }
+    };
+}
+
+function _sendCctvSubscriptions() {
+    if (!_cctvSocket || _cctvSocket.readyState !== WebSocket.OPEN) return;
+    const list = Array.from(_cctvSubscribedUuids);
+    _cctvSocket.send(JSON.stringify(list));
+}
+
 function _startCctvStream(cluster) {
   const cu = String(cluster?.uuid ?? '').trim();
-  if (!cu || _cctvStreams.has(cu)) return;
+  if (!cu) return;
 
-  const url = `/api/orchestrator/clusters/${encodeURIComponent(cu)}/capture/stream?fmt=jpg&quality=70`;
-  const stream = new EventSource(url);
-  _cctvStreams.set(cu, stream);
-
-  stream.addEventListener('frame', (ev) => {
-    const payload = String(ev?.data || '').trim();
-    if (!payload) return;
-    const entry = _cctvCards.get(cu);
-    if (!entry) return;
-    entry.imgEl.src = `data:image/jpeg;base64,${payload}`;
-    _updateCctvCardState(cu, 'live', '');
-  });
-
-  stream.addEventListener('error', () => {
-    if (!_cctvStreams.has(cu)) return;
-    _updateCctvCardState(cu, 'offline', '');
-  });
+  _cctvSubscribedUuids.add(cu);
+  _ensureCctvSocket();
+  _sendCctvSubscriptions();
 }
 
 function _closeCctvStream(clusterUuid) {
   const cu = String(clusterUuid ?? '').trim();
-  const stream = _cctvStreams.get(cu);
-  if (stream) {
-    stream.close();
+  if (_cctvSubscribedUuids.has(cu)) {
+      _cctvSubscribedUuids.delete(cu);
+      _sendCctvSubscriptions();
   }
-  _cctvStreams.delete(cu);
 }
 
 async function _captureStartCluster(cluster, intervalSeconds) {

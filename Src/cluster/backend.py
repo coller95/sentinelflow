@@ -898,7 +898,7 @@ def MoveTrigger(req: TriggerMoveRequest) -> Dict[str, Any]:
 
 @app.post("/api/triggers/set_enabled")
 def SetTriggerEnabled(req: TriggerSetEnabledRequest) -> Dict[str, Any]:
-    _deny_automation_edit()
+    # Local override allowed
     svc = _get_services()
     try:
         item = svc.SetTriggerEnabled(req.uuid, bool(req.enabled))

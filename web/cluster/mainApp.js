@@ -414,7 +414,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 stopTriggerStatusSse();
             }
             if (target === 'actions') {
+                if (typeof startActionsEventSource === 'function') startActionsEventSource();
                 refreshActions().catch(() => {});
+            } else {
+                if (typeof stopActionsEventSource === 'function') stopActionsEventSource();
             }
             if (target === 'triggers') {
                 _loadActionsForSelect(triggerActionEl, triggerActionEl ? triggerActionEl.value : '').catch(() => {});
@@ -427,6 +430,14 @@ document.addEventListener("DOMContentLoaded", () => {
     if (activeTab) {
         const target = activeTab.dataset.tab;
         setOverlayForTab(target);
+        // Trigger initial load for the active tab
+        if (target === 'actions') {
+            if (typeof refreshActions === 'function') refreshActions().catch(() => {});
+            if (typeof startActionsEventSource === 'function') startActionsEventSource();
+        }
+        if (target === 'conditions' && typeof refreshConditions === 'function') refreshConditions().catch(() => {});
+        if (target === 'triggers' && typeof refreshTriggers === 'function') refreshTriggers().catch(() => {});
+        if (target === 'triggerStatus' && typeof startTriggerStatusSse === 'function') startTriggerStatusSse();
     }
     tryLoadAppDefaults();
     _lastSavedAppDefaults = _readAppDefaultsFromInputs();

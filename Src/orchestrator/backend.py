@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import cv2
 import numpy as np
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
@@ -38,11 +38,14 @@ httpx_async_client: Optional[httpx.AsyncClient] = None
 _monitor_client: Optional[httpx.AsyncClient] = None
 _cluster_monitor_task: Optional[asyncio.Task[Any]] = None
 _stop_event: Optional[asyncio.Event] = None
+# Condition variable to broadcast automation config changes to SSE listeners
+_automation_cond: Optional[asyncio.Condition] = None
 
 @app.on_event("startup")
 async def startup_event():
-    global httpx_async_client, _monitor_client, _cluster_monitor_task, _stop_event
+    global httpx_async_client, _monitor_client, _cluster_monitor_task, _stop_event, _automation_cond
     _stop_event = asyncio.Event()
+    _automation_cond = asyncio.Condition()
     
     # 1. Main Client (User/UI Proxy) - High concurrency, standard timeouts
     limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
@@ -348,6 +351,90 @@ async def _proxy_sse(baseUrl: str, path: str) -> StreamingResponse:
 def GetOrchestratorInfo() -> Dict[str, Any]:
     svc = _get_services()
     return {"orchestratorUuid": str(svc.GetOrchestratorUuid())}
+
+
+@app.websocket("/api/orchestrator/cctv/ws")
+async def CctvWebSocket(websocket: WebSocket):
+    await websocket.accept()
+    svc = _get_services()
+    active_uuids: List[UUID] = []
+    
+    try:
+        # We use a simple protocol:
+        # Client sends JSON: ["uuid1", "uuid2", ...] (list of subscribed clusters)
+        # Server sends JSON: [{"uuid": "...", "b64": "..."}, ...] (list of updates)
+        
+        async def receive_loop():
+            nonlocal active_uuids
+            try:
+                while True:
+                    data = await websocket.receive_json()
+                    if isinstance(data, list):
+                        new_list: List[UUID] = []
+                        for s in data:
+                            try:
+                                new_list.append(UUID(str(s)))
+                            except Exception:
+                                pass
+                        active_uuids = new_list
+            except WebSocketDisconnect:
+                pass
+            except Exception as e:
+                print(f"[CCTV WS] Receive error: {e}")
+
+        async def send_loop():
+            nonlocal active_uuids
+            while True:
+                if not active_uuids:
+                    await asyncio.sleep(0.5)
+                    continue
+                
+                # Snapshot current list to avoid modification during iteration
+                current_targets = list(active_uuids)
+                
+                # Fetch all frames concurrently
+                tasks = []
+                for cu in current_targets:
+                    tasks.append(_fetch_cluster_latest_frame(svc, cu))
+                
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                updates = []
+                for i, res in enumerate(results):
+                    if isinstance(res, np.ndarray):
+                        b64 = encode_jpeg_b64(res, quality=70)
+                        if b64:
+                            updates.append({
+                                "uuid": str(current_targets[i]),
+                                "b64": b64
+                            })
+                
+                if updates:
+                    try:
+                        await websocket.send_json(updates)
+                    except Exception:
+                        break # Socket likely closed
+                
+                await asyncio.sleep(0.5) # Throttle to ~2 FPS per camera for grid view
+
+        # Run both loops
+        receiver = asyncio.create_task(receive_loop())
+        sender = asyncio.create_task(send_loop())
+        
+        done, pending = await asyncio.wait(
+            [receiver, sender],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+            
+    except Exception as e:
+        print(f"[CCTV WS] Error: {e}")
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 # -----------------------------------------------------------------------------
@@ -860,12 +947,21 @@ def _get_automation_content(svc: OrchestratorServices) -> Dict[str, Any]:
     return content
 
 
-def _update_automation_content(svc: OrchestratorServices, content: Dict[str, Any]) -> Any:
-    config = svc.EnsureAutomationConfig()
-    record = svc.UpdateConfigBundle(config.uuid, content=content)
-    _try_save_state(svc)
-    return record
+async def _notify_automation_change():
+    global _automation_cond
+    if _automation_cond:
+        async with _automation_cond:
+            _automation_cond.notify_all()
 
+def _update_automation_content(svc: OrchestratorServices, content: Dict[str, Any]) -> Any:
+
+    config = svc.EnsureAutomationConfig()
+
+    record = svc.UpdateConfigBundle(config.uuid, content=content)
+
+    _try_save_state(svc)
+
+    return record
 
 
 
@@ -1088,6 +1184,7 @@ async def UpsertAutomationAction(req: ActionUpsertRequest) -> Dict[str, Any]:
 
     content["actions"] = actions
     _update_automation_content(svc, content)
+    await _notify_automation_change()
     results = await _push_automation_to_clusters(svc, content)
     return {"ok": True, "uuid": action_uuid, "results": results}
 
@@ -1105,6 +1202,7 @@ async def RemoveAutomationAction(req: ActionUuidRequest) -> Dict[str, Any]:
     actions.pop(idx)
     content["actions"] = actions
     _update_automation_content(svc, content)
+    await _notify_automation_change()
     results = await _push_automation_to_clusters(svc, content)
     return {"ok": True, "results": results}
 
@@ -1130,6 +1228,7 @@ async def MoveAutomationAction(req: ActionMoveRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="direction must be 'up' or 'down'")
     content["actions"] = actions
     _update_automation_content(svc, content)
+    await _notify_automation_change()
     results = await _push_automation_to_clusters(svc, content)
     return {"ok": True, "results": results}
 
@@ -1154,6 +1253,78 @@ async def RunAutomationAction(req: ActionRunRequest) -> Dict[str, Any]:
 
     base = _require_cluster_base_url(svc, cluster_uuid)
     return await _proxy_json("POST", base, "/api/actions/run", body={"uuid": uuid_str})
+
+
+def _get_actions_list_payload(svc: OrchestratorServices) -> List[ActionItemDto]:
+    content = _get_automation_content(svc)
+    items: List[ActionItemDto] = []
+    actions_list = cast(List[Any], content.get("actions", []))
+    for item_any in actions_list:
+        if not isinstance(item_any, dict):
+            continue
+        item: Dict[str, Any] = cast(Dict[str, Any], item_any)
+        steps_any = item.get("steps", [])
+        steps: List[MacroStepDto] = []
+        if isinstance(steps_any, list):
+            for s_any in cast(List[Any], steps_any):
+                if not isinstance(s_any, dict):
+                    continue
+                s: Dict[str, Any] = cast(Dict[str, Any], s_any)
+                action_raw = str(s.get("action", "") or "").strip()
+                try:
+                    action = MacroTypeDto(action_raw)
+                except Exception:
+                    continue
+                params = s.get("parameters", {})
+                if not isinstance(params, dict):
+                    params = {}
+                steps.append(MacroStepDto(action=action, parameters=dict(cast(Dict[str, Any], params))))
+        items.append(ActionItemDto(uuid=str(item.get("uuid", "")), name=str(item.get("name", "")), steps=steps))
+    return items
+
+
+@app.get("/api/orchestrator/automation/actions/stream")
+async def AutomationActionsStream(request: Request) -> StreamingResponse:
+    svc = _get_services()
+
+    async def event_stream():
+        yield "retry: 1000\n\n"
+
+        last_seq = -1
+        last_keepalive = time.monotonic()
+
+        while True:
+            if not svc.IsRunning():
+                break
+
+            seq = svc.GetAutomationSequence()
+            if seq != last_seq:
+                last_seq = seq
+                payload = _get_actions_list_payload(svc)
+                data = json.dumps([p.model_dump() for p in payload], separators=(",", ":"))
+                yield f"event: actions\ndata: {data}\n\n"
+
+            now = time.monotonic()
+            # Wait for condition or keepalive timeout
+            global _automation_cond
+            if _automation_cond:
+                try:
+                    async with _automation_cond:
+                        # Wait up to 10s for a change
+                        try:
+                            await asyncio.wait_for(_automation_cond.wait(), timeout=10.0)
+                        except asyncio.TimeoutError:
+                            yield ": keepalive\n\n"
+                            last_keepalive = time.monotonic()
+                except asyncio.CancelledError:
+                    break
+            else:
+                await asyncio.sleep(1.0)
+            
+            if await request.is_disconnected():
+                break
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.get("/api/orchestrator/automation/conditions")
@@ -2000,6 +2171,15 @@ async def ProxyAppAttach(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
     svc = _get_services()
     base = _require_cluster_base_url(svc, clusterUuid)
     return await _proxy_json("POST", base, "/api/app/attach", body=dict(req.body))
+
+
+@app.post("/api/orchestrator/clusters/{clusterUuid}/triggers/set_enabled")
+async def ProxyTriggerSetEnabled(clusterUuid: UUID, req: ProxyBodyRequest) -> Any:
+    svc = _get_services()
+    base = _require_cluster_base_url(svc, clusterUuid)
+    # The frontend sends { "uuid": "...", "enabled": true } as the body.
+    # The cluster endpoint expects TriggerSetEnabledRequest which matches this structure.
+    return await _proxy_json("POST", base, "/api/triggers/set_enabled", body=dict(req.body))
 
 
 @app.post("/api/orchestrator/clusters/{clusterUuid}/app/close")

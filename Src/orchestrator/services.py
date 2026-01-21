@@ -78,6 +78,7 @@ class OrchestratorServices:
         self._automation_config_uuid: Optional[UUID] = None
         self._displayLayouts: Dict[UUID, DisplayLayoutRecord] = {}
         self._displayAssignments: Dict[UUID, DisplayAssignmentRecord] = {}
+        self._automation_seq: int = 0
 
     def IsRunning(self) -> bool:
         return self._running
@@ -360,6 +361,10 @@ class OrchestratorServices:
                 return None
             return self._configBundles.get(self._automation_config_uuid)
 
+    def GetAutomationSequence(self) -> int:
+        with self._lock:
+            return self._automation_seq
+
     def EnsureAutomationConfig(self) -> ConfigBundleRecord:
         existing = self.GetAutomationConfig()
         if existing is not None:
@@ -463,6 +468,9 @@ class OrchestratorServices:
                 sourceClusterUuid=existing.sourceClusterUuid,
             )
             self._configBundles[configUuid] = record
+            
+            if self._automation_config_uuid == configUuid:
+                self._automation_seq += 1
         return record
 
     def RemoveConfigBundle(self, configUuid: UUID) -> None:

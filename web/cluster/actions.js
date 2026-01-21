@@ -133,7 +133,82 @@ function applyActionToEditor(action) {
     _setActionStepsFromValue(action.steps ?? []);
 }
 
+let _actionsEventSource = null;
+
+function startActionsEventSource() {
+    stopActionsEventSource();
+    if (!actionTableBody) return;
+    
+    // Only use SSE if we are talking to the Orchestrator directly (not Live Preview proxy, unless we add proxy support)
+    // Actually, Live Preview sets AUTOMATION_CLUSTER_UUID.
+    // If AUTOMATION_CLUSTER_UUID is set, apiPath sends requests to the Cluster.
+    // But /api/actions is NOT in _isAppApiPath, so it goes to Orchestrator.
+    // So /api/orchestrator/automation/actions/stream is the correct endpoint.
+    // We need to ensure apiPath resolves it correctly.
+    // apiPath('/api/orchestrator/automation/actions/stream') -> should work.
+    
+    const streamPath = '/api/orchestrator/automation/actions/stream';
+    const finalUrl = apiPath(streamPath); // This might need manual adjustment if apiPath assumes relative to Base
+    
+    // Check if we are in Orchestrator context or Cluster context.
+    // Usually API_BASE is /api/orchestrator/automation.
+    // So we can just try appending /actions/stream to API_BASE?
+    // Let's rely on apiPath mapping.
+    
+    try {
+        _actionsEventSource = new EventSource(finalUrl);
+        _actionsEventSource.addEventListener('actions', (ev) => {
+            try {
+                const items = JSON.parse(ev.data || '[]');
+                if (Array.isArray(items)) {
+                    // Update table
+                    actionTableBody.textContent = '';
+                    for (const it of items) {
+                        const tr = document.createElement('tr');
+                        tr.dataset.uuid = String(it.uuid ?? '');
+                        if (selectedActionUuid && String(it.uuid) === String(selectedActionUuid)) {
+                            tr.classList.add('selected');
+                        }
+                        const tdName = document.createElement('td');
+                        tdName.textContent = String(it.name ?? '');
+                        const tdSteps = document.createElement('td');
+                        const steps = Array.isArray(it.steps) ? it.steps : [];
+                        tdSteps.textContent = String(steps.length);
+                        tr.appendChild(tdName);
+                        tr.appendChild(tdSteps);
+                        tr.addEventListener('click', () => {
+                            const uuid = String(it.uuid ?? '');
+                            if (selectedActionUuid && uuid && String(selectedActionUuid) === uuid) {
+                                clearActionEditor();
+                                // refreshActions is now redundant if SSE works, but harmless
+                                return;
+                            }
+                            applyActionToEditor(it);
+                        });
+                        actionTableBody.appendChild(tr);
+                    }
+                }
+            } catch (e) {
+                console.error('SSE parse error', e);
+            }
+        });
+        _actionsEventSource.onerror = () => {
+            // console.warn('Actions SSE disconnected');
+        };
+    } catch (e) {
+        console.error('SSE setup error', e);
+    }
+}
+
+function stopActionsEventSource() {
+    if (_actionsEventSource) {
+        _actionsEventSource.close();
+        _actionsEventSource = null;
+    }
+}
+
 async function refreshActions() {
+    // If SSE is active, manual refresh is less critical but still useful as fallback
     if (!actionTableBody) return;
     const items = await getJson('/api/actions');
     const safeItems = Array.isArray(items) ? items : [];
