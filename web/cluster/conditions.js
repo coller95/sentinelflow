@@ -286,13 +286,17 @@ async function createConditionPlaceholder() {
     setRoiInputsFromNormalized(_lastRoi);
     renderLiveOverlay();
 
-    const res = await postJson('/api/conditions', {
+    const clusterUuid = _automationClusterUuid();
+    const payload = {
         name,
         type,
         roi: { xNormalized, yNormalized, widthNormalized, heightNormalized },
         templateImageBase64: null,
         templateFromLive: true,
-    });
+    };
+    if (clusterUuid) payload.clusterUuid = clusterUuid;
+
+    const res = await postJson('/api/conditions', payload);
     return res;
 }
 

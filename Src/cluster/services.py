@@ -202,6 +202,25 @@ class ControllerServices:
         
         self._running = True
         self._shutdown_event.clear()
+
+        # Try to restore attachment if detached and we have a default title
+        with self._state_lock:
+            title = self._default_window_title
+            l = self._default_window_left
+            t = self._default_window_top
+            w = self._default_window_width
+            h = self._default_window_height
+            is_detached = (self._hwnd == 0)
+
+        if is_detached and title:
+            try:
+                # We use the internal method or public one? 
+                # Public AttachApp updates defaults (which are already set), but handles logic.
+                # It also finds PID.
+                print(f"[Cluster] Auto-attaching to '{title}'...")
+                self.AttachApp(title, left=l, top=t, width=w, height=h)
+            except Exception as e:
+                print(f"[Cluster] Auto-attach failed: {e}")
         
         # Start async tasks
         self._control_task = asyncio.create_task(self._control_worker())
