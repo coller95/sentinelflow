@@ -139,6 +139,8 @@ class ControllerServices:
         self._hwnd: Any = 0
 
         self._state_lock = threading.Lock()
+        self._running = True
+        self._shutdown_event = threading.Event()
 
         self._capture_thread: Optional[threading.Thread] = None
         self._capture_enabled_event = threading.Event()
@@ -853,7 +855,7 @@ class ControllerServices:
 
             return False
 
-        while True:
+        while self._running:
             try:
                 # Batch all state reads under one lock for reduced contention.
                 with self._state_lock:
@@ -956,12 +958,12 @@ class ControllerServices:
                 with self._state_lock:
                     self._trigger_status_seq += 1
 
-                time.sleep(max(0.05, interval))
-
             except BaseException as exc:
                 with self._state_lock:
                     self._trigger_last_error = exc
-                time.sleep(0.5)
+            
+            if self._shutdown_event.wait(max(0.05, interval)):
+                break
 
     def GetActionItemByUuid(self, uuid: UUID) -> Optional[ActionItem]:
         with self._state_lock:
@@ -1075,8 +1077,12 @@ class ControllerServices:
             return out
 
     def _macro_worker(self) -> None:
-        while True:
-            action_uuid = self._macro_queue.get()
+        while self._running:
+            try:
+                action_uuid = self._macro_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
             try:
                 with self._state_lock:
                     action = self._actionItemList.get(action_uuid)
@@ -1313,7 +1319,7 @@ class ControllerServices:
         return self._computer_vision.encode_image_to_b64(out)
 
     def _condition_status_worker(self) -> None:
-        while True:
+        while self._running:
             # Batch state reads under one lock for reduced contention.
             with self._state_lock:
                 interval = float(self._condition_status_interval_seconds)
@@ -1363,7 +1369,8 @@ class ControllerServices:
                 self._condition_status = {s.uuid: s for s in snapshots}
                 self._condition_status_seq += 1
 
-            time.sleep(interval)
+            if self._shutdown_event.wait(interval):
+                break
 
     def LaunchApp(self, app_path: str, left: int = 0, top: int = 0, width: int = 640, height: int = 480) -> None:
         with self._state_lock:
@@ -1510,8 +1517,12 @@ class ControllerServices:
                 pass
 
     def _control_worker(self) -> None:
-        while True:
-            action = self._control_queue.get()
+        while self._running:
+            try:
+                action = self._control_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
             print("Processing control action:", action)
             try:
                 if action.kind == "click":
@@ -1528,10 +1539,12 @@ class ControllerServices:
     def _capture_worker(self) -> None:
         # KISS: one daemon thread for the lifetime of Services.
         # It blocks until capture is enabled, then captures every interval.
-        while True:
-            self._capture_enabled_event.wait()
+        while self._running:
+            self._capture_enabled_event.wait(timeout=0.5)
+            if not self._running:
+                break
 
-            while self._capture_enabled_event.is_set():
+            while self._capture_enabled_event.is_set() and self._running:
                 with self._state_lock:
                     hwnd = self._hwnd
                     interval = float(self._capture_interval_seconds)
@@ -1542,7 +1555,9 @@ class ControllerServices:
                 if hwnd == 0:
                     with self._capture_lock:
                         self._capture_last_error = Exception("No application is attached for capturing.")
-                    time.sleep(interval)
+                    
+                    if self._shutdown_event.wait(interval):
+                        break
                     continue
 
                 try:
@@ -1555,7 +1570,8 @@ class ControllerServices:
                     with self._capture_lock:
                         self._capture_last_error = exc
 
-                time.sleep(interval)
+                if self._shutdown_event.wait(interval):
+                    break
 
     def StartCapture(self, intervalSeconds: float = 1.0) -> None:
         if intervalSeconds <= 0:
@@ -1571,6 +1587,14 @@ class ControllerServices:
     def StopCapture(self) -> None:
         # Only disables capture; the worker thread remains alive.
         self._capture_enabled_event.clear()
+
+    def Shutdown(self) -> None:
+        self._running = False
+        self._shutdown_event.set()
+        self._capture_enabled_event.set()
+
+    def IsRunning(self) -> bool:
+        return self._running
 
     def GetLatestCapture(self) -> Optional[NDArray[np.uint8]]:
         """Return the latest captured frame (read-only; do not mutate)."""

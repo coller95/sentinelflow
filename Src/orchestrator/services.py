@@ -69,6 +69,7 @@ class DisplayAssignmentRecord:
 class OrchestratorServices:
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._running = True
         self._orchestrator_uuid: UUID = uuid4()
         self._clusters: Dict[UUID, ClusterRecord] = {}
         self._configBundles: Dict[UUID, ConfigBundleRecord] = {}
@@ -76,6 +77,12 @@ class OrchestratorServices:
         self._automation_config_uuid: Optional[UUID] = None
         self._displayLayouts: Dict[UUID, DisplayLayoutRecord] = {}
         self._displayAssignments: Dict[UUID, DisplayAssignmentRecord] = {}
+
+    def IsRunning(self) -> bool:
+        return self._running
+
+    def Shutdown(self) -> None:
+        self._running = False
 
     def GetOrchestratorUuid(self) -> UUID:
         with self._lock:

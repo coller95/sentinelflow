@@ -61,7 +61,8 @@ async def shutdown_event():
 
 async def _monitor_clusters():
     """Background task to poll clusters for health/online status."""
-    while True:
+    svc = _get_services()
+    while svc.IsRunning():
         try:
             # We must wait for services to be initialized purely by side-effect or check
             # but _get_services() handles lazy init.
@@ -69,7 +70,9 @@ async def _monitor_clusters():
             # It's safer to wait a bit or handle errors.
             await asyncio.sleep(5)
             
-            svc = _get_services()
+            if not svc.IsRunning():
+                break
+
             clusters = svc.ListClusters(includeDecommissioned=False)
             
             # Simple serial poll (or parallel if we want)
@@ -1340,23 +1343,33 @@ async def GetAutomationConditionsStatus(clusterUuid: Optional[UUID] = None) -> D
 
 
 @app.get("/api/orchestrator/automation/conditions/stream")
-async def AutomationConditionsStream(
+def AutomationConditionsStream(
     request: Request,
     clusterUuid: Optional[UUID] = None,
 ) -> StreamingResponse:
     svc = _get_services()
 
-    async def event_stream():
+    def event_stream():
         yield "retry: 1000\n\n"
 
         last_data: Optional[str] = None
         last_keepalive = time.monotonic()
 
         while True:
-            if await request.is_disconnected():
+            if not svc.IsRunning():
                 break
 
-            payload = await _automation_conditions_status_payload(svc, clusterUuid=clusterUuid)
+            # Note: payload generation is async in original, but here we must make it sync
+            # or handle it carefully. Actually _automation_conditions_status_payload is async.
+            # Starlette StreamingResponse with sync generator runs in a thread.
+            # We can run the async payload generation in the event loop from the thread.
+            
+            loop = asyncio.new_event_loop()
+            try:
+                payload = loop.run_until_complete(_automation_conditions_status_payload(svc, clusterUuid=clusterUuid))
+            finally:
+                loop.close()
+
             data = json.dumps(payload, separators=(",", ":"))
             if data != last_data:
                 last_data = data
@@ -1367,7 +1380,7 @@ async def AutomationConditionsStream(
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            await asyncio.sleep(0.5)
+            time.sleep(0.5)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

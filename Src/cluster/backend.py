@@ -25,6 +25,19 @@ from Src.cluster.services import ControllerServices
 app = FastAPI()
 services: Optional[ControllerServices] = None
 
+@app.on_event("shutdown")
+def shutdown_event():
+    # Shutdown global services if initialized
+    if services:
+        services.Shutdown()
+    
+    # Shutdown state services if initialized
+    svc = getattr(app.state, "services", None)
+    if svc and svc is not services:
+        svc.Shutdown()
+
+
+
 
 def _state_root() -> Path:
     """Where to store persistent state.
@@ -650,10 +663,10 @@ def GetLatestCapture(fmt: str = "png"):
 
 
 @app.get("/api/capture/events")
-async def CaptureEvents(request: Request):
+def CaptureEvents(request: Request):
     svc = _get_services()
 
-    async def event_stream():
+    def event_stream():
         # Send an initial retry hint to the browser.
         yield "retry: 1000\n\n"
 
@@ -661,7 +674,9 @@ async def CaptureEvents(request: Request):
         last_keepalive = time.monotonic()
 
         while True:
-            if await request.is_disconnected():
+            # Note: is_disconnected() is async, but we are in a sync generator.
+            # We rely on svc.IsRunning() or write errors to break.
+            if not svc.IsRunning():
                 break
 
             seq = svc.GetCaptureSequence()
@@ -675,13 +690,13 @@ async def CaptureEvents(request: Request):
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            await asyncio.sleep(0.2)
+            time.sleep(0.2)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.get("/api/capture/stream")
-async def CaptureStream(request: Request, fmt: str = "jpg", quality: int = 70):
+def CaptureStream(request: Request, fmt: str = "jpg", quality: int = 70):
     """Stream captured frames over SSE as base64-encoded image payloads.
 
     This avoids a second HTTP request per frame (no /api/capture/latest polling).
@@ -695,14 +710,14 @@ async def CaptureStream(request: Request, fmt: str = "jpg", quality: int = 70):
     q = int(quality)
     q = max(10, min(95, q))
 
-    async def event_stream():
+    def event_stream():
         yield "retry: 1000\n\n"
 
         last_seq = svc.GetCaptureSequence()
         last_keepalive = time.monotonic()
 
         while True:
-            if await request.is_disconnected():
+            if not svc.IsRunning():
                 break
 
             seq = svc.GetCaptureSequence()
@@ -724,7 +739,7 @@ async def CaptureStream(request: Request, fmt: str = "jpg", quality: int = 70):
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            await asyncio.sleep(0.2)
+            time.sleep(0.2)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -892,17 +907,17 @@ def GetTriggerStatus() -> Dict[str, Any]:
 
 
 @app.get("/api/triggers/status/stream")
-async def TriggerStatusStream(request: Request):
+def TriggerStatusStream(request: Request):
     svc = _get_services()
 
-    async def event_stream():
+    def event_stream():
         yield "retry: 1000\n\n"
 
         last_seq = svc.GetTriggerStatusSequence()
         last_keepalive = time.monotonic()
 
         while True:
-            if await request.is_disconnected():
+            if not svc.IsRunning():
                 break
 
             seq = svc.GetTriggerStatusSequence()
@@ -921,7 +936,7 @@ async def TriggerStatusStream(request: Request):
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            await asyncio.sleep(0.2)
+            time.sleep(0.2)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -1222,18 +1237,18 @@ def GetConditionsStatus() -> Dict[str, Any]:
 
 
 @app.get("/api/conditions/stream")
-async def ConditionsStream(request: Request):
+def ConditionsStream(request: Request):
     """Stream condition status updates over SSE as compact JSON payloads."""
     svc = _get_services()
 
-    async def event_stream():
+    def event_stream():
         yield "retry: 1000\n\n"
 
         last_seq = svc.GetConditionStatusSequence()
         last_keepalive = time.monotonic()
 
         while True:
-            if await request.is_disconnected():
+            if not svc.IsRunning():
                 break
 
             seq = svc.GetConditionStatusSequence()
@@ -1264,7 +1279,7 @@ async def ConditionsStream(request: Request):
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            await asyncio.sleep(0.2)
+            time.sleep(0.2)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
