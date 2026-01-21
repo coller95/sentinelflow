@@ -36,6 +36,7 @@ const btnActionDelete = document.getElementById('btnActionDelete');
 const btnActionMoveUp = document.getElementById('btnActionMoveUp');
 const btnActionMoveDown = document.getElementById('btnActionMoveDown');
 const btnActionRun = document.getElementById('btnActionRun');
+const actionRunAllEl = document.getElementById('actionRunAll');
 const btnActionSave = document.getElementById('btnActionSave');
 const actionNameEl = document.getElementById('actionName');
 const actionStepsEl = document.getElementById('actionSteps');

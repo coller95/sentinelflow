@@ -8,6 +8,29 @@ function _makePlaceholderName(prefix) {
     return `${prefix} ${stamp}`;
 }
 
+function _errorMessage(err) {
+    if (err && typeof err === 'object' && 'message' in err) {
+        return String(err.message || err);
+    }
+    return String(err || '');
+}
+
+async function _fetchOrchestratorClusters() {
+    const res = await fetch('/api/orchestrator/clusters');
+    const text = await res.text();
+    let data = null;
+    try {
+        data = text ? JSON.parse(text) : null;
+    } catch {
+        // ignore
+    }
+    if (!res.ok) {
+        const detail = (data && (data.detail || data.message)) ? (data.detail || data.message) : text;
+        throw new Error(detail || `Request failed (${res.status})`);
+    }
+    return Array.isArray(data?.clusters) ? data.clusters : [];
+}
+
 function _getDelayMsFromInput() {
     const raw = actionDelayMsEl ? String(actionDelayMsEl.value || '').trim() : '';
     const ms = Number(raw);
@@ -500,9 +523,47 @@ if (btnActionRun) {
         }
         setStatus('Running action...', null);
         try {
+            const apiBase = String(globalThis.API_BASE || '').trim();
+            const runAll = !!(actionRunAllEl && actionRunAllEl.checked);
+
+            if (runAll) {
+                if (!apiBase || !apiBase.includes('/api/orchestrator/automation')) {
+                    setStatus('Run on all clusters is only available in the orchestrator.', 'err');
+                    return;
+                }
+                const clusters = await _fetchOrchestratorClusters();
+                const targets = clusters.filter(c => c && c.uuid).map(c => ({
+                    uuid: String(c.uuid || '').trim(),
+                    label: String(c.label || c.uuid || '').trim()
+                })).filter(c => c.uuid);
+
+                if (!targets.length) {
+                    setStatus('No clusters available to run this action.', 'err');
+                    return;
+                }
+
+                let okCount = 0;
+                const failures = [];
+                for (const target of targets) {
+                    try {
+                        await postJson('/api/actions/run', { uuid: selectedActionUuid, clusterUuid: target.uuid });
+                        okCount += 1;
+                    } catch (err) {
+                        failures.push({ label: target.label || target.uuid, error: _errorMessage(err) });
+                    }
+                }
+
+                if (failures.length) {
+                    console.warn('Run action on all clusters failed:', failures);
+                    setStatus(`Action enqueued on ${okCount}/${targets.length} clusters. See console for failures.`, 'err');
+                } else {
+                    setStatus(`Action enqueued on ${okCount} clusters.`, 'ok');
+                }
+                return;
+            }
+
             const payload = { uuid: selectedActionUuid };
             const clusterUuid = String(globalThis.AUTOMATION_CLUSTER_UUID || '').trim();
-            const apiBase = String(globalThis.API_BASE || '').trim();
             if (apiBase && apiBase.includes('/api/orchestrator/automation') && !clusterUuid) {
                 setStatus('Select a live preview cluster first.', 'err');
                 return;
@@ -513,7 +574,7 @@ if (btnActionRun) {
             await postJson('/api/actions/run', payload);
             setStatus('Action enqueued.', 'ok');
         } catch (e) {
-            setStatus(`Run action failed: ${e.message}`, 'err');
+            setStatus(`Run action failed: ${_errorMessage(e)}`, 'err');
         }
     });
 }
