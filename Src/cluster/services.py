@@ -1684,8 +1684,7 @@ class ControllerServices:
             raise ValueError("intervalSeconds must be > 0")
 
         with self._state_lock:
-            if self._hwnd == 0:
-                raise Exception("No application is attached for capturing.")
+            # We no longer raise if detached. The worker thread will auto-attach if possible.
             self._capture_interval_seconds = float(intervalSeconds)
 
         self._capture_enabled_event.set()
