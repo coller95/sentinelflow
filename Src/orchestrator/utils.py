@@ -83,10 +83,15 @@ def decode_image_b64(b64: Optional[str]) -> Optional[np.ndarray]:
     return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 
-def encode_jpeg_b64(img: Optional[np.ndarray]) -> Optional[str]:
+def encode_jpeg_b64(img: Optional[np.ndarray], quality: Optional[int] = None) -> Optional[str]:
     if img is None or getattr(img, "size", 0) == 0:
         return None
-    ok, encoded = cv2.imencode(".jpg", img)
+    
+    params = []
+    if quality is not None:
+        params = [int(cv2.IMWRITE_JPEG_QUALITY), int(quality)]
+        
+    ok, encoded = cv2.imencode(".jpg", img, params)
     if not ok:
         return None
     return base64.b64encode(encoded.tobytes()).decode("ascii")
