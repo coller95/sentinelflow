@@ -70,6 +70,7 @@ class OrchestratorServices:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._running = True
+        self._shutdown_event = threading.Event()
         self._orchestrator_uuid: UUID = uuid4()
         self._clusters: Dict[UUID, ClusterRecord] = {}
         self._configBundles: Dict[UUID, ConfigBundleRecord] = {}
@@ -83,6 +84,10 @@ class OrchestratorServices:
 
     def Shutdown(self) -> None:
         self._running = False
+        self._shutdown_event.set()
+
+    def WaitShutdown(self, timeout: float) -> bool:
+        return self._shutdown_event.wait(timeout)
 
     def GetOrchestratorUuid(self) -> UUID:
         with self._lock:

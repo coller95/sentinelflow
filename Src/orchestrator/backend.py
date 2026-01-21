@@ -36,10 +36,12 @@ app = FastAPI()
 
 httpx_async_client: Optional[httpx.AsyncClient] = None
 _cluster_monitor_task: Optional[asyncio.Task[Any]] = None
+_stop_event: Optional[asyncio.Event] = None
 
 @app.on_event("startup")
 async def startup_event():
-    global httpx_async_client, _cluster_monitor_task
+    global httpx_async_client, _cluster_monitor_task, _stop_event
+    _stop_event = asyncio.Event()
     # Use limits that allow for higher concurrency if needed
     limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
     timeout = httpx.Timeout(connect=3.0, read=20.0, write=20.0, pool=5.0)
@@ -48,7 +50,9 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    global httpx_async_client, _cluster_monitor_task
+    global httpx_async_client, _cluster_monitor_task, _stop_event
+    if _stop_event:
+        _stop_event.set()
     if _cluster_monitor_task:
         _cluster_monitor_task.cancel()
         try:
@@ -64,11 +68,15 @@ async def _monitor_clusters():
     svc = _get_services()
     while svc.IsRunning():
         try:
-            # We must wait for services to be initialized purely by side-effect or check
-            # but _get_services() handles lazy init.
-            # However, app.state might not be ready in the very first tick?
-            # It's safer to wait a bit or handle errors.
-            await asyncio.sleep(5)
+            # Wait for 5s or until shutdown event
+            if _stop_event:
+                try:
+                    await asyncio.wait_for(_stop_event.wait(), timeout=5.0)
+                    break
+                except asyncio.TimeoutError:
+                    pass
+            else:
+                await asyncio.sleep(5)
             
             if not svc.IsRunning():
                 break
@@ -1380,7 +1388,8 @@ def AutomationConditionsStream(
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            time.sleep(0.5)
+            if svc.WaitShutdown(0.5):
+                break
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

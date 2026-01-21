@@ -159,7 +159,7 @@ class ControllerServices:
         self._capture_thread.start()
 
         # Control (macro) queue executed by a dedicated worker thread.
-        self._control_queue: queue.Queue[_ControlAction] = queue.Queue(maxsize=256)
+        self._control_queue: queue.Queue[Optional[_ControlAction]] = queue.Queue(maxsize=256)
         self._control_last_error: Optional[BaseException] = None
         self._control_thread = threading.Thread(
             target=self._control_worker,
@@ -170,7 +170,7 @@ class ControllerServices:
 
         # Action (macro) definitions and execution.
         self._actionItemList: Dict[UUID, ActionItem] = {}
-        self._macro_queue: queue.Queue[UUID] = queue.Queue(maxsize=64)
+        self._macro_queue: queue.Queue[Optional[UUID]] = queue.Queue(maxsize=64)
         self._macro_last_error: Optional[BaseException] = None
         self._macro_current_action_uuid: Optional[UUID] = None
         self._macro_current_started_unix: Optional[float] = None
@@ -856,6 +856,7 @@ class ControllerServices:
             return False
 
         while self._running:
+            interval = 0.2
             try:
                 # Batch all state reads under one lock for reduced contention.
                 with self._state_lock:
@@ -1077,11 +1078,12 @@ class ControllerServices:
             return out
 
     def _macro_worker(self) -> None:
-        while self._running:
-            try:
-                action_uuid = self._macro_queue.get(timeout=0.5)
-            except queue.Empty:
-                continue
+        while True:
+            action_uuid = self._macro_queue.get()
+            if action_uuid is None:
+                # Poison pill received.
+                self._macro_queue.task_done()
+                break
 
             try:
                 with self._state_lock:
@@ -1517,11 +1519,12 @@ class ControllerServices:
                 pass
 
     def _control_worker(self) -> None:
-        while self._running:
-            try:
-                action = self._control_queue.get(timeout=0.5)
-            except queue.Empty:
-                continue
+        while True:
+            action = self._control_queue.get()
+            if action is None:
+                # Poison pill received.
+                self._control_queue.task_done()
+                break
 
             print("Processing control action:", action)
             try:
@@ -1592,9 +1595,24 @@ class ControllerServices:
         self._running = False
         self._shutdown_event.set()
         self._capture_enabled_event.set()
+        
+        # Inject poison pills to wake up worker threads immediately
+        try:
+            self._macro_queue.put_nowait(None)
+        except queue.Full:
+            pass # Thread will eventually check _running if queue is full, or we could force it
+            
+        try:
+            self._control_queue.put_nowait(None)
+        except queue.Full:
+            pass
 
     def IsRunning(self) -> bool:
         return self._running
+
+    def WaitShutdown(self, timeout: float) -> bool:
+        """Wait for shutdown signal with timeout. Returns True if shutting down."""
+        return self._shutdown_event.wait(timeout)
 
     def GetLatestCapture(self) -> Optional[NDArray[np.uint8]]:
         """Return the latest captured frame (read-only; do not mutate)."""

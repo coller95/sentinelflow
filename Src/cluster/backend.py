@@ -690,7 +690,8 @@ def CaptureEvents(request: Request):
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            time.sleep(0.2)
+            if svc.WaitShutdown(0.2):
+                break
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -739,7 +740,8 @@ def CaptureStream(request: Request, fmt: str = "jpg", quality: int = 70):
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            time.sleep(0.2)
+            if svc.WaitShutdown(0.2):
+                break
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -936,7 +938,8 @@ def TriggerStatusStream(request: Request):
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            time.sleep(0.2)
+            if svc.WaitShutdown(0.2):
+                break
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -1279,7 +1282,8 @@ def ConditionsStream(request: Request):
                 yield ": keepalive\n\n"
                 last_keepalive = now
 
-            time.sleep(0.2)
+            if svc.WaitShutdown(0.2):
+                break
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
