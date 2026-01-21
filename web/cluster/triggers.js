@@ -43,6 +43,79 @@ function _renderTriggerTargetTags() {
     });
 }
 
+function _makePlaceholderName(prefix) {
+    const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '-');
+    return `${prefix} ${stamp}`;
+}
+
+function _renderTriggerCriteriaRows() {
+    if (!triggerCriteriaBody) return;
+    triggerCriteriaBody.textContent = '';
+    const rows = Array.isArray(_triggerCriteria) ? _triggerCriteria : [];
+    for (let i = 0; i < rows.length; i++) {
+        const r = rows[i] || {};
+        const tr = document.createElement('tr');
+        const tdCond = document.createElement('td');
+        const selCond = document.createElement('select');
+        selCond.className = 'selectLike';
+        tdCond.appendChild(selCond);
+        const tdComp = document.createElement('td');
+        const selComp = document.createElement('select');
+        selComp.className = 'selectLike';
+        for (const c of _triggerComparators) {
+            const opt = document.createElement('option');
+            opt.value = c;
+            opt.textContent = c;
+            selComp.appendChild(opt);
+        }
+        tdComp.appendChild(selComp);
+        const tdExp = document.createElement('td');
+        const inpExp = document.createElement('input');
+        inpExp.type = 'text';
+        inpExp.placeholder = 'Example: 0.8';
+        tdExp.appendChild(inpExp);
+        const tdDel = document.createElement('td');
+        const btnDel = document.createElement('button');
+        btnDel.type = 'button';
+        btnDel.textContent = 'Delete';
+        tdDel.appendChild(btnDel);
+        tr.appendChild(tdCond);
+        tr.appendChild(tdComp);
+        tr.appendChild(tdExp);
+        tr.appendChild(tdDel);
+
+        if (Array.isArray(_cachedConditions)) {
+            _fillConditionsSelect(selCond, _cachedConditions, r.conditionUuid);
+            if (!rows[i].conditionUuid) {
+                rows[i].conditionUuid = String(selCond.value || '');
+            }
+        } else {
+            _loadConditionsForSelect(selCond, r.conditionUuid).then(() => {
+                if (!rows[i].conditionUuid) {
+                    rows[i].conditionUuid = String(selCond.value || '');
+                }
+            }).catch(() => {});
+        }
+        selComp.value = String(r.comparator || 'Equals');
+        inpExp.value = (r.expectedValue !== undefined && r.expectedValue !== null) ? String(r.expectedValue) : '';
+        selCond.addEventListener('change', () => {
+            rows[i].conditionUuid = String(selCond.value || '');
+        });
+        selComp.addEventListener('change', () => {
+            rows[i].comparator = String(selComp.value || 'Equals');
+        });
+        inpExp.addEventListener('input', () => {
+            rows[i].expectedValue = String(inpExp.value || '');
+        });
+        btnDel.addEventListener('click', () => {
+            rows.splice(i, 1);
+            _triggerCriteria = rows;
+            _renderTriggerCriteriaRows();
+        });
+        triggerCriteriaBody.appendChild(tr);
+    }
+}
+
 function _clearTriggerEditor() {
     selectedTriggerUuid = null;
     if (triggerNameEl) triggerNameEl.value = '';
@@ -51,6 +124,10 @@ function _clearTriggerEditor() {
     if (triggerRetriggerMsEl) triggerRetriggerMsEl.value = '0';
     if (triggerCriteriaModeEl) triggerCriteriaModeEl.value = 'All';
     if (triggerActionEl) triggerActionEl.value = '';
+    
+    // Default to Run On All for new/cleared editor
+    if (triggerRunOnAllEl) triggerRunOnAllEl.checked = true;
+    if (triggerTargetClusterContainerEl) triggerTargetClusterContainerEl.style.display = 'none';
     
     _triggerTargetTags = [];
     _renderTriggerTargetTags();
@@ -85,12 +162,22 @@ function _applyTriggerToEditor(t) {
     if (triggerCriteriaModeEl) triggerCriteriaModeEl.value = String(t.criteriaMode ?? 'All');
     if (triggerActionEl) triggerActionEl.value = String(t.action ?? '');
     
-    // Load Tags
-    _triggerTargetTags = [];
+    // Target Clusters / Run On All Logic
     const uuids = Array.isArray(t.targetClusterUuids) ? t.targetClusterUuids : [];
-    uuids.forEach(u => {
-        _triggerTargetTags.push({ uuid: u, label: _clusterLabelCache.get(u) || u });
-    });
+    _triggerTargetTags = [];
+    
+    if (uuids.length === 0) {
+        // Empty list implies "Run on All"
+        if (triggerRunOnAllEl) triggerRunOnAllEl.checked = true;
+        if (triggerTargetClusterContainerEl) triggerTargetClusterContainerEl.style.display = 'none';
+    } else {
+        // Has specific targets
+        if (triggerRunOnAllEl) triggerRunOnAllEl.checked = false;
+        if (triggerTargetClusterContainerEl) triggerTargetClusterContainerEl.style.display = 'block';
+        uuids.forEach(u => {
+            _triggerTargetTags.push({ uuid: u, label: _clusterLabelCache.get(u) || u });
+        });
+    }
     _renderTriggerTargetTags();
 
     _triggerCriteria = Array.isArray(t.triggerCiterias) ? t.triggerCiterias.map((c) => ({
@@ -99,6 +186,17 @@ function _applyTriggerToEditor(t) {
         expectedValue: (c.expectedValue !== undefined && c.expectedValue !== null) ? String(c.expectedValue) : '',
     })) : [];
     _renderTriggerCriteriaRows();
+}
+
+// Add event listener for the checkbox
+if (triggerRunOnAllEl) {
+    triggerRunOnAllEl.addEventListener('change', () => {
+        if (triggerRunOnAllEl.checked) {
+            if (triggerTargetClusterContainerEl) triggerTargetClusterContainerEl.style.display = 'none';
+        } else {
+            if (triggerTargetClusterContainerEl) triggerTargetClusterContainerEl.style.display = 'block';
+        }
+    });
 }
 
 async function refreshTriggers() {
@@ -470,7 +568,12 @@ if (btnTriggerSave) {
                 throw new Error('Criteria rows exist but no Condition is selected. Create/refresh Conditions first, then select a Condition for each criteria.');
             }
             
-            const targetClusterUuids = _triggerTargetTags.map(t => t.uuid);
+            let targetClusterUuids = [];
+            if (triggerRunOnAllEl && triggerRunOnAllEl.checked) {
+                targetClusterUuids = []; // Empty = All
+            } else {
+                targetClusterUuids = _triggerTargetTags.map(t => t.uuid);
+            }
 
             const payload = { name, enabled, retriggerMs, disableOnFire, criteriaMode, action: actionUuid, triggerCiterias: citerias, targetClusterUuids };
             if (selectedTriggerUuid) payload.uuid = selectedTriggerUuid;

@@ -347,12 +347,20 @@
                                 </div>
 
                                 <div class="row">
-                                    <label for="triggerTargetClusters">Target Clusters (Optional)</label>
-                                    <div style="display:flex; gap:5px; align-items: flex-start;">
-                                        <div id="triggerTargetClusterTags" class="tagContainer" style="flex:1; border:1px solid #444; background:#222; padding:4px; min-height:32px; display:flex; flex-wrap:wrap; gap:4px; border-radius:4px;"></div>
-                                        <button id="btnPickTargetClusters" type="button" style="padding:0 8px; height:32px;" title="Pick from online clusters">Pick</button>
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                        <label>Target Clusters</label>
+                                        <label class="checkLabel" style="font-size:12px; margin-bottom:0;">
+                                            <input id="triggerRunOnAll" type="checkbox" />
+                                            Run on all clusters
+                                        </label>
                                     </div>
-                                    <p class="helpText" style="font-size:0.8em; margin-top:2px;">Leave empty to run on all clusters.</p>
+                                    <div id="triggerTargetClusterContainer" style="display:none;">
+                                        <div style="display:flex; gap:5px; align-items: flex-start;">
+                                            <div id="triggerTargetClusterTags" class="tagContainer" style="flex:1; border:1px solid #444; background:#222; padding:4px; min-height:32px; display:flex; flex-wrap:wrap; gap:4px; border-radius:4px;"></div>
+                                            <button id="btnPickTargetClusters" type="button" style="padding:0 8px; height:32px;" title="Pick from online clusters">Pick</button>
+                                        </div>
+                                    </div>
+                                    <p class="helpText" style="font-size:0.8em; margin-top:2px;">Defines which clusters execute this trigger.</p>
                                 </div>
                             </div>
 
