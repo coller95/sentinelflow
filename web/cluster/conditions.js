@@ -94,7 +94,12 @@ function _renderConditionsTable(items) {
         }
         tdCrop.appendChild(cropImg);
         const tdLast = document.createElement('td');
-        tdLast.textContent = (it.last === null || it.last === undefined) ? '' : String(it.last);
+        if (it.last === null || it.last === undefined || it.last === '') {
+            tdLast.textContent = '';
+        } else {
+            const lastNum = Number(it.last);
+            tdLast.textContent = Number.isFinite(lastNum) ? lastNum.toFixed(3) : String(it.last);
+        }
         tr.appendChild(tdName);
         tr.appendChild(tdType);
         tr.appendChild(tdTpl);

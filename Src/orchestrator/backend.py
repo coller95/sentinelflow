@@ -1501,8 +1501,26 @@ async def _automation_conditions_status_payload(
     by_uuid: Dict[str, Any] = {}
 
     frame = None
+    last_by_uuid: Dict[str, Any] = {}
     if clusterUuid is not None:
-        frame = await _fetch_cluster_latest_frame(svc, clusterUuid)
+        try:
+            frame = await _fetch_cluster_latest_frame(svc, clusterUuid)
+        except Exception:
+            frame = None
+        try:
+            base = _require_cluster_base_url(svc, clusterUuid)
+            payload = await _proxy_json("GET", base, "/api/conditions/status")
+            if isinstance(payload, dict):
+                by_uuid_any = payload.get("byUuid", {})
+                if isinstance(by_uuid_any, dict):
+                    for k, v in by_uuid_any.items():
+                if isinstance(v, dict):
+                    if "lastStable" in v and v.get("lastStable", None) is not None:
+                        last_by_uuid[str(k)] = v.get("lastStable", None)
+                    elif "last" in v:
+                        last_by_uuid[str(k)] = v.get("last", None)
+        except Exception:
+            pass
 
     items = content.get("conditions", [])
     if isinstance(items, list):
@@ -1534,7 +1552,7 @@ async def _automation_conditions_status_payload(
                 "type": str(item.get("type", "ImageMatchRoi")),
                 "templateThumbBase64": template_thumb,
                 "cropThumbBase64": crop_thumb,
-                "last": None,
+                "last": last_by_uuid.get(uuid_str, None),
             }
     return {"order": order, "byUuid": by_uuid}
 

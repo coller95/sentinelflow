@@ -4,6 +4,7 @@ import json
 import threading
 import time
 from dataclasses import dataclass
+from collections import deque
 from pathlib import Path
 from typing import Optional, cast, Dict, List, Any, Union
 from uuid import UUID, uuid4
@@ -61,6 +62,7 @@ class ConditionStatusSnapshot:
     templateThumbBase64: Optional[str]
     cropThumbBase64: Optional[str]
     last: Optional[float]
+    lastStable: Optional[float]
 
 class MacroType(Enum):
     Click = auto()
@@ -180,6 +182,7 @@ class ControllerServices:
         self._condition_status_seq = 0
         self._condition_status_interval_seconds = 0.5
         self._condition_status_thread: Optional[threading.Thread] = None
+        self._condition_last_history: Dict[UUID, deque[Optional[float]]] = {}
 
         # Trigger definitions and evaluation.
         self._triggerItemList: Dict[UUID, TriggerItem] = {}
@@ -997,7 +1000,10 @@ class ControllerServices:
 
                 # Snapshot last values by condition UUID.
                 with self._condition_status_lock:
-                    last_by_uuid: Dict[UUID, Optional[float]] = {k: v.last for k, v in self._condition_status.items()}
+                    last_by_uuid: Dict[UUID, Optional[float]] = {
+                        k: (v.lastStable if v.lastStable is not None else v.last)
+                        for k, v in self._condition_status.items()
+                    }
 
                 with self._state_lock:
                     current_server_uuid = self._server_uuid
@@ -1492,6 +1498,7 @@ class ControllerServices:
 
                 crop_thumb: Optional[str] = None
                 last: Optional[float] = None
+                last_stable: Optional[float] = None
 
                 if frame is not None:
                     try:
@@ -1507,6 +1514,25 @@ class ControllerServices:
                         crop_thumb = None
                         last = None
 
+                history = self._condition_last_history.get(item.uuid)
+                if history is None:
+                    history = deque(maxlen=3)
+                    self._condition_last_history[item.uuid] = history
+                history.append(last)
+
+                if len(history) >= 3:
+                    values: List[float] = []
+                    for v in history:
+                        if v is None:
+                            values = []
+                            break
+                        if not isinstance(v, (int, float)) or not np.isfinite(v):
+                            values = []
+                            break
+                        values.append(float(v))
+                    if len(values) == 3:
+                        last_stable = min(values)
+
                 snapshots.append(
                     ConditionStatusSnapshot(
                         uuid=item.uuid,
@@ -1515,6 +1541,7 @@ class ControllerServices:
                         templateThumbBase64=template_thumb,
                         cropThumbBase64=crop_thumb,
                         last=last,
+                        lastStable=last_stable,
                     )
                 )
 

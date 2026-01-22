@@ -1244,6 +1244,7 @@ def GetConditionsStatus() -> Dict[str, Any]:
             "templateThumbBase64": s.templateThumbBase64,
             "cropThumbBase64": s.cropThumbBase64,
             "last": s.last,
+            "lastStable": s.lastStable,
         }
 
     return {"order": order, "byUuid": by_uuid}
@@ -1282,6 +1283,7 @@ def ConditionsStream(request: Request):
                         "templateThumbBase64": s.templateThumbBase64,
                         "cropThumbBase64": s.cropThumbBase64,
                         "last": s.last,
+                        "lastStable": s.lastStable,
                     }
 
                 data = json.dumps({"order": order, "byUuid": by_uuid}, separators=(",", ":"))
