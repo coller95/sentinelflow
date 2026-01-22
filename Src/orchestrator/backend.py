@@ -329,12 +329,15 @@ async def _proxy_sse(baseUrl: str, path: str) -> StreamingResponse:
                     if res.status_code >= 400:
                         raw = await res.aread()
                         detail = raw.decode("utf-8", errors="replace")
-                        raise HTTPException(status_code=502, detail=f"cluster error ({res.status_code}): {detail}")
+                        print(f"[_proxy_sse] cluster error ({res.status_code}): {detail}")
+                        return
                     async for chunk in res.aiter_bytes():
                         if chunk:
                             yield chunk
             except httpx.RequestError as exc:
-                raise HTTPException(status_code=502, detail=f"cluster request failed: {exc}")
+                print(f"[_proxy_sse] cluster request failed: {exc}")
+            except Exception as exc:
+                print(f"[_proxy_sse] unexpected error: {exc}")
 
     return StreamingResponse(
         event_stream(),
