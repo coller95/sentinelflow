@@ -1514,11 +1514,11 @@ async def _automation_conditions_status_payload(
                 by_uuid_any = payload.get("byUuid", {})
                 if isinstance(by_uuid_any, dict):
                     for k, v in by_uuid_any.items():
-                if isinstance(v, dict):
-                    if "lastStable" in v and v.get("lastStable", None) is not None:
-                        last_by_uuid[str(k)] = v.get("lastStable", None)
-                    elif "last" in v:
-                        last_by_uuid[str(k)] = v.get("last", None)
+                        if isinstance(v, dict):
+                            if "lastStable" in v and v.get("lastStable", None) is not None:
+                                last_by_uuid[str(k)] = v.get("lastStable", None)
+                            elif "last" in v:
+                                last_by_uuid[str(k)] = v.get("last", None)
         except Exception:
             pass
 
