@@ -103,7 +103,11 @@ class WindowsWindowManager(IWindowManager):
     def _try_focus_window(self, hwnd: HWND) -> None:
         """Best-effort focus/activate a window."""
         try:
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            # Restore if minimized; otherwise ensure the window is shown.
+            if win32gui.IsIconic(hwnd):
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            else:
+                win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
         except Exception:
             pass
 
