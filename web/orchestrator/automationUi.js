@@ -233,6 +233,12 @@ function _buildAutomationSection(cluster, canProxy) {
         lastLine.textContent = `Last: ${fmtValue(status.last)}`;
         card.appendChild(lastLine);
       }
+      if (status && Object.prototype.hasOwnProperty.call(status, 'lastStable')) {
+        const lastStableLine = document.createElement('div');
+        lastStableLine.className = 'autoNote';
+        lastStableLine.textContent = `Stable: ${fmtValue(status.lastStable)}`;
+        card.appendChild(lastStableLine);
+      }
 
       if (status && (status.templateThumbBase64 || status.cropThumbBase64)) {
         const thumbs = document.createElement('div');

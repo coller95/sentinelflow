@@ -1502,6 +1502,7 @@ async def _automation_conditions_status_payload(
 
     frame = None
     last_by_uuid: Dict[str, Any] = {}
+    last_stable_by_uuid: Dict[str, Any] = {}
     if clusterUuid is not None:
         try:
             frame = await _fetch_cluster_latest_frame(svc, clusterUuid)
@@ -1515,6 +1516,9 @@ async def _automation_conditions_status_payload(
                 if isinstance(by_uuid_any, dict):
                     for k, v in by_uuid_any.items():
                         if isinstance(v, dict):
+                            if "lastStable" in v:
+                                last_stable_by_uuid[str(k)] = v.get("lastStable", None)
+
                             if "lastStable" in v and v.get("lastStable", None) is not None:
                                 last_by_uuid[str(k)] = v.get("lastStable", None)
                             elif "last" in v:
@@ -1553,6 +1557,7 @@ async def _automation_conditions_status_payload(
                 "templateThumbBase64": template_thumb,
                 "cropThumbBase64": crop_thumb,
                 "last": last_by_uuid.get(uuid_str, None),
+                "lastStable": last_stable_by_uuid.get(uuid_str, None),
             }
     return {"order": order, "byUuid": by_uuid}
 
