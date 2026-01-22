@@ -45,6 +45,22 @@ def main() -> int:
         shutdown_trigger = asyncio.Event()
         loop = asyncio.get_running_loop()
 
+        def _install_exception_handler(target_loop):
+            def _handler(loop_ref, context):
+                exc = context.get("exception")
+                if isinstance(exc, (ConnectionResetError, ConnectionAbortedError)):
+                    return
+                if isinstance(exc, OSError) and getattr(exc, "winerror", None) in (10053, 10054):
+                    return
+                message = str(context.get("message", ""))
+                if "ConnectionResetError" in message or "ConnectionAbortedError" in message:
+                    return
+                loop_ref.default_exception_handler(context)
+
+            target_loop.set_exception_handler(_handler)
+
+        _install_exception_handler(loop)
+
         def _force_exit():
             print("[orchestrator] Shutdown timed out. Forcing exit.")
             os._exit(0)

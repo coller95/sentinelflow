@@ -52,15 +52,26 @@ class CvComputerVision(IComputerVision):
         grayImage = cv2.cvtColor(barImage, cv2.COLOR_BGR2GRAY)
         grayImage = cv2.GaussianBlur(grayImage, (5, 5), 0)
 
-        _imageHeight, imageWidth = grayImage.shape
-        if imageWidth == 0:
+        imageHeight, imageWidth = grayImage.shape
+        if imageWidth == 0 or imageHeight == 0:
             return 0.0
 
         columnMeans = grayImage.mean(axis=0).astype(np.float32)
 
         # Background and center reference
-        backgroundMean = grayImage[:, int(imageWidth * 0.95):].mean()
-        centerMean = grayImage[:, int(imageWidth * 0.45):int(imageWidth * 0.55)].mean()
+        bg_start = int(imageWidth * 0.95)
+        if bg_start >= imageWidth:
+            bg_start = imageWidth - 1
+        backgroundSlice = grayImage[:, bg_start:]
+        backgroundMean = float(backgroundSlice.mean()) if backgroundSlice.size else float(grayImage.mean())
+
+        center_start = int(imageWidth * 0.45)
+        center_end = int(imageWidth * 0.55)
+        if center_end <= center_start:
+            center_start = min(max(center_start, 0), imageWidth - 1)
+            center_end = center_start + 1
+        centerSlice = grayImage[:, center_start:center_end]
+        centerMean = float(centerSlice.mean()) if centerSlice.size else float(grayImage.mean())
 
         intensityRange = np.ptp(columnMeans)
         if intensityRange < 1e-6:
