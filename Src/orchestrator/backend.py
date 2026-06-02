@@ -1113,6 +1113,14 @@ async def ImportAutomationState(req: AutomationStateImportRequest) -> Dict[str, 
     return {"ok": True, "results": results}
 
 
+@app.post("/api/orchestrator/automation/state/push_all")
+async def PushAutomationToAllClusters() -> Dict[str, Any]:
+    svc = _get_services()
+    content = _get_automation_content(svc)
+    results = await _push_automation_to_clusters(svc, content)
+    return {"ok": True, "results": results}
+
+
 @app.post("/api/orchestrator/automation/state/reload")
 def ReloadAutomationState() -> Dict[str, Any]:
     svc = _get_services()

@@ -2,6 +2,7 @@ const addClusterLabelEl = document.getElementById('addClusterLabel');
 const addClusterBaseUrlEl = document.getElementById('addClusterBaseUrl');
 const btnAddClusterEl = document.getElementById('btnAddCluster');
 const btnDashboardRefreshEl = document.getElementById('btnDashboardRefresh');
+const btnSyncAutomationEl = document.getElementById('btnSyncAutomation');
 const cctvGridEl = document.getElementById('cctvGrid');
 
 const manageStatusEl = document.getElementById('manageStatus');
@@ -214,6 +215,32 @@ for (const el of [addClusterLabelEl, addClusterBaseUrlEl]) {
       ev.preventDefault();
       commissionCluster();
     }
+  });
+}
+
+async function syncAutomationToAllClusters() {
+  _setManageStatus('Syncing automation to all clusters...');
+  try {
+    const result = await _postJson('/api/orchestrator/automation/state/push_all', {});
+    const results = Array.isArray(result?.results) ? result.results : [];
+    const ok = results.filter(r => r?.ok).length;
+    const fail = results.filter(r => !r?.ok).length;
+    if (results.length === 0) {
+      _setManageStatus('Sync complete (no clusters registered).');
+    } else if (fail === 0) {
+      _setManageStatus(`Sync complete: ${ok} cluster${ok !== 1 ? 's' : ''} updated.`);
+    } else {
+      _setManageStatus(`Sync done: ${ok} ok, ${fail} failed. Check console for details.`);
+      console.warn('[syncAutomation] failed results:', results.filter(r => !r?.ok));
+    }
+  } catch (err) {
+    _setManageStatus(`Sync failed: ${err?.message ?? err}`);
+  }
+}
+
+if (btnSyncAutomationEl) {
+  btnSyncAutomationEl.addEventListener('click', () => {
+    syncAutomationToAllClusters();
   });
 }
 
