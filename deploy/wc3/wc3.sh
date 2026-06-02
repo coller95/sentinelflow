@@ -7,15 +7,19 @@
 #   4. start war3 in the SAME prefix (MH injects into it)
 # Blocks until Ctrl+C, then kills the instance.
 #
-# Usage:  ./wc3.sh [PREFIX]
-#   PREFIX = wine prefix path (default: $HOME/.wine)
-#   multiple instances = separate terminals, different prefixes:
-#     ./wc3.sh ~/.wine ; ./wc3.sh ~/.wineGame1 ; ./wc3.sh ~/.wineGame2
+# Usage:  ./wc3.sh [--fullscreen] [--workspace N] [PREFIX]
+#   PREFIX        = wine prefix path (default: $HOME/.wine)
+#   --workspace N = park this instance's window on GNOME/EWMH workspace N
+#                   (0-indexed). Capture/input are workspace-independent, so
+#                   you can watch one workspace while the fleet runs on others.
+#   multiple instances = separate terminals, different prefixes + workspaces:
+#     ./wc3.sh -w 0 ~/.wineGame1 ; ./wc3.sh -w 1 ~/.wineGame2 ; ./wc3.sh -w 2 ~/.wineGame3
 set -u
 
-# optional leading flag: --fullscreen / -f
+# optional leading flags: --fullscreen/-f, --workspace/-w N
 while :; do case "${1:-}" in
   --fullscreen|-f) FULLSCREEN=1; shift ;;
+  --workspace|-w)  WORKSPACE="${2:-}"; shift 2 ;;
   *) break ;;
 esac; done
 
@@ -33,6 +37,9 @@ WAR3_ARGS=(-opengl)
 # default 0    -> war3 runs inside the wine desktop window.
 # MH always stays in the wine desktop (vision needs it). Set via env or --fullscreen flag.
 FULLSCREEN="${FULLSCREEN:-0}"
+# WORKSPACE="" -> stay on the current workspace; set a 0-indexed number (env or
+# --workspace N) to park this instance on its own GNOME/EWMH workspace.
+WORKSPACE="${WORKSPACE:-}"
 # Input/automation is driven by SentinelFlow (attach to the wine desktop window
 # and inject via xdotool --window); no in-prefix AutoClicker needed.
 WIN_TIMEOUT=20          # secs to wait for MH window to appear
@@ -45,6 +52,20 @@ DESK="$NAME - Wine Desktop"
   || { echo "ERR: MH missing in $PREFIX" >&2; exit 1; }
 
 find_win(){ xdotool search --name "$DESK" 2>/dev/null | head -1; }
+
+# Park a window on workspace $WORKSPACE (no-op if WORKSPACE unset). Needs an
+# EWMH-aware WM (GNOME/mutter); harmless warning otherwise.
+move_to_workspace(){
+  local win="$1"
+  [[ -n "$WORKSPACE" ]] || return 0
+  [[ "$WORKSPACE" =~ ^[0-9]+$ ]] \
+    || { echo ">> [$NAME] WARN: WORKSPACE='$WORKSPACE' not a number, skipping"; return 0; }
+  if xdotool set_desktop_for_window "$win" "$WORKSPACE" 2>/dev/null; then
+    echo ">> [$NAME] parked window $win on workspace $WORKSPACE"
+  else
+    echo ">> [$NAME] WARN: could not move window $win to workspace $WORKSPACE (no EWMH WM?)"
+  fi
+}
 
 cleanup(){
   echo; echo ">> Ctrl+C — killing $NAME"
@@ -64,6 +85,10 @@ while [[ $SECONDS -lt $end ]]; do wid=$(find_win); [[ -n $wid ]] && break; sleep
 [[ -n $wid ]] || fail "MH window not found in ${WIN_TIMEOUT}s"
 echo ">> [$NAME] MH window = $wid"
 
+# Non-fullscreen: war3 joins this same wine desktop window, so parking it now
+# moves the whole instance. (Fullscreen war3 is parked separately below.)
+[[ "$FULLSCREEN" == 1 ]] || move_to_workspace "$wid"
+
 echo ">> [$NAME] dismiss info popup (OK)"
 python3 "$VISION" click "$wid" "$OK_TPL" --timeout "$CLICK_TIMEOUT" \
   || fail "info popup OK not found/clicked"
@@ -81,6 +106,14 @@ if [[ "$FULLSCREEN" == 1 ]]; then
   # no /desktop wrapper -> war3 renders natively; its own video pref (fullscreen) applies
   WINEPREFIX="$PREFIX" wine "$WC3\\war3.exe" "${WAR3_ARGS[@]}" \
     >"$PREFIX/war3.log" 2>&1 &
+  # park the native war3 window once it appears
+  if [[ -n "$WORKSPACE" ]]; then
+    for _ in $(seq 1 20); do
+      w3=$(xdotool search --name "Warcraft III" 2>/dev/null | head -1)
+      [[ -n "$w3" ]] && { move_to_workspace "$w3"; break; }
+      sleep 0.5
+    done
+  fi
 else
   echo ">> [$NAME] launch war3 in wine desktop"
   WINEPREFIX="$PREFIX" wine explorer "/desktop=$NAME,$RES" \

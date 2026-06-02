@@ -28,15 +28,27 @@ AutoClicker.exe is no longer launched or shipped.
 ```bash
 ./wc3.sh ~/.wineGame1                 # in a wine desktop window
 ./wc3.sh --fullscreen ~/.wineGame1    # war3 native fullscreen on the main screen
+./wc3.sh --workspace 2 ~/.wineGame1   # park this instance on GNOME workspace 2
 ```
 
-## Run a fleet (one per prefix, distinct LAN IPs)
+`--workspace N` (or `WORKSPACE=N`, 0-indexed) moves the instance's window to its
+own GNOME/EWMH workspace after it appears. Capture (`get_image`) and input
+(`xdotool --window`) are workspace-independent — mutter keeps off-workspace
+windows composited — so you can watch one workspace by eye while the fleet runs
+on others. Needs an EWMH-aware WM (GNOME/mutter); ignored with a warning on a
+bare Xvfb (no WM). For fixed slots: `gsettings set org.gnome.mutter
+dynamic-workspaces false && gsettings set
+org.gnome.desktop.wm.preferences num-workspaces 6`.
+
+## Run a fleet (one per prefix, distinct LAN IPs, own workspaces)
 
 ```bash
-./play.sh ~/.wine       192.168.1.150
-./play.sh ~/.wineGame1  192.168.1.151
-./play.sh ~/.wineGame2  192.168.1.152
+WORKSPACE=0 ./play.sh ~/.wine       192.168.1.150
+WORKSPACE=1 ./play.sh ~/.wineGame1  192.168.1.151
+WORKSPACE=2 ./play.sh ~/.wineGame2  192.168.1.152
 ```
+
+(`play.sh` passes the environment through to `wc3.sh`, so `WORKSPACE` works there too.)
 
 Edit the LAN block at the top of `play.sh` (`PARENT`, `GATEWAY`, `CIDR`, `DNS`)
 to match the host network.

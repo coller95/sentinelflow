@@ -59,6 +59,6 @@ echo ">> [$NS] launch game as $USER, IP $LAN_IP"
 # drop root back to your user; keep X + HOME so wine/vision work
 sudo ip netns exec "$NS" runuser -u "$USER" -- \
   env DISPLAY="${DISPLAY:-:0}" XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" \
-      HOME="$HOME" WINEPREFIX="$PREFIX" FULLSCREEN="$FS" \
+      HOME="$HOME" WINEPREFIX="$PREFIX" FULLSCREEN="$FS" WORKSPACE="${WORKSPACE:-}" \
   "$HERE/wc3.sh" "$PREFIX"
 # wc3.sh blocks; Ctrl+C reaches it (kills wine) then EXIT trap tears down netns
