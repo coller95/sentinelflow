@@ -8,6 +8,7 @@ capture, and drive. This is the reference launcher for the Linux/X11/Wine fleet.
 
 | File | Role |
 |------|------|
+| `setup-prefix.sh` | **Run once per prefix.** Installs DXVK d8vk DLLs + seeds windowed video config so war3 renders a *capturable* frame and reaches its menu. See "Capture: the GL-black fix" below. |
 | `wc3.sh` | Launch ONE instance: start MH in a Wine desktop, vision-click through its enable flow, then launch war3 in the same prefix (MH injects into it). Blocks until Ctrl+C, then kills the prefix. |
 | `play.sh` | Wrap `wc3.sh` in a volatile network namespace + ipvlan so the instance gets its own LAN IP (multi-box on one host). Everything is torn down on exit. |
 | `vision.py` | Standalone Xlib template-match helper used by `wc3.sh` for the MH launch sequence (`click` / `wait` against a window id). |
@@ -21,11 +22,15 @@ AutoClicker.exe is no longer launched or shipped.
 
 - Wine (tested: wine-staging 11.9) with a prefix containing WC3 + `Garena Universal MH.exe`
 - `xdotool`, `python3` with `numpy`, `opencv`, `python-xlib` (the SentinelFlow `.venv` has these)
-- An X display (`:0` real GPU, or a per-instance `Xvfb :N` for headless — see caveat)
+- An X display: `:0` (real GPU) or a per-instance `Xvfb :N -screen 0 1024x768x24` (headless)
+- For capturable war3 (see "Capture: the GL-black fix"): a DXVK build with **d8vk**
+  (`d3d8.dll`, e.g. Lutris' DXVK runtime or `DXVK_X32_DIR=...`) and a **lavapipe**
+  Vulkan ICD (`/usr/share/vulkan/icd.d/lvp_icd.json`, mesa software Vulkan)
 
 ## Run one instance
 
 ```bash
+./setup-prefix.sh ~/.wineGame1        # ONCE per prefix (DXVK + video config)
 ./wc3.sh ~/.wineGame1                 # in a wine desktop window
 ./wc3.sh --fullscreen ~/.wineGame1    # war3 native fullscreen on the main screen
 ./wc3.sh --workspace 2 ~/.wineGame1   # park this instance on GNOME workspace 2
@@ -61,20 +66,33 @@ title via `/api/app/attach` (window_title), then capture/condition/trigger as
 usual. Input is injected window-targeted, so instances don't steal focus from
 each other.
 
-## Capture caveat (important for headless)
+## Capture: the GL-black fix (DXVK + lavapipe)
 
-SentinelFlow captures window pixels via Xlib `get_image`. This reads
-**server-side** pixels:
+SentinelFlow captures window pixels via Xlib `get_image`, which reads the
+**server-side window pixmap**. The problem and the fix:
 
-- **GDI windows** (the MH GUI, normal Win32 dialogs) capture correctly.
-- **war3's 3D OpenGL surface** only lands in the window pixmap when GL can
-  present to it. On a host with a real GPU + DRI3 this works. Under bare `Xvfb`
-  (software `llvmpipe`, no DRI3) the war3 surface reads back **black** — even a
-  full screen-grab (`scrot`) reads black, because the pixels never reach the X
-  server. Symptom in the war3 log: `libEGL warning: DRI3 error: Could not get
-  DRI3 device`.
+- **Root cause.** war3's Direct3D8/OpenGL frame, when rendered directly on the
+  GPU (DRI3/Present) *or* via indirect GLX, lives in a GPU/dmabuf buffer that is
+  flipped to screen **out-of-band** — it never enters the X window pixmap. So
+  `get_image` *and* `scrot` read **pure black**, while GDI windows (MH, dialogs,
+  the wine desktop wrapper) capture fine because GDI draws into the pixmap.
+- **Fix (what `setup-prefix.sh` + `RENDERER=dxvk` do).** Route war3's D3D8
+  through **DXVK d8vk on Mesa lavapipe** (software Vulkan). Mesa's X11 software
+  WSI copies every Present into the window pixmap via `xcb_put_image`/MIT-SHM, so
+  the existing capturer reads real pixels **with no code change** — same recipe
+  on a real-GPU host *or* bare headless `Xvfb` (the failure was the present path,
+  not the absence of a GPU). Verified live: the full WC3 menu captures in color
+  and SentinelFlow clicks register.
+- **640×480 stall** is a *separate* first-run issue (no `War3Preferences.txt` /
+  `Video` registry → war3 sits at its splash size). `setup-prefix.sh` seeds both
+  and moves the intro `Movies` aside so war3 advances to the menu.
 
-So: watch the **Wine desktop window** (it composites GDI content), and for the
-3D game view ensure a GL path that presents to the window (real GPU/DRI3), or
-use an in-Wine capture. The MH enable flow in `wc3.sh` is GDI and always
-capturable.
+`RENDERER` (env): `dxvk` (default, capturable) or `opengl` (fallback — forces the
+llvmpipe `drisw` `XPutImage` path with `LIBGL_DRI3_DISABLE=1`). **Never** use a
+direct-GPU/DRI3 path for a capturable instance — it reads black.
+
+For bare-`Xvfb` fleet nodes, create the display at 24-bit depth:
+`Xvfb :N -screen 0 1024x768x24 +extension COMPOSITE +extension DAMAGE`, then the
+same `setup-prefix.sh` + `RENDERER=dxvk` applies. Cap CPU contention across many
+software-rendered instances if needed. The MH enable flow is GDI and always
+capturable regardless of renderer.

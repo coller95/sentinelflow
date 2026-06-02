@@ -32,7 +32,23 @@ EN_TPL="$HERE/tpl/enabled.png"
 
 WC3='C:\Program Files (x86)\Warcraft III'
 RES='1024x768'
-WAR3_ARGS=(-opengl)
+# RENDERER selects war3's graphics + present path. This matters for capture:
+#   dxvk   (default) -> war3 D3D8 routed through DXVK d8vk on Mesa lavapipe
+#                       (software Vulkan). Mesa's X11 software WSI copies each
+#                       frame into the X *window pixmap*, so get_image/scrot read
+#                       real pixels. Run setup-prefix.sh once per prefix first.
+#   opengl (fallback)-> war3 -opengl forced down the llvmpipe drisw XPutImage path.
+# Direct GPU rendering (DRI3) presents out-of-band and reads back BLACK — never use
+# it for a capturable instance.
+RENDERER="${RENDERER:-dxvk}"
+LVP_ICD="${LVP_ICD:-/usr/share/vulkan/icd.d/lvp_icd.json}"
+if [[ "$RENDERER" == "dxvk" ]]; then
+  WAR3_ARGS=()                                  # default D3D8 -> DXVK loads d3d8.dll
+  WAR3_ENV=(VK_ICD_FILENAMES="$LVP_ICD" WINEDLLOVERRIDES='d3d8,d3d9,dxgi=n')
+else
+  WAR3_ARGS=(-opengl)
+  WAR3_ENV=(LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe LIBGL_DRI3_DISABLE=1 MESA_LOADER_DRIVER_OVERRIDE=llvmpipe)
+fi
 # FULLSCREEN=1 -> war3 runs native on main screen (no wine desktop wrapper).
 # default 0    -> war3 runs inside the wine desktop window.
 # MH always stays in the wine desktop (vision needs it). Set via env or --fullscreen flag.
@@ -102,9 +118,10 @@ python3 "$VISION" wait "$wid" "$EN_TPL" --timeout "$ENABLE_TIMEOUT" \
   || fail "MH did not report Enabled"
 
 if [[ "$FULLSCREEN" == 1 ]]; then
-  echo ">> [$NAME] launch war3 FULLSCREEN on main screen"
+  echo ">> [$NAME] launch war3 FULLSCREEN on main screen ($RENDERER)"
   # no /desktop wrapper -> war3 renders natively; its own video pref (fullscreen) applies
-  WINEPREFIX="$PREFIX" wine "$WC3\\war3.exe" "${WAR3_ARGS[@]}" \
+  env WINEPREFIX="$PREFIX" "${WAR3_ENV[@]}" \
+    wine "$WC3\\war3.exe" "${WAR3_ARGS[@]}" \
     >"$PREFIX/war3.log" 2>&1 &
   # park the native war3 window once it appears
   if [[ -n "$WORKSPACE" ]]; then
@@ -115,8 +132,9 @@ if [[ "$FULLSCREEN" == 1 ]]; then
     done
   fi
 else
-  echo ">> [$NAME] launch war3 in wine desktop"
-  WINEPREFIX="$PREFIX" wine explorer "/desktop=$NAME,$RES" \
+  echo ">> [$NAME] launch war3 in wine desktop ($RENDERER)"
+  env WINEPREFIX="$PREFIX" "${WAR3_ENV[@]}" \
+    wine explorer "/desktop=$NAME,$RES" \
     "$WC3\\war3.exe" "${WAR3_ARGS[@]}" >"$PREFIX/war3.log" 2>&1 &
 fi
 
