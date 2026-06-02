@@ -214,8 +214,13 @@ def _get_services() -> ControllerServices:
             win_mgr = WindowsWindowManager()
             capturer = WindowsScreenCapturer()
             input_ctrl = WindowsInputController(win_mgr)
+        elif sys.platform == "linux":
+            from Src.infrastructure.os.linux_handler import LinuxWindowManager, LinuxScreenCapturer, LinuxInputController
+            win_mgr = LinuxWindowManager()
+            capturer = LinuxScreenCapturer()
+            input_ctrl = LinuxInputController(win_mgr)
         else:
-            print(f"[Backend] Running on non-Windows platform ({sys.platform}). Using Mock handlers.")
+            print(f"[Backend] Running on non-Windows, non-Linux platform ({sys.platform}). Using Mock handlers.")
             from Src.infrastructure.os.mock_handler import MockWindowManager, MockScreenCapturer, MockInputController
             win_mgr = MockWindowManager()
             capturer = MockScreenCapturer()

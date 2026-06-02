@@ -1,6 +1,7 @@
 numpy
 opencv-python
 pywin32; sys_platform == 'win32'
+python-xlib; sys_platform == 'linux'
 fastapi
 uvicorn[standard]
 hypercorn
