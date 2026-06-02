@@ -7,7 +7,6 @@ import time
 from pathlib import Path
 from typing import Any, List, Optional
 
-import cv2
 import numpy as np
 
 from Src.domain.interfaces import IWindowManager, IScreenCapturer, IInputController
@@ -145,8 +144,14 @@ class LinuxScreenCapturer(IScreenCapturer):
                 buffer = raw.data
                 if isinstance(buffer, str):  # older python-xlib returns str
                     buffer = buffer.encode("latin-1")
-                arr = np.frombuffer(buffer, dtype=np.uint8).reshape((height, width, 4))
-                return cv2.cvtColor(arr, cv2.COLOR_BGRA2BGR)
+                arr = np.frombuffer(buffer, dtype=np.uint8)
+                # XWayland/Xvfb windows are usually 32-bit padded (BGRX); some are
+                # 24-bit (BGR). Match whichever the byte count implies.
+                if arr.size == width * height * 4:
+                    return arr.reshape((height, width, 4))[:, :, :3].copy()
+                if arr.size == width * height * 3:
+                    return arr.reshape((height, width, 3)).copy()
+                raise RuntimeError(f"unexpected image bytes {arr.size} for {width}x{height}")
             finally:
                 disp.close()
         except Exception as exc:

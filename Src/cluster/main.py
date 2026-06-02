@@ -28,19 +28,10 @@ from Src.cluster.services import ControllerServices
 def main() -> int:
     # Wire Services into the backend app state so API handlers can access it.
     from Src.infrastructure.media.cv_handler import CvComputerVision
+    from Src.cluster.backend import make_os_handlers
 
-    # OS Detection
-    if sys.platform == "win32":
-        from Src.infrastructure.os.windows_handler import WindowsWindowManager, WindowsScreenCapturer, WindowsInputController
-        win_mgr = WindowsWindowManager()
-        capturer = WindowsScreenCapturer()
-        input_ctrl = WindowsInputController(win_mgr)
-    else:
-        print(f"[Main] Running on non-Windows platform ({sys.platform}). Using Mock handlers.")
-        from Src.infrastructure.os.mock_handler import MockWindowManager, MockScreenCapturer, MockInputController
-        win_mgr = MockWindowManager()
-        capturer = MockScreenCapturer()
-        input_ctrl = MockInputController()
+    # OS Detection (shared factory: win32 / linux / mock).
+    win_mgr, capturer, input_ctrl = make_os_handlers()
 
     svc = ControllerServices(
         window_manager=win_mgr,

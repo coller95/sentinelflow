@@ -192,6 +192,26 @@ _public_dir = _resource_root() / "web" / "cluster"
 app.mount("/static", StaticFiles(directory=str(_public_dir)), name="static")
 
 
+def make_os_handlers():
+    """Build (window_manager, screen_capturer, input_controller) for the host OS.
+
+    Single source of truth for platform handler selection so the entrypoint
+    (cluster main) and the lazy backend fallback can never drift apart.
+    """
+    if sys.platform == "win32":
+        from Src.infrastructure.os.windows_handler import WindowsWindowManager, WindowsScreenCapturer, WindowsInputController
+        win_mgr = WindowsWindowManager()
+        return win_mgr, WindowsScreenCapturer(), WindowsInputController(win_mgr)
+    if sys.platform == "linux":
+        from Src.infrastructure.os.linux_handler import LinuxWindowManager, LinuxScreenCapturer, LinuxInputController
+        win_mgr = LinuxWindowManager()
+        return win_mgr, LinuxScreenCapturer(), LinuxInputController(win_mgr)
+
+    print(f"[Backend] Running on unsupported platform ({sys.platform}). Using Mock handlers.")
+    from Src.infrastructure.os.mock_handler import MockWindowManager, MockScreenCapturer, MockInputController
+    return MockWindowManager(), MockScreenCapturer(), MockInputController()
+
+
 def _get_services() -> ControllerServices:
     # Prefer an instance wired by the entrypoint (cluster main), but fall back
     # to the module-level instance for backwards compatibility.
@@ -205,27 +225,9 @@ def _get_services() -> ControllerServices:
 
     global services
     if services is None:
-        import sys
         from Src.infrastructure.media.cv_handler import CvComputerVision
-        
-        # OS Detection
-        if sys.platform == "win32":
-            from Src.infrastructure.os.windows_handler import WindowsWindowManager, WindowsScreenCapturer, WindowsInputController
-            win_mgr = WindowsWindowManager()
-            capturer = WindowsScreenCapturer()
-            input_ctrl = WindowsInputController(win_mgr)
-        elif sys.platform == "linux":
-            from Src.infrastructure.os.linux_handler import LinuxWindowManager, LinuxScreenCapturer, LinuxInputController
-            win_mgr = LinuxWindowManager()
-            capturer = LinuxScreenCapturer()
-            input_ctrl = LinuxInputController(win_mgr)
-        else:
-            print(f"[Backend] Running on non-Windows, non-Linux platform ({sys.platform}). Using Mock handlers.")
-            from Src.infrastructure.os.mock_handler import MockWindowManager, MockScreenCapturer, MockInputController
-            win_mgr = MockWindowManager()
-            capturer = MockScreenCapturer()
-            input_ctrl = MockInputController()
 
+        win_mgr, capturer, input_ctrl = make_os_handlers()
         services = ControllerServices(
             window_manager=win_mgr,
             screen_capturer=capturer,
