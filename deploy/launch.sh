@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# launch.sh — run one or more app instances in a wine prefix as named,
-# capturable windows and SUPERVISE them. Every instance runs inside its own
-# wine virtual desktop. The script stays in the foreground; Ctrl+C (or any
-# exit) tears down EVERYTHING it spawned (all instances + the prefix's
-# wineserver), so nothing is left behind.
+# launch.sh — bring up ONE wine virtual desktop in a prefix and run the apps
+# inside it, then SUPERVISE. The script stays in the foreground; Ctrl+C (or any
+# exit) tears down EVERYTHING it spawned (all apps + the prefix's wineserver),
+# so nothing is left behind.
 #
-# The app is fixed (notepad for now) — not a user choice yet.
+# The apps are fixed for now: 3 notepad instances inside the one desktop.
 # Bootstrap the prefix first:  ./deploy/bootstrap.sh <PREFIX>
 #
 # Usage:
@@ -13,19 +12,19 @@
 #
 # Options:
 #   -p, --prefix DIR     WINEPREFIX to run in (required)
-#   -c, --count N        number of instances to run (default: 1)
-#   -n, --name NAME      base window/desktop name (default: basename of PREFIX)
+#   -n, --name NAME      desktop name (default: basename of PREFIX, dots stripped)
 #   -r, --res WxH        virtual-desktop size (default: 1024x768)
-#   -w, --workspace N    park every window on EWMH workspace N (0-indexed)
-#   -e, --env K=V        extra env var for every instance (repeatable)
-#   -t, --timeout SEC    seconds to wait for each window (default: 30)
+#   -w, --workspace N    park the desktop on EWMH workspace N (0-indexed)
+#   -e, --env K=V        extra env var for every app (repeatable)
+#   -t, --timeout SEC    seconds to wait for the desktop window (default: 30)
 #   -h, --help           this help
 set -euo pipefail
 
 APP="notepad"   # fixed for now
+COUNT=3         # fixed for now: apps to run inside the one desktop
 
 PREFIX=""; NAME=""; RES="1024x768"; WORKSPACE=""; TIMEOUT=30
-COUNT=1; ENV_KV=()
+ENV_KV=()
 
 die(){ echo "ERR: $*" >&2; exit 1; }
 usage(){ sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//;$d'; exit "${1:-0}"; }
@@ -33,7 +32,6 @@ usage(){ sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//;$d'; exit "${1:-0}";
 while (($#)); do
   case "$1" in
     -p|--prefix)    PREFIX="${2:?}"; shift 2 ;;
-    -c|--count)     COUNT="${2:?}"; shift 2 ;;
     -n|--name)      NAME="${2:?}"; shift 2 ;;
     -r|--res)       RES="${2:?}"; shift 2 ;;
     -w|--workspace) WORKSPACE="${2:?}"; shift 2 ;;
@@ -41,25 +39,25 @@ while (($#)); do
     -t|--timeout)   TIMEOUT="${2:?}"; shift 2 ;;
     -h|--help)      usage 0 ;;
     -*)             die "unknown flag '$1' (see --help)" ;;
-    *)              die "unexpected arg '$1' (the app is fixed; see --help)" ;;
+    *)              die "unexpected arg '$1' (apps are fixed; see --help)" ;;
   esac
 done
 
 [[ -n "$PREFIX" ]] || die "need --prefix (see --help)"
 [[ -d "$PREFIX" ]] || die "prefix not found: $PREFIX (run ./deploy/bootstrap.sh $PREFIX first)"
-[[ "$COUNT" =~ ^[0-9]+$ ]] && ((COUNT > 0)) || die "--count must be a positive integer"
 command -v wine    >/dev/null || die "wine not on PATH"
 command -v xdotool >/dev/null || die "xdotool not on PATH"
 
 NAME="${NAME:-$(basename "$PREFIX")}"
 NAME="${NAME#"${NAME%%[!.]*}"}"  # strip leading dots (~/.wineTest -> wineTest)
+WIN_NAME="$NAME - Wine Desktop"
 
-# ── teardown: kill everything we spawned, once ──
+# ── teardown: kill everything in this prefix, once ──
 ALL_PIDS=()
 cleaned=0
 cleanup(){
   (($cleaned)) && return; cleaned=1
-  echo; echo ">> tearing down (${#ALL_PIDS[@]} instances) ..."
+  echo; echo ">> tearing down '$NAME' ..."
   ((${#ALL_PIDS[@]})) && kill "${ALL_PIDS[@]}" 2>/dev/null || true
   # wineserver -k stops every wine process in THIS prefix in one shot
   WINEPREFIX="$PREFIX" wineserver -k 2>/dev/null || true
@@ -67,40 +65,44 @@ cleanup(){
 }
 trap cleanup INT TERM EXIT
 
-# ── env shared by every instance ──
+# ── env shared by every app ──
 RUN_ENV=( "WINEPREFIX=$PREFIX" )
 ((${#ENV_KV[@]})) && RUN_ENV+=( "${ENV_KV[@]}" )
 
-# spawn one instance: $1=index. Each gets its own wine virtual desktop.
-spawn(){
-  local idx="$1" iname winname pid log wid i
-  iname="${NAME}-${idx}"
-  winname="$iname - Wine Desktop"
-  log="${TMPDIR:-/tmp}/wine-${iname}.log"
-  env "${RUN_ENV[@]}" wine explorer "/desktop=$iname,$RES" "$APP" >"$log" 2>&1 &
-  pid=$!
-  ALL_PIDS+=("$pid")
-  echo ">> [$idx] launched $APP -> '$winname' (pid=$pid, log=$log)"
-
-  # wait for the window, then optionally park it
-  for ((i=0; i<TIMEOUT*2; i++)); do
-    wid="$(xdotool search --name "^${winname}$" 2>/dev/null | head -1 || true)"
-    [[ -n "$wid" ]] && break
-    kill -0 "$pid" 2>/dev/null || { echo ">> [$idx] ERR: wine exited early (see $log)" >&2; return; }
-    sleep 0.5
-  done
-  [[ -n "$wid" ]] || { echo ">> [$idx] WARN: window not seen in ${TIMEOUT}s (see $log)" >&2; return; }
-  echo ">> [$idx] window id: $wid"
-  if [[ -n "$WORKSPACE" ]] && xdotool get_num_desktops >/dev/null 2>&1; then
-    xdotool set_desktop_for_window "$wid" "$WORKSPACE" && echo ">> [$idx] parked on workspace $WORKSPACE"
-  fi
+# launch one app into the named desktop (every app uses the SAME name so they
+# share one desktop window — but they must NOT race to CREATE it, so we bring
+# the first one up and wait for the window before adding the rest).
+run_app(){
+  local n="$1" log="${TMPDIR:-/tmp}/wine-${NAME}-${1}.log"
+  env "${RUN_ENV[@]}" wine explorer "/desktop=$NAME,$RES" "$APP" >"$log" 2>&1 &
+  ALL_PIDS+=("$!")
+  echo ">> [$n] $APP (pid=$! log=$log)"
 }
 
-# ── spawn all instances ──
-for ((n=1; n<=COUNT; n++)); do spawn "$n"; done
+echo ">> bringing up desktop '$NAME' ($RES) with $COUNT x $APP"
 
-echo ">> up: prefix=$PREFIX  count=$COUNT  total=${#ALL_PIDS[@]}"
+# ── first app: creates the desktop; wait for its window ──
+run_app 1
+echo ">> waiting for window: '$WIN_NAME' (<=${TIMEOUT}s)"
+WID=""
+for ((i=0; i<TIMEOUT*2; i++)); do
+  WID="$(xdotool search --name "^${WIN_NAME}$" 2>/dev/null | head -1 || true)"
+  [[ -n "$WID" ]] && break
+  sleep 0.5
+done
+[[ -n "$WID" ]] || die "desktop window '$WIN_NAME' did not appear in ${TIMEOUT}s"
+echo ">> desktop window id: $WID"
+
+# ── remaining apps: join the now-existing desktop (no create race) ──
+for ((n=2; n<=COUNT; n++)); do run_app "$n"; sleep 0.5; done
+
+# ── park the desktop on a workspace ──
+if [[ -n "$WORKSPACE" ]] && xdotool get_num_desktops >/dev/null 2>&1; then
+  xdotool set_desktop_for_window "$WID" "$WORKSPACE" && echo ">> parked on workspace $WORKSPACE"
+fi
+
+echo ">> up: prefix=$PREFIX name='$NAME' window='$WIN_NAME' wid=$WID apps=$COUNT"
 echo ">> supervising — Ctrl+C to stop and tear down all."
 
-# ── block until all instances exit (or Ctrl+C) ──
+# ── block until all apps exit (or Ctrl+C) ──
 wait "${ALL_PIDS[@]}"
