@@ -18,7 +18,8 @@
 #   -r, --res WxH        virtual-desktop size (default: 1024x768)
 #   -a, --app NAME       app to run (default: notepad)
 #   -c, --count N        apps in the shared desktop (default: 3; --net forces 1)
-#   -w, --workspace N    park the desktop on EWMH workspace N (0-indexed)
+#   -w, --workspace N    park the desktop on EWMH workspace N (0-indexed),
+#                        or 'new' (alias 'n') for a fresh/trailing workspace
 #   -e, --env K=V        extra env var for every app (repeatable)
 #   -t, --timeout SEC    seconds to wait for the desktop window (default: 30)
 #       --net            give the instance its own LAN IP via netns (sudo).
