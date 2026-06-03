@@ -1,25 +1,26 @@
 #!/usr/bin/env bash
-# launch.sh — single entry point: run an exe in a wine prefix as a named,
-# capturable window, optionally parked on its own GNOME/EWMH workspace.
+# launch.sh — run the app in a wine prefix as a named, capturable window and
+# SUPERVISE it: the script stays in the foreground; Ctrl+C (or any exit) tears
+# down everything it spawned (the app + the prefix's wineserver).
 #
-# Bootstrap the prefix first:  ./bootstrap.sh <PREFIX>
+# The app is fixed (notepad for now) — not a user choice yet.
+# Bootstrap the prefix first:  ./deploy/bootstrap.sh <PREFIX>
 #
 # Usage:
-#   ./launch.sh -p <PREFIX> [options] -- <exe> [exe args...]
+#   ./deploy/launch.sh -p <PREFIX> [options]
 #
 # Options:
 #   -p, --prefix DIR     WINEPREFIX to run in (required)
-#   -n, --name NAME      window/desktop name (default: basename of PREFIX)
+#   -n, --name NAME      window/desktop name (default: basename of PREFIX, dots stripped)
 #   -r, --res WxH        virtual-desktop size (default: 1024x768)
 #   -w, --workspace N    park the window on EWMH workspace N (0-indexed)
 #   -f, --fullscreen     run native (no wine virtual desktop)
 #   -e, --env K=V        extra env var for the launch (repeatable)
 #   -t, --timeout SEC    seconds to wait for the window (default: 30)
 #   -h, --help           this help
-#
-# Window: in virtual-desktop mode the title is "<NAME> - Wine Desktop";
-# SentinelFlow attaches to that title, then captures/injects window-targeted.
 set -euo pipefail
+
+APP="notepad"   # fixed for now
 
 PREFIX=""; NAME=""; RES="1024x768"; WORKSPACE=""; FULLSCREEN=0; TIMEOUT=30
 ENV_KV=()
@@ -37,43 +38,48 @@ while (($#)); do
     -e|--env)       ENV_KV+=("${2:?}"); shift 2 ;;
     -t|--timeout)   TIMEOUT="${2:?}"; shift 2 ;;
     -h|--help)      usage 0 ;;
-    --)             shift; break ;;
     -*)             die "unknown flag '$1' (see --help)" ;;
-    *)              break ;;
+    *)              die "unexpected arg '$1' (the app is fixed; see --help)" ;;
   esac
 done
 
 [[ -n "$PREFIX" ]] || die "need --prefix (see --help)"
-(($#)) || die "need an exe after -- (e.g. -- notepad)"
-[[ -d "$PREFIX" ]] || die "prefix not found: $PREFIX (run ./bootstrap.sh $PREFIX first)"
+[[ -d "$PREFIX" ]] || die "prefix not found: $PREFIX (run ./deploy/bootstrap.sh $PREFIX first)"
 command -v wine    >/dev/null || die "wine not on PATH"
 command -v xdotool >/dev/null || die "xdotool not on PATH"
 
 NAME="${NAME:-$(basename "$PREFIX")}"
 NAME="${NAME#"${NAME%%[!.]*}"}"  # strip leading dots (~/.wineTest -> wineTest)
-EXE="$1"; shift
-EXE_ARGS=("$@")
+
+# ── teardown: kill what we spawned, once ──
+WINE_PID=""
+cleaned=0
+cleanup(){
+  (($cleaned)) && return; cleaned=1
+  echo; echo ">> tearing down '$NAME' ..."
+  [[ -n "$WINE_PID" ]] && kill "$WINE_PID" 2>/dev/null || true
+  # wineserver -k stops every wine process in THIS prefix (the app + helpers)
+  WINEPREFIX="$PREFIX" wineserver -k 2>/dev/null || true
+  echo ">> down."
+}
+trap cleanup INT TERM EXIT
 
 # ── build env ──
 RUN_ENV=( "WINEPREFIX=$PREFIX" )
 ((${#ENV_KV[@]})) && RUN_ENV+=( "${ENV_KV[@]}" )
 
-# ── spawn ──
-# wine's stdout/stderr go to a logfile, NOT the caller's fds — otherwise the
-# backgrounded wine holds the caller's pipe open after this script exits and
-# any output-capturing caller hangs until wine dies.
+# ── spawn (app stdout/stderr -> logfile; we keep the PID and supervise) ──
 WINE_LOG="${TMPDIR:-/tmp}/wine-${NAME}.log"
 if ((FULLSCREEN)); then
-  echo ">> launch (native): $EXE ${EXE_ARGS[*]}"
-  env "${RUN_ENV[@]}" wine "$EXE" "${EXE_ARGS[@]}" >"$WINE_LOG" 2>&1 &
+  echo ">> launch (native): $APP"
+  env "${RUN_ENV[@]}" wine "$APP" >"$WINE_LOG" 2>&1 &
   WIN_NAME="$NAME"
 else
-  echo ">> launch (desktop '$NAME', $RES): $EXE ${EXE_ARGS[*]}"
-  env "${RUN_ENV[@]}" wine explorer "/desktop=$NAME,$RES" "$EXE" "${EXE_ARGS[@]}" >"$WINE_LOG" 2>&1 &
+  echo ">> launch (desktop '$NAME', $RES): $APP"
+  env "${RUN_ENV[@]}" wine explorer "/desktop=$NAME,$RES" "$APP" >"$WINE_LOG" 2>&1 &
   WIN_NAME="$NAME - Wine Desktop"
 fi
 WINE_PID=$!
-disown "$WINE_PID" 2>/dev/null || true
 echo ">> wine log: $WINE_LOG"
 
 # ── wait for the window ──
@@ -82,10 +88,10 @@ WID=""
 for ((i=0; i<TIMEOUT*2; i++)); do
   WID="$(xdotool search --name "^${WIN_NAME}$" 2>/dev/null | head -1 || true)"
   [[ -n "$WID" ]] && break
-  kill -0 "$WINE_PID" 2>/dev/null || die "wine exited before window appeared"
+  kill -0 "$WINE_PID" 2>/dev/null || die "wine exited before window appeared (see $WINE_LOG)"
   sleep 0.5
 done
-[[ -n "$WID" ]] || die "window '$WIN_NAME' did not appear in ${TIMEOUT}s"
+[[ -n "$WID" ]] || die "window '$WIN_NAME' did not appear in ${TIMEOUT}s (see $WINE_LOG)"
 echo ">> window id: $WID"
 
 # ── park on workspace ──
@@ -99,3 +105,7 @@ if [[ -n "$WORKSPACE" ]]; then
 fi
 
 echo ">> up: prefix=$PREFIX name='$NAME' window='$WIN_NAME' wid=$WID pid=$WINE_PID"
+echo ">> supervising — Ctrl+C to stop and tear down."
+
+# ── block until the app exits or we're interrupted; trap cleans up ──
+wait "$WINE_PID"
