@@ -29,4 +29,8 @@ parse_cli(){
       *)              die "unexpected arg '$1' (see --help)" ;;
     esac
   done
+
+  # --ip / --parent are netns-only knobs, so either one implies --net. Saves the
+  # footgun of passing --ip alone and having it silently ignored.
+  if [[ -n "$IP_REQ" || -n "$PARENT" ]]; then NET=1; fi
 }

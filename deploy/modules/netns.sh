@@ -89,8 +89,11 @@ net_try_assign(){
 }
 
 # net_static — assign a static IP + route + DNS inside NS (ipvlan path).
-#   --ip ADDR : one shot, hard fail on any collision.
-#   auto      : walk $net.200-.250, take the first the kernel actually accepts.
+#   --ip ADDR : honor the exact address verbatim, like wc3 play.sh — no probing,
+#               no second-guessing. The kernel add is the only gate; if it
+#               refuses, fail loud and exit.
+#   auto      : walk $net.200-.250, take the first the kernel accepts, then
+#               verify the gateway is reachable before trusting it.
 net_static(){
   local gw cidr net ip h
   gw="$(ip route | sed -n 's/^default via \([0-9.]*\) dev '"$PARENT"'.*/\1/p' | head -1)"
@@ -100,10 +103,9 @@ net_static(){
   net="${gw%.*}"   # /24 base from the gateway (good enough for home LANs)
 
   if [[ -n "$IP_REQ" ]]; then
+    # --ip: take the caller's address as-is. No ping pre-check — the user owns
+    # the choice (mirrors wc3 play.sh). Only the kernel can veto it.
     ip="$IP_REQ"
-    # forced address: probe from the host before claiming it, so we fail loud on
-    # a collision instead of silently fighting another host for the same IP.
-    ! ping -c1 -W1 "$ip" >/dev/null 2>&1 || die "requested IP $ip already in use on the LAN (pick another --ip)"
     log "netns $NS: static $ip/$cidr gw $gw on $IFACE"
     net_try_assign "$ip" "$cidr" || die "could not assign $ip in $NS (held by another instance? pick another --ip)"
   else
@@ -124,8 +126,13 @@ net_static(){
   # is UNREACHABLE inside a netns, so copying /etc/resolv.conf would break DNS.
   echo "nameserver $gw" | sudo tee "/etc/netns/$NS/resolv.conf" >/dev/null
 
-  sudo ip netns exec "$NS" ping -c1 -W2 "$gw" >/dev/null 2>&1 \
-    || die "static $ip set but gateway $gw unreachable in $NS (address in use? try --ip)"
+  # auto-picked addresses get a reachability sanity check; an explicit --ip is
+  # trusted verbatim (play.sh does no such probe), so skip it there.
+  if [[ -z "$IP_REQ" ]]; then
+    sudo ip netns exec "$NS" ping -c1 -W2 "$gw" >/dev/null 2>&1 \
+      || die "auto-picked $ip set but gateway $gw unreachable in $NS (try --ip)"
+  fi
+
   LEASE_IP="$ip"
   log "netns $NS: up at $LEASE_IP"
 }

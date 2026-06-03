@@ -23,8 +23,8 @@
 #   -t, --timeout SEC    seconds to wait for the desktop window (default: 30)
 #       --net            give the instance its own LAN IP via netns (sudo).
 #                        Wired: DHCP. WiFi: static (auto-picked free LAN addr).
-#       --parent IFACE   physical iface for --net (default: auto-detect)
-#       --ip ADDR        force the static IP for --net (WiFi); default auto-pick
+#       --parent IFACE   physical iface for --net (default: auto-detect; implies --net)
+#       --ip ADDR        force the static IP, WiFi (default auto-pick; implies --net)
 #   -h, --help           this help
 set -euo pipefail
 
