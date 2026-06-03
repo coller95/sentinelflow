@@ -23,8 +23,9 @@ and inject via `xdotool --window`. There is no in-prefix AutoClicker.
 
 ## Prerequisites
 
-- Wine (tested: wine-staging 11.9) with a prefix containing WC3 +
-  `Garena Universal MH.exe`
+- Wine **≥9.0** (needs the wow64 single-arch prefix — no 32-bit multilib
+  required; staging optional, only adds fsync/esync perf) with a prefix
+  containing WC3 + `Garena Universal MH.exe`
 - `xdotool`, `python3` with `numpy`, `opencv`, `python-xlib` (the SentinelFlow
   `.venv` has these)
 - An X display: `:0` (real GPU) or a per-instance

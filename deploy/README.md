@@ -8,6 +8,7 @@ under `apps/<name>/`. Reference app: `apps/wc3` (Warcraft III + Garena MH).
 
 ```
 deploy/
+  bootstrap.sh         SETUP: new-machine deps (apt) + fresh wow64 prefix + DXVK
   launch.sh            ENTRY: launch one instance (host network)
   launch-netns.sh      ENTRY: launch one instance with its own LAN IP (netns+ipvlan)
   vision.py            helper: Xlib template-match click/wait against a window
@@ -35,6 +36,17 @@ Roles, plainly:
   learn what to run and with what env (see contract below).
 - **`lib/capture.sh`, `vision.py`** — shared tools an app's `setup.sh` /
   `maphack.sh` call into (DLL install + on-screen template clicking).
+
+## Setup (new machine / new prefix)
+
+```sh
+# installs missing system deps (wine ≥9.0, winetricks, xdotool, scrot,
+# mesa lavapipe, python vision libs, iproute2, xvfb) then makes a fresh
+# wow64 prefix + DXVK. Idempotent — re-runs skip apt when deps are present.
+./bootstrap.sh ~/.wine-war3-1
+```
+
+Then provision the prefix for an app once (`apps/<name>/setup.sh`), and launch.
 
 ## Usage
 
