@@ -50,6 +50,7 @@ command -v wine    >/dev/null || die "wine not on PATH"
 command -v xdotool >/dev/null || die "xdotool not on PATH"
 
 NAME="${NAME:-$(basename "$PREFIX")}"
+NAME="${NAME#"${NAME%%[!.]*}"}"  # strip leading dots (~/.wineTest -> wineTest)
 EXE="$1"; shift
 EXE_ARGS=("$@")
 
@@ -58,16 +59,22 @@ RUN_ENV=( "WINEPREFIX=$PREFIX" )
 ((${#ENV_KV[@]})) && RUN_ENV+=( "${ENV_KV[@]}" )
 
 # ── spawn ──
+# wine's stdout/stderr go to a logfile, NOT the caller's fds — otherwise the
+# backgrounded wine holds the caller's pipe open after this script exits and
+# any output-capturing caller hangs until wine dies.
+WINE_LOG="${TMPDIR:-/tmp}/wine-${NAME}.log"
 if ((FULLSCREEN)); then
   echo ">> launch (native): $EXE ${EXE_ARGS[*]}"
-  env "${RUN_ENV[@]}" wine "$EXE" "${EXE_ARGS[@]}" &
+  env "${RUN_ENV[@]}" wine "$EXE" "${EXE_ARGS[@]}" >"$WINE_LOG" 2>&1 &
   WIN_NAME="$NAME"
 else
   echo ">> launch (desktop '$NAME', $RES): $EXE ${EXE_ARGS[*]}"
-  env "${RUN_ENV[@]}" wine explorer "/desktop=$NAME,$RES" "$EXE" "${EXE_ARGS[@]}" &
+  env "${RUN_ENV[@]}" wine explorer "/desktop=$NAME,$RES" "$EXE" "${EXE_ARGS[@]}" >"$WINE_LOG" 2>&1 &
   WIN_NAME="$NAME - Wine Desktop"
 fi
 WINE_PID=$!
+disown "$WINE_PID" 2>/dev/null || true
+echo ">> wine log: $WINE_LOG"
 
 # ── wait for the window ──
 echo ">> waiting for window: '$WIN_NAME' (<=${TIMEOUT}s)"
