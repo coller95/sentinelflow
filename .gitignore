@@ -152,6 +152,9 @@ Desktop.ini
 # Refactor scratch (temporary)
 .refactor/
 
+# Claude Code local session state (scheduler lock, etc.)
+.claude/
+
 # SentinelFlow Data
 state.json
 orchestrator_state.json
