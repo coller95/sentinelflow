@@ -22,6 +22,8 @@
 #                        or 'new' (alias 'n') for a fresh/trailing workspace
 #   -e, --env K=V        extra env var for every app (repeatable)
 #   -t, --timeout SEC    seconds to wait for the desktop window (default: 30)
+#       --node           run a per-instance cluster node (stub by default)
+#       --node-cmd CMD   command to run as the node (implies --node)
 #       --net            give the instance its own LAN IP via netns (sudo).
 #                        Wired: DHCP. WiFi: static (auto-picked free LAN addr).
 #       --parent IFACE   physical iface for --net (default: auto-detect; implies --net)
@@ -38,6 +40,7 @@ source "$HERE/modules/cli.sh"
 source "$HERE/modules/preflight.sh"
 source "$HERE/modules/desktop.sh"
 source "$HERE/modules/apps.sh"
+source "$HERE/modules/node.sh"
 
 parse_cli "$@"
 preflight
@@ -68,6 +71,7 @@ if (( ! NET )); then
 fi
 
 park_workspace
+start_node
 
 echo ">> up: prefix=$PREFIX name='$NAME' window='$WIN_NAME' wid=$WID apps=$COUNT${LEASE_IP:+ ip=$LEASE_IP}"
 echo ">> supervising — Ctrl+C to stop and tear down all."

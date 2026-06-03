@@ -9,6 +9,7 @@ parse_cli(){
   APP="notepad"; COUNT=3; COUNT_SET=0
   PREFIX=""; NAME=""; RES="1024x768"; WORKSPACE=""; TIMEOUT=30
   NET=0; PARENT=""; IP_REQ=""
+  NODE=0; NODE_CMD=""
   ENV_KV=()
 
   while (( $# )); do
@@ -21,6 +22,9 @@ parse_cli(){
       -t|--timeout)   TIMEOUT="${2:?}"; shift 2 ;;
       -a|--app)       APP="${2:?}"; shift 2 ;;
       -c|--count)     COUNT="${2:?}"; COUNT_SET=1; shift 2 ;;
+      --node)         NODE=1; shift ;;
+      --node-cmd)     NODE_CMD="${2:?}"; NODE=1; shift 2 ;;
+      --no-node)      NODE=0; shift ;;
       --net)          NET=1; shift ;;
       --parent)       PARENT="${2:?}"; shift 2 ;;
       --ip)           IP_REQ="${2:?}"; shift 2 ;;
