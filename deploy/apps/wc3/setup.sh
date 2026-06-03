@@ -5,14 +5,14 @@
 # This is the war3 plug of the prefix setup. The generic, capture-enabling DLL
 # install (DXVK d8vk x32 d3d8/d3d9/dxgi into syswow64, so D3D8 routes through
 # DXVK on lavapipe and presents a frame the X window can read back) lives in
-# the reusable lib/wine-capture.sh, which we call first. Everything below is
+# the reusable lib/capture.sh, which we call first. Everything below is
 # war3-only: it seeds War3Preferences.txt + the Warcraft III\Video registry for
 # windowed 1024x768 low-detail startup, and moves the intro Movies aside (a
 # blocked/looping movie stalls device init at a black splash).
 #
 # Usage:  ./setup.sh <PREFIX>
 #   PREFIX = wine prefix path (e.g. ~/.wineGame1)
-# Override DXVK source dir (consumed by lib/wine-capture.sh) with
+# Override DXVK source dir (consumed by lib/capture.sh) with
 #   DXVK_X32_DIR=/path/to/dxvk/x32
 set -euo pipefail
 
@@ -25,7 +25,7 @@ WC3DIR="$PREFIX/drive_c/Program Files (x86)/Warcraft III"
 [[ -e "$WC3DIR/war3.exe" ]] || { echo "ERR: war3.exe not found in $WC3DIR" >&2; exit 1; }
 
 # ── 1. generic capture-enabling DLL install (DXVK d8vk x32) ──
-"$HERE/../../lib/wine-capture.sh" "$PREFIX"
+"$HERE/../../lib/capture.sh" "$PREFIX"
 
 # ── 2. seed War3Preferences.txt (Documents + install dir; path is locale-ish) ──
 DOCS="$PREFIX/drive_c/users/$WINUSER/Documents"
@@ -55,4 +55,4 @@ if [[ -d "$WC3DIR/Movies" ]]; then
   echo ">> Movies -> Movies.off"
 fi
 
-echo ">> prefix $PREFIX provisioned. Launch with: ./fleet.sh apps/wc3/profile.sh $PREFIX"
+echo ">> prefix $PREFIX provisioned. Launch with: ./launch.sh apps/wc3/config.sh $PREFIX"

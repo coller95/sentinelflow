@@ -16,6 +16,9 @@ eggs/
 .eggs/
 lib/
 lib64/
+# deploy/lib holds real source (wine-fleet building blocks), not a build dir
+!deploy/lib/
+!deploy/lib/*.sh
 parts/
 sdist/
 var/
@@ -151,6 +154,9 @@ Desktop.ini
 # PyCharm
 .idea/
 *.iml
+# Refactor scratch (temporary)
+.refactor/
+
 # SentinelFlow Data
 state.json
 orchestrator_state.json

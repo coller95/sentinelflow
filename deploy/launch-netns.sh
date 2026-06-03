@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# netns.sh — run ONE app instance inside a volatile network namespace,
+# launch-netns.sh — run ONE app instance inside a volatile network namespace,
 # giving it a distinct LAN IP via ipvlan (WiFi-safe: shares parent MAC).
 # Generic, app-agnostic wrapper (was play.sh): the APP is selected by a
-# PROFILE bash file handed to fleet.sh. Everything (netns, ipvlan iface,
+# PROFILE bash file handed to launch.sh. Everything (netns, ipvlan iface,
 # per-ns DNS) is created on start and DESTROYED on exit — nothing persists.
 #
-# Usage:  ./netns.sh [--fullscreen|-f] [--workspace|-w N] <PROFILE> <PREFIX> <LAN_IP> [NS_NAME]
-#   PROFILE       = app profile bash file (e.g. apps/wc3/profile.sh)
+# Usage:  ./launch-netns.sh [--fullscreen|-f] [--workspace|-w N] <PROFILE> <PREFIX> <LAN_IP> [NS_NAME]
+#   PROFILE       = app profile bash file (e.g. apps/wc3/config.sh)
 #   PREFIX        = wine prefix path      (e.g. ~/.wineGame1)
 #   LAN_IP        = distinct free LAN IP  (e.g. 192.168.1.150)
 #   NS_NAME       = namespace name (default: derived from prefix basename)
-#   --fullscreen  = pass through to fleet.sh (APP_MAIN native, no wine desktop)
+#   --fullscreen  = pass through to launch.sh (APP_MAIN native, no wine desktop)
 #   --workspace N = park this instance on GNOME/EWMH workspace N (env WORKSPACE also works)
 #
 # Example (one per terminal, distinct LAN IPs + workspaces):
-#   ./netns.sh -w 0 apps/wc3/profile.sh ~/.wine       192.168.1.150
-#   ./netns.sh -w 1 apps/wc3/profile.sh ~/.wineGame1  192.168.1.151
-#   ./netns.sh -w 2 apps/wc3/profile.sh ~/.wineGame2  192.168.1.152
+#   ./launch-netns.sh -w 0 apps/wc3/config.sh ~/.wine       192.168.1.150
+#   ./launch-netns.sh -w 1 apps/wc3/config.sh ~/.wineGame1  192.168.1.151
+#   ./launch-netns.sh -w 2 apps/wc3/config.sh ~/.wineGame2  192.168.1.152
 set -u
 
 # flags (before positionals); WORKSPACE env is the fallback for -w
@@ -78,5 +78,5 @@ echo ">> [$NS] launch app as $USER, IP $LAN_IP, profile $(basename "$PROFILE")"
 sudo ip netns exec "$NS" runuser -u "$USER" -- \
   env DISPLAY="${DISPLAY:-:0}" XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" \
       HOME="$HOME" WINEPREFIX="$PREFIX" FULLSCREEN="$FS" WORKSPACE="$WS" \
-  "$HERE/fleet.sh" "$PROFILE" "$PREFIX"
-# fleet.sh blocks; Ctrl+C reaches it (kills wine) then EXIT trap tears down netns
+  "$HERE/launch.sh" "$PROFILE" "$PREFIX"
+# launch.sh blocks; Ctrl+C reaches it (kills wine) then EXIT trap tears down netns
