@@ -2,8 +2,10 @@
 # launch.sh — bring up wine app instances and SUPERVISE them. Stays in the
 # foreground; Ctrl+C (or any exit) tears down EVERYTHING it spawned.
 #
-# Two modes:
+# Modes (combinable):
 #   default : ONE shared wine virtual desktop, COUNT apps inside it.
+#   --xvfb  : the instance gets its OWN headless X server (exact size, no WM).
+#             View it through the node's capture API / orchestrator CCTV.
 #   --net   : ONE instance with its OWN distinct LAN IP (netns; needs sudo).
 #             Wired = DHCP, WiFi = static. Run one per terminal for multibox.
 #
@@ -22,8 +24,11 @@
 #                        or 'new' (alias 'n') for a fresh/trailing workspace
 #   -e, --env K=V        extra env var for every app (repeatable)
 #   -t, --timeout SEC    seconds to wait for the desktop window (default: 30)
+#       --xvfb           run on a fresh per-instance Xvfb display (headless)
 #       --node           run a per-instance cluster node (stub by default)
-#       --node-cmd CMD   command to run as the node (implies --node)
+#       --node-cmd CMD   command to run as the node (implies --node);
+#                        the real one: --node-cmd Scripts/RunNode.sh
+#       --no-node        turn the node back off
 #       --net            give the instance its own LAN IP via netns (sudo).
 #                        Wired: DHCP. WiFi: static (auto-picked free LAN addr).
 #       --parent IFACE   physical iface for --net (default: auto-detect; implies --net)
@@ -36,6 +41,7 @@ source "$HERE/modules/log.sh"
 source "$HERE/modules/teardown.sh"
 source "$HERE/modules/sudo.sh"
 source "$HERE/modules/netns.sh"
+source "$HERE/modules/xserver.sh"
 source "$HERE/modules/cli.sh"
 source "$HERE/modules/preflight.sh"
 source "$HERE/modules/desktop.sh"
@@ -46,6 +52,7 @@ parse_cli "$@"
 preflight
 derive_name
 install_teardown
+start_xserver   # --xvfb: own headless display; exports DISPLAY for all below
 
 # ── --net: give this instance its own LAN IP, then run everything inside the ns ──
 if (( NET )); then
@@ -76,4 +83,6 @@ start_node
 echo ">> up: prefix=$PREFIX name='$NAME' window='$WIN_NAME' wid=$WID apps=$COUNT${LEASE_IP:+ ip=$LEASE_IP}"
 echo ">> supervising — Ctrl+C to stop and tear down all."
 
-wait "${ALL_PIDS[@]}"
+# Supervise: the FIRST member to die ends the whole instance (wait-all would
+# sleep through a dead app while the node lives on, serving stale frames).
+wait -n "${ALL_PIDS[@]}" || true

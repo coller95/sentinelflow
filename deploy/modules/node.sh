@@ -26,7 +26,8 @@ start_node(){
     "DISPLAY=${DISPLAY:-:0}" "XAUTHORITY=${XAUTHORITY:-$HOME/.Xauthority}" "HOME=$HOME"
   )
   log "node up for '$NAME' (log=$log)"
-  "${NS_RUN[@]}" env "${nenv[@]}" bash -c "$cmd" >"$log" 2>&1 &
+  echo "── run $(date '+%F %T') ──" >>"$log"
+  "${NS_RUN[@]}" env "${nenv[@]}" bash -c "$cmd" >>"$log" 2>&1 &
   ALL_PIDS+=("$!")
   echo ">> [node] pid=$! log=$log"
 }

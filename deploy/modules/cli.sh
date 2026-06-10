@@ -10,6 +10,7 @@ parse_cli(){
   PREFIX=""; NAME=""; RES="1024x768"; WORKSPACE=""; TIMEOUT=30
   NET=0; PARENT=""; IP_REQ=""
   NODE=0; NODE_CMD=""
+  XVFB=0
   ENV_KV=()
 
   while (( $# )); do
@@ -25,6 +26,7 @@ parse_cli(){
       --node)         NODE=1; shift ;;
       --node-cmd)     NODE_CMD="${2:?}"; NODE=1; shift 2 ;;
       --no-node)      NODE=0; shift ;;
+      --xvfb)         XVFB=1; shift ;;
       --net)          NET=1; shift ;;
       --parent)       PARENT="${2:?}"; shift 2 ;;
       --ip)           IP_REQ="${2:?}"; shift 2 ;;
@@ -37,4 +39,7 @@ parse_cli(){
   # --ip / --parent are netns-only knobs, so either one implies --net. Saves the
   # footgun of passing --ip alone and having it silently ignored.
   if [[ -n "$IP_REQ" || -n "$PARENT" ]]; then NET=1; fi
+
+  # RES feeds wine /desktop=,WxH, the Xvfb screen and the node's seeded geometry
+  [[ "$RES" =~ ^[0-9]+x[0-9]+$ ]] || die "bad --res '$RES' (want WxH, e.g. 1024x768)"
 }

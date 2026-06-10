@@ -28,11 +28,12 @@ top of `deploy/`.
 
 ```
 parse_cli → preflight → derive_name → install_teardown
+  → [--xvfb: start_xserver → exports per-instance DISPLAY for everything below]
   → [--net: sudo_init, net_detect_parent, net_create, net_address, NS_RUN=…]
   → build_run_env
   → run_app 1 → wait_for_window → (extra apps, normal mode) → park_workspace
   → start_node
-  → wait (supervise; trap tears down on INT/TERM/EXIT)
+  → wait -n (supervise: FIRST member death ends the instance; trap tears down on INT/TERM/EXIT)
 ```
 
 ## modules/ map
@@ -43,6 +44,7 @@ parse_cli → preflight → derive_name → install_teardown
 | `teardown.sh` | `ALL_PIDS`, single idempotent `cleanup`, `install_teardown` (trap) |
 | `sudo.sh` | keep-alive sudo for `--net` |
 | `netns.sh` | `--net` network namespace + own LAN IP; sets `NS_RUN`, `LEASE_IP` |
+| `xserver.sh` | `--xvfb` per-instance headless X server; exports `DISPLAY` |
 | `cli.sh` | `usage` (reads launch.sh header), `parse_cli` → shared globals |
 | `preflight.sh` | dependency + prefix checks |
 | `desktop.sh` | name derivation, `wait_for_window` (managed-WID resolve), `park_workspace` |
@@ -58,11 +60,29 @@ Enable with `--node` (inline stub: identity + heartbeat, no logic) or
 Its PID joins `ALL_PIDS`, so it is supervised and torn down with the instance;
 in `--net` mode it runs inside the instance's netns (binds the instance IP).
 
+The real node is the SentinelFlow cluster server, ridden in as a payload:
+
+```
+./deploy/launch.sh -p ~/.wineGame1 -c 1 --xvfb --node-cmd Scripts/RunNode.sh
+```
+
+`Scripts/RunNode.sh` isolates per instance (state+serverUuid under
+`~/.local/state/sentinelflow/<name>/`, free port, auto-attach to this
+instance's wine desktop by title) and can auto-commission into a running
+orchestrator via `SF_ORCH_URL`. Prefer `--xvfb` for node instances: the
+capture/input paths in `Src/infrastructure/os/linux_handler.py` are exact
+there (own display, no WM fullscreen surprises, focus grabs are free).
+
 ## Gotchas
 
 - A wine virtual desktop maps **two** X windows with the same title; only the
   WM-managed one carries a numeric `_NET_WM_DESKTOP`. `desktop.sh` resolves that
   one — `search | head -1` can grab the internal child and silently break window
-  ops. Reuse `managed_wid` for any new window targeting.
+  ops. Reuse `managed_wid` for any new window targeting. `-1` (sticky) counts as
+  managed; on a WM-less display (`--xvfb`) nothing ever does, so `wait_for_window`
+  takes the first title match there.
+- On a desktop WM (seen with GNOME) wine can flip the desktop window to
+  override-redirect fullscreen at screen size — capture then carries dead
+  padding and normalized clicks miss. `--xvfb` avoids the whole class.
 - `set -euo pipefail` everywhere. `NS_RUN` / `LEASE_IP` are predeclared (empty)
   in `netns.sh` so they are safe to expand when `--net` is off.

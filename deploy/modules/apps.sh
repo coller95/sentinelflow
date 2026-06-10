@@ -16,7 +16,9 @@ build_run_env(){
 # instance's network namespace as your user.
 run_app(){
   local n="$1" log="${TMPDIR:-/tmp}/wine-${NAME}-${1}.log"
-  "${NS_RUN[@]}" env "${RUN_ENV[@]}" wine explorer "/desktop=$NAME,$RES" "$APP" >"$log" 2>&1 &
+  # append: a relaunch must not wipe the previous run's crash output
+  echo "── run $(date '+%F %T') ──" >>"$log"
+  "${NS_RUN[@]}" env "${RUN_ENV[@]}" wine explorer "/desktop=$NAME,$RES" "$APP" >>"$log" 2>&1 &
   ALL_PIDS+=("$!")
   echo ">> [$n] $APP (pid=$! log=$log)"
 }

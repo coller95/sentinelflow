@@ -4,6 +4,9 @@
 derive_name(){
   NAME="${NAME:-$(basename "$PREFIX")}"
   NAME="${NAME#"${NAME%%[!.]*}"}"  # strip leading dots (~/.wineTest -> wineTest)
+  # NAME feeds window-title regexes, iface/ns names, log paths and node JSON —
+  # constrain it once here instead of escaping at every use site.
+  [[ "$NAME" =~ ^[A-Za-z0-9._-]+$ ]] || die "bad instance name '$NAME' (use letters/digits/._-)"
   WIN_NAME="$NAME - Wine Desktop"
 }
 
@@ -11,27 +14,49 @@ derive_name(){
 # no _NET_WM_DESKTOP) and the WM-managed top-level that actually sits on a workspace.
 # `search | head -1` can return the child, and set_desktop_for_window on it is a
 # silent no-op — which broke --workspace. Pick the managed one: it is the match
-# that carries a numeric _NET_WM_DESKTOP.
+# that carries a numeric _NET_WM_DESKTOP. -1 counts: it is the sticky/all-desktops
+# value (0xFFFFFFFF), still a WM-managed window (seen when wine goes fullscreen).
 managed_wid(){
   local w d
   for w in $(xdotool search --name "^${WIN_NAME}$" 2>/dev/null); do
     d="$(xdotool get_desktop_for_window "$w" 2>/dev/null || true)"
-    [[ "$d" =~ ^[0-9]+$ ]] && { printf '%s\n' "$w"; return 0; }
+    [[ "$d" =~ ^-?[0-9]+$ ]] && { printf '%s\n' "$w"; return 0; }
   done
   return 1
 }
 
+any_wid(){ xdotool search --name "^${WIN_NAME}$" 2>/dev/null | head -1 || true; }
+
 wait_for_window(){
   echo ">> waiting for window: '$WIN_NAME' (<=${TIMEOUT}s)"
+  # No EWMH WM on this display (e.g. --xvfb): no window will ever be "managed",
+  # so the first title match wins. Parking is meaningless there anyway.
+  local has_wm=1 seen=-1 any=""
+  xdotool get_num_desktops >/dev/null 2>&1 || has_wm=0
   WID=""
   for ((i=0; i<TIMEOUT*2; i++)); do
-    WID="$(managed_wid || true)"
-    [[ -n "$WID" ]] && break
+    if (( has_wm )); then
+      WID="$(managed_wid || true)"
+      [[ -n "$WID" ]] && break
+      # Window exists but never becomes managed (override-redirect/fullscreen):
+      # give the managed probe a short grace, then take what is there instead of
+      # burning the whole timeout.
+      any="$(any_wid)"
+      if [[ -n "$any" ]]; then
+        (( seen < 0 )) && seen=$i
+        if (( i - seen >= 6 )); then
+          echo ">> WARN: '$WIN_NAME' never became WM-managed; using $any (workspace ops may no-op)" >&2
+          WID="$any"; break
+        fi
+      fi
+    else
+      WID="$(any_wid)"
+      [[ -n "$WID" ]] && break
+    fi
     sleep 0.5
   done
-  # No EWMH-managed match (e.g. a WM without virtual desktops): fall back to any
-  # match so liveness still resolves — parking is a no-op on such WMs anyway.
-  [[ -n "$WID" ]] || WID="$(xdotool search --name "^${WIN_NAME}$" 2>/dev/null | head -1 || true)"
+  # window appeared inside the grace period right at the deadline: take it
+  [[ -n "$WID" ]] || WID="$(any_wid)"
   [[ -n "$WID" ]] || die "desktop window '$WIN_NAME' did not appear in ${TIMEOUT}s"
   echo ">> desktop window id: $WID"
 }

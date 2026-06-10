@@ -6,6 +6,9 @@ preflight(){
   [[ -d "$PREFIX" ]] || die "prefix not found: $PREFIX (run ./deploy/bootstrap.sh $PREFIX first)"
   command -v wine    >/dev/null || die "wine not on PATH"
   command -v xdotool >/dev/null || die "xdotool not on PATH"
+  if (( XVFB )); then
+    command -v Xvfb >/dev/null || die "Xvfb not on PATH (needed for --xvfb; apt install xvfb)"
+  fi
   if (( NET )); then
     command -v ip >/dev/null || die "ip (iproute2) not on PATH (needed for --net)"
     # --net is a single instance. Force COUNT=1; only object if the user asked
