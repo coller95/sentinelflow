@@ -123,7 +123,9 @@ class LinuxWindowManager(IWindowManager):
         self._try_focus_window(handle)
 
     def _try_focus_window(self, xid: XWindow) -> None:
-        """Best-effort focus; on a bare Xvfb there is no WM, so this is a no-op."""
+        """Best-effort focus. windowfocus sets core X input focus and works with
+        or without a WM (bare Xvfb included); windowactivate is the EWMH fallback
+        and needs a WM."""
         if _run(["xdotool", "windowfocus", "--sync", str(int(xid))]) is None:
             _run(["xdotool", "windowactivate", "--sync", str(int(xid))])
 
@@ -163,7 +165,10 @@ class LinuxInputController(IInputController):
         self._window_manager = window_manager
 
     def click(self, handle: XWindow, x_normalized: NormalizedCoord, y_normalized: NormalizedCoord):
-        # Deliver to the specific window without raising/focusing it (fleet-safe).
+        # Wine drops XSendEvent-style input (xdotool's --window delivery), so
+        # focus the target and send real XTEST events instead — same model as the
+        # Windows handler's force-foreground. On the intended per-instance Xvfb
+        # the focus grab is free: the instance owns the whole display.
         if not handle:
             return
         try:
@@ -182,15 +187,17 @@ class LinuxInputController(IInputController):
         x = int(x_normalized * width)
         y = int(y_normalized * height)
         xid = str(int(handle))
+        self._window_manager.focus_window(int(handle))
         _run(["xdotool", "mousemove", "--window", xid, str(x), str(y)])
         time.sleep(0.01)
-        _run(["xdotool", "click", "--window", xid, "1"])
+        _run(["xdotool", "click", "1"])
 
     def press_key(self, handle: XWindow, key_name: str):
         if not handle:
             return
         keysym = self._keysym_from_key_name(key_name)
-        _run(["xdotool", "key", "--clearmodifiers", "--window", str(int(handle)), keysym])
+        self._window_manager.focus_window(int(handle))
+        _run(["xdotool", "key", "--clearmodifiers", keysym])
 
     def _keysym_from_key_name(self, keyName: str) -> Keysym:
         """Resolve a human-readable key name to an xdotool keysym."""
