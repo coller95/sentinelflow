@@ -69,11 +69,23 @@ def _state_root() -> Path:
         except Exception:
             return False
 
+    # The override applies in dev too — running multiple instances from one
+    # checkout needs per-instance state dirs (distinct serverUuid, no save races).
+    override = (os.getenv("SENTINELFLOW_STATE_DIR") or "").strip()
+    if override:
+        if is_writable_dir(Path(override)):
+            return Path(override)
+        # Falling back silently would put this instance on the SHARED default
+        # state (uuid collisions, save races) — the exact thing the env var
+        # exists to prevent. Be loud.
+        print(
+            f"WARN: SENTINELFLOW_STATE_DIR '{override}' is not writable; "
+            "falling back to the shared default state dir",
+            file=sys.stderr,
+        )
+
     if bool(getattr(sys, "frozen", False)):
-        override = (os.getenv("SENTINELFLOW_STATE_DIR") or "").strip()
         candidates: List[Path] = []
-        if override:
-            candidates.append(Path(override))
 
         try:
             candidates.append(Path(sys.executable).resolve().parent)
@@ -106,6 +118,12 @@ def _candidate_state_paths() -> List[Path]:
     legacy/alternate locations so packaged builds can find existing state.
     """
     paths: List[Path] = [_STATE_PATH]
+
+    # With an explicit per-instance state dir there is exactly one legitimate
+    # location. Reading the legacy/cwd candidates here would silently clone
+    # another instance's (or the dev checkout's) state — serverUuid included.
+    if (os.getenv("SENTINELFLOW_STATE_DIR") or "").strip():
+        return paths
 
     if bool(getattr(sys, "frozen", False)):
         # Also try the EXE folder explicitly (even if we fell back due to permissions).
