@@ -16,6 +16,8 @@
 #     -X          show on your real display: skip Xvfb and run the wine
 #                 desktop on the current $DISPLAY (briefly steals mouse +
 #                 focus while it clicks and types)
+#     -s SECS     hold the instance up that long after typing, before
+#                 teardown (default: 10 with -X so you can watch, else 0)
 set -euo pipefail
 
 SCRIPTDIR="$(cd -- "$(dirname "$0")" >/dev/null; pwd -P)"
@@ -26,19 +28,23 @@ PREFIX="$HOME/.wine"
 MSG='hello from claude! scripted wine demo works :)'
 OUT=/tmp/wine-demo.png
 ONDISPLAY=0
-while getopts 'p:m:o:Xh' opt; do
+HOLD=''
+while getopts 'p:m:o:Xs:h' opt; do
   case "$opt" in
     p) PREFIX=$OPTARG ;;
     m) MSG=$OPTARG ;;
     o) OUT=$OPTARG ;;
     X) ONDISPLAY=1 ;;
-    *) sed -n '2,19p' "$0"; exit 0 ;;
+    s) HOLD=$OPTARG ;;
+    *) sed -n '2,21p' "$0"; exit 0 ;;
   esac
 done
 shift $((OPTIND - 1))
 # getopts stops at the first non-option word, silently dropping every flag
 # after it ('Demo.sh foo -X' would run headless) — refuse stray args instead.
-[[ $# -eq 0 ]] || { echo "!! unexpected argument(s): $*"; sed -n '2,19p' "$0"; exit 1; }
+[[ $# -eq 0 ]] || { echo "!! unexpected argument(s): $*"; sed -n '2,21p' "$0"; exit 1; }
+[[ -z "$HOLD" ]] && HOLD=$(( ONDISPLAY ? 10 : 0 ))
+[[ "$HOLD" =~ ^[0-9]+$ ]] || { echo "!! -s wants a number of seconds, got '$HOLD'"; exit 1; }
 
 LAUNCH_OPTS=(--xvfb)
 if (( ONDISPLAY )); then
@@ -111,6 +117,11 @@ img = LinuxScreenCapturer().capture_window(wid)
 cv2.imwrite(out, img)
 print(f">> captured {img.shape[1]}x{img.shape[0]} -> {out}")
 PY
+
+if (( HOLD )); then
+  echo ">> holding ${HOLD}s — go look at the window"
+  sleep "$HOLD"
+fi
 
 # Teardown: SIGTERM the launcher (same trap path as Ctrl+C; see cleanup note
 # on why not INT), then verify every member pid it reported is actually gone.
