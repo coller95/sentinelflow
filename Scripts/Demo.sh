@@ -9,10 +9,13 @@
 # down and verifies nothing was left behind.
 #
 # Usage:
-#   Scripts/Demo.sh [-p PREFIX] [-m MESSAGE] [-o PNG]
+#   Scripts/Demo.sh [-p PREFIX] [-m MESSAGE] [-o PNG] [-X]
 #     -p PREFIX   bootstrapped wine prefix to launch from (default ~/.wine)
 #     -m MESSAGE  text typed into notepad
 #     -o PNG      where the proof screenshot lands (default /tmp/wine-demo.png)
+#     -X          show on your real display: skip Xvfb and run the wine
+#                 desktop on the current $DISPLAY (briefly steals mouse +
+#                 focus while it clicks and types)
 set -euo pipefail
 
 SCRIPTDIR="$(cd -- "$(dirname "$0")" >/dev/null; pwd -P)"
@@ -22,19 +25,27 @@ cd "$PROJECT_ROOT"
 PREFIX="$HOME/.wine"
 MSG='hello from claude! scripted wine demo works :)'
 OUT=/tmp/wine-demo.png
-while getopts 'p:m:o:h' opt; do
+ONDISPLAY=0
+while getopts 'p:m:o:Xh' opt; do
   case "$opt" in
     p) PREFIX=$OPTARG ;;
     m) MSG=$OPTARG ;;
     o) OUT=$OPTARG ;;
-    *) sed -n '2,16p' "$0"; exit 0 ;;
+    X) ONDISPLAY=1 ;;
+    *) sed -n '2,19p' "$0"; exit 0 ;;
   esac
 done
+
+LAUNCH_OPTS=(--xvfb)
+if (( ONDISPLAY )); then
+  [[ -n "${DISPLAY:-}" ]] || { echo "!! -X needs \$DISPLAY set"; exit 1; }
+  LAUNCH_OPTS=()
+fi
 
 LOG="$(mktemp /tmp/wine-demo-launch.XXXXXX.log)"
 
 echo ">> launching instance (prefix=$PREFIX, log=$LOG)"
-./deploy/launch.sh -p "$PREFIX" -c 1 --xvfb --node-cmd Scripts/RunNode.sh >"$LOG" 2>&1 &
+./deploy/launch.sh -p "$PREFIX" -c 1 "${LAUNCH_OPTS[@]}" --node-cmd Scripts/RunNode.sh >"$LOG" 2>&1 &
 LAUNCHER=$!
 # Safety net only — the happy path tears down explicitly below.
 # TERM, not INT: a backgrounded launch.sh starts with SIGINT ignored
@@ -53,7 +64,11 @@ for _ in $(seq 1 60); do
 done
 grep -q '^>> up:' "$LOG" || { echo "!! timeout waiting for instance:"; cat "$LOG"; exit 1; }
 
-DISP="$(sed -n 's/^>> xvfb up on \(:[0-9]\+\).*/\1/p' "$LOG")"
+if (( ONDISPLAY )); then
+  DISP="$DISPLAY"
+else
+  DISP="$(sed -n 's/^>> xvfb up on \(:[0-9]\+\).*/\1/p' "$LOG")"
+fi
 WIN="$(sed -n "s/^>> up:.*window='\([^']*\)'.*/\1/p" "$LOG")"
 NODE_LOG="$(sed -n 's/^>> \[node\] pid=[0-9]\+ log=\(.*\)/\1/p' "$LOG")"
 echo ">> instance up: display=$DISP window='$WIN'"
