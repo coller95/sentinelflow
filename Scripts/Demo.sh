@@ -35,6 +35,10 @@ while getopts 'p:m:o:Xh' opt; do
     *) sed -n '2,19p' "$0"; exit 0 ;;
   esac
 done
+shift $((OPTIND - 1))
+# getopts stops at the first non-option word, silently dropping every flag
+# after it ('Demo.sh foo -X' would run headless) — refuse stray args instead.
+[[ $# -eq 0 ]] || { echo "!! unexpected argument(s): $*"; sed -n '2,19p' "$0"; exit 1; }
 
 LAUNCH_OPTS=(--xvfb)
 if (( ONDISPLAY )); then
