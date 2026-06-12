@@ -41,6 +41,7 @@ order = report BLOCKED with the question; never guess.
   cross-instance state must key by instance, never module-level globals.
 - `SENTINELFLOW_STATE_DIR` / `SENTINELFLOW_PORT` env handling: empty string and
   unset must behave identically; never `int(os.getenv(...))` without a guard.
+- New import in any Src/ file = matching line in requirements.txt, same order. Transitive availability in the current venv is not installation — fresh `pip install -r` must work.
 
 ## Return format (≤120 words + oracle output)
 

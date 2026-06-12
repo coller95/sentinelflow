@@ -6,3 +6,5 @@ fastapi
 uvicorn[standard]
 hypercorn
 httpx
+py_trees
+requests
