@@ -39,6 +39,20 @@ _KEY_NAME_TO_KEYSYM: dict[str, str] = {
     "numpaddecimal": "KP_Decimal", "numpadenter": "KP_Enter",
 }
 
+# ASCII punctuation must go to xdotool by keysym NAME: `xdotool key ':'`
+# prints "No such key name" and exits 0, silently typing nothing.
+_CHAR_TO_KEYSYM: dict[str, str] = {
+    "!": "exclam", '"': "quotedbl", "#": "numbersign", "$": "dollar",
+    "%": "percent", "&": "ampersand", "'": "apostrophe", "(": "parenleft",
+    ")": "parenright", "*": "asterisk", "+": "plus", ",": "comma",
+    "-": "minus", ".": "period", "/": "slash", ":": "colon",
+    ";": "semicolon", "<": "less", "=": "equal", ">": "greater",
+    "?": "question", "@": "at", "[": "bracketleft", "\\": "backslash",
+    "]": "bracketright", "^": "asciicircum", "_": "underscore",
+    "`": "grave", "{": "braceleft", "|": "bar", "}": "braceright",
+    "~": "asciitilde",
+}
+
 
 def _run(argv: List[str]) -> Optional[str]:
     """Run a command, return stdout stripped, or None if it failed."""
@@ -215,8 +229,9 @@ class LinuxInputController(IInputController):
             if 1 <= n <= 24:
                 return f"F{n}"
 
-        # Single visible character: xdotool accepts the literal keysym.
+        # Single visible character: letters/digits are literal keysyms;
+        # punctuation only works by name (see _CHAR_TO_KEYSYM).
         if len(name) == 1:
-            return name
+            return _CHAR_TO_KEYSYM.get(name, name)
 
         raise ValueError(f"Invalid key name: {keyName}")
