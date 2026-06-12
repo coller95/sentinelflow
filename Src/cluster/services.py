@@ -287,12 +287,15 @@ class ControllerServices:
             attached = bool(self._hwnd)
             pid = int(self._pid) if self._pid else None
             hwnd = int(self._hwnd) if self._hwnd else None
+            e = self._control_last_error
+            last_control_error = f"{type(e).__name__}: {e}" if e is not None else None
             return {
                 "attached": attached,
                 "pid": pid,
                 "hwnd": hwnd,
                 "defaultAppPath": str(self._default_app_path or ""),
                 "defaultWindowTitle": str(self._default_window_title or ""),
+                "lastControlError": last_control_error,
             }
 
     def GetAppDefaults(self) -> Dict[str, Any]:
