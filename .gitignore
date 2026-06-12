@@ -152,8 +152,10 @@ Desktop.ini
 # Refactor scratch (temporary)
 .refactor/
 
-# Claude Code local session state (scheduler lock, etc.)
-.claude/
+# Claude Code local session state (harness agents/skills ARE tracked)
+.claude/settings.local.json
+.claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # SentinelFlow Data
 state.json
