@@ -29,6 +29,11 @@
 #       --node-cmd CMD   command to run as the node (implies --node);
 #                        the real one: --node-cmd Scripts/RunNode.sh
 #       --no-node        turn the node back off
+#       --own-prefix     run in an OWN per-instance WINEPREFIX under
+#                        ~/.local/state/sentinelflow/<name>/wineprefix (wine
+#                        initializes it on first boot), so teardown's
+#                        'wineserver -k' only stops THIS instance's wine apps
+#       --wineprefix DIR put the own prefix at DIR (implies --own-prefix)
 #       --net            give the instance its own LAN IP via netns (sudo).
 #                        Wired: DHCP. WiFi: static (auto-picked free LAN addr).
 #       --parent IFACE   physical iface for --net (default: auto-detect; implies --net)
@@ -51,6 +56,8 @@ source "$HERE/modules/node.sh"
 parse_cli "$@"
 preflight
 derive_name
+resolve_own_prefix   # --own-prefix: repoint PREFIX before the trap goes live —
+                     # an early die() must not 'wineserver -k' the shared prefix
 install_teardown
 start_xserver   # --xvfb: own headless display; exports DISPLAY for all below
 
@@ -85,4 +92,21 @@ echo ">> supervising — Ctrl+C to stop and tear down all."
 
 # Supervise: the FIRST member to die ends the whole instance (wait-all would
 # sleep through a dead app while the node lives on, serving stale frames).
-wait -n "${ALL_PIDS[@]}" || true
+# bash < 5.3 'wait -n' ignores pids already dead when called ("no such job",
+# then it blocks on the survivors) — so sweep ALL_PIDS for a corpse first and
+# re-sweep on every wakeup, only blocking in wait -n while all look alive.
+# Liveness probe: kill -0 EPERMs on the root-owned sudo front-ends that --net
+# puts in ALL_PIDS, so a still-present /proc entry also counts as alive.
+DEAD=""
+while [[ -z "$DEAD" ]]; do
+  for pid in "${ALL_PIDS[@]}"; do
+    kill -0 "$pid" 2>/dev/null || [[ -e "/proc/$pid" ]] || { DEAD="$pid"; break; }
+  done
+  [[ -n "$DEAD" ]] && break
+  REAPED=""
+  wait -n -p REAPED "${ALL_PIDS[@]}" 2>/dev/null || true
+  (( cleaned )) && exit 0       # a signal already tore us down mid-wait
+  DEAD="${REAPED:-}"            # set: wait -n caught the death itself
+  [[ -n "$DEAD" ]] || sleep 1   # unset: buggy return — pace the re-sweep
+done
+echo ">> member pid=$DEAD died — ending instance."

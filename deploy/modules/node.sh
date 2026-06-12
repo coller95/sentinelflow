@@ -9,7 +9,8 @@
 # inside the instance's netns via NS_RUN so a real node binds the instance's IP.
 #
 # SF_* handed to the command: SF_NAME SF_PREFIX SF_WID SF_RES SF_DISPLAY
-# SF_IP (empty unless --net). DISPLAY/XAUTHORITY/HOME are passed for X access.
+# SF_IP (empty unless --net). DISPLAY/XAUTHORITY/HOME are passed for X access;
+# SF_ORCH_URL/SENTINELFLOW_PORT ride along when set (RunNode.sh knobs).
 
 # Default payload: print the instance identity, then heartbeat until killed.
 _node_stub='echo ">> node-stub up: name=$SF_NAME wid=$SF_WID prefix=$SF_PREFIX display=$SF_DISPLAY res=$SF_RES ip=${SF_IP:-none}"
@@ -25,6 +26,11 @@ start_node(){
     "SF_IP=${LEASE_IP:-}" "SF_DISPLAY=${DISPLAY:-:0}"
     "DISPLAY=${DISPLAY:-:0}" "XAUTHORITY=${XAUTHORITY:-$HOME/.Xauthority}" "HOME=$HOME"
   )
+  # --net runs the node via 'runuser', which scrubs the environment — carry the
+  # orchestrator knobs across explicitly, but only when non-empty: a blanket
+  # "VAR=${VAR:-}" would hand payloads a set-but-empty var where they had none.
+  [[ -n "${SF_ORCH_URL:-}" ]] && nenv+=( "SF_ORCH_URL=$SF_ORCH_URL" )
+  [[ -n "${SENTINELFLOW_PORT:-}" ]] && nenv+=( "SENTINELFLOW_PORT=$SENTINELFLOW_PORT" )
   log "node up for '$NAME' (log=$log)"
   echo "── run $(date '+%F %T') ──" >>"$log"
   "${NS_RUN[@]}" env "${nenv[@]}" bash -c "$cmd" >>"$log" 2>&1 &

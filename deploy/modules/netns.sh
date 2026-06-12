@@ -137,13 +137,26 @@ net_static(){
   log "netns $NS: up at $LEASE_IP"
 }
 
-# net_destroy $ns $iface — tolerant teardown (safe to call with empty ns)
+# net_destroy $ns $iface — tolerant teardown (safe to call with empty ns).
+# All sudo here is -n: teardown runs at exit, and an expired session must
+# degrade to a no-op instead of hanging on a (silenced) password prompt.
 net_destroy(){
-  local ns="$1" iface="${2:-}"
+  local ns="$1" iface="${2:-}" pids
   [[ -n "$ns" ]] || return 0
   [[ "$LINK_KIND" == macvlan ]] && \
-    sudo ip netns exec "$ns" "${DHCP_CLIENT:-dhclient}" -r "$iface" 2>/dev/null || true
-  sudo ip netns del "$ns" 2>/dev/null || true
-  sudo rm -rf "/etc/netns/$ns" 2>/dev/null || true
-  sudo rm -f  "/tmp/dhclient-$ns.conf" 2>/dev/null || true
+    sudo -n ip netns exec "$ns" "${DHCP_CLIENT:-dhclient}" -r "$iface" 2>/dev/null || true
+  # survivors PIN the ns: 'ip netns del' only unlinks the name, while the netns
+  # — and the ipvlan/macvlan address it holds — lives on until the last member
+  # dies. Sweep them first: TERM, a short grace, then KILL whatever is left.
+  # $pids expands unquoted on purpose ('ip netns pids' prints one pid per line).
+  pids="$(sudo -n ip netns pids "$ns" 2>/dev/null || true)"
+  if [[ -n "$pids" ]]; then
+    sudo -n kill $pids 2>/dev/null || true
+    sleep 1
+    pids="$(sudo -n ip netns pids "$ns" 2>/dev/null || true)"
+    [[ -n "$pids" ]] && sudo -n kill -9 $pids 2>/dev/null || true
+  fi
+  sudo -n ip netns del "$ns" 2>/dev/null || true
+  sudo -n rm -rf "/etc/netns/$ns" 2>/dev/null || true
+  sudo -n rm -f  "/tmp/dhclient-$ns.conf" 2>/dev/null || true
 }

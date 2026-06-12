@@ -2,9 +2,11 @@
 # apps.sh — build the run env + launch app instances. Source me.
 
 build_run_env(){
-  RUN_ENV=( "WINEPREFIX=$PREFIX" )
+  RUN_ENV=( "WINEPREFIX=$PREFIX" )   # --own-prefix: launch.sh already repointed PREFIX
   # --net runs wine via 'runuser', which scrubs the environment — carry the X11
-  # bits and HOME across explicitly so wine can reach the display.
+  # bits and HOME across explicitly so wine can reach the display. WINEPREFIX
+  # rides in RUN_ENV above: 'env' applies it INSIDE the scrub, so it survives
+  # the same way (this also covers the --own-prefix dir).
   if (( NET )); then
     RUN_ENV+=( "DISPLAY=${DISPLAY:-:0}" "XAUTHORITY=${XAUTHORITY:-$HOME/.Xauthority}" "HOME=$HOME" )
   fi

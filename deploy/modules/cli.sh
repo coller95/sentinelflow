@@ -10,6 +10,7 @@ parse_cli(){
   PREFIX=""; NAME=""; RES="1024x768"; WORKSPACE=""; TIMEOUT=30
   NET=0; PARENT=""; IP_REQ=""
   NODE=0; NODE_CMD=""
+  OWN_PREFIX=0; OWN_PREFIX_DIR=""
   XVFB=0
   ENV_KV=()
 
@@ -26,6 +27,8 @@ parse_cli(){
       --node)         NODE=1; shift ;;
       --node-cmd)     NODE_CMD="${2:?}"; NODE=1; shift 2 ;;
       --no-node)      NODE=0; shift ;;
+      --own-prefix)   OWN_PREFIX=1; shift ;;
+      --wineprefix)   OWN_PREFIX_DIR="${2:?}"; OWN_PREFIX=1; shift 2 ;;
       --xvfb)         XVFB=1; shift ;;
       --net)          NET=1; shift ;;
       --parent)       PARENT="${2:?}"; shift 2 ;;
