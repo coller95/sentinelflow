@@ -5,8 +5,10 @@ Keep this directory **simple**. It has exactly two scripts a user runs, and a
 
 ## The only two entry points
 
-- **`bootstrap.sh <PREFIX>`** — first-time setup. Creates a fresh wow64 wine
-  prefix with DXVK. Run once per prefix. App-agnostic.
+- **`bootstrap.sh`** — wine prefix lifecycle, app-agnostic. `<PREFIX>` creates a
+  fresh wow64 prefix + DXVK; `--save <PREFIX> <OUT>` / `--restore <IN> <PREFIX>`
+  snapshot & restore a ready prefix (tar+zstd); `--app NAME <PREFIX>` runs a
+  profile's `app_install()`. `--help` for usage.
 - **`launch.sh -p <PREFIX> [opts]`** — the single runtime entry point. Brings up
   a wine virtual desktop, runs the app(s) inside it, optionally starts a
   per-instance node, supervises in the foreground, and tears **everything** down
@@ -132,6 +134,9 @@ A profile is a sourced KEY=VAL file. Keys it may set:
 | `WIN_TITLE` | window title to wait-for / attach / seed to the node |
 | `HOLD_PROC` | engine process to babysit when the launcher front-end detaches |
 | `PROFILE_COUNT` | default instance count (an explicit `-c` overrides) |
+| `app_install()` | optional bash function; install recipe run by `bootstrap.sh --app <name>` |
+
+A profile may also define an `app_install()` function — the install recipe `bootstrap.sh --app <name> <prefix>` runs (with `WINEPREFIX` set). WC3's is interactive, so its `app_install` points at the snapshot path (`--save`/`--restore`) instead.
 
 `deploy/apps/war3.app` (Warcraft III) is the first profile; `wc3.app` symlinks
 to it. The `apps/` dir is sourced DATA, not an entry-point script — it does not
