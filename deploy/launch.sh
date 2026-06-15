@@ -18,7 +18,8 @@
 #   -p, --prefix DIR     WINEPREFIX to run in (required)
 #   -n, --name NAME      desktop name (default: basename of PREFIX, dots stripped)
 #   -r, --res WxH        virtual-desktop size (default: 1024x768)
-#   -a, --app NAME       app to run (default: notepad)
+#   -a, --app NAME       app to run (default: notepad), or a profile name from
+#                        deploy/apps/<name>.app (e.g. war3, wc3 → Warcraft III)
 #   -c, --count N        apps in the shared desktop (default: 3; --net forces 1)
 #   -w, --workspace N    park the desktop on EWMH workspace N (0-indexed),
 #                        or 'new' (alias 'n') for a fresh/trailing workspace
@@ -48,12 +49,14 @@ source "$HERE/modules/sudo.sh"
 source "$HERE/modules/netns.sh"
 source "$HERE/modules/xserver.sh"
 source "$HERE/modules/cli.sh"
+source "$HERE/modules/profiles.sh"
 source "$HERE/modules/preflight.sh"
 source "$HERE/modules/desktop.sh"
 source "$HERE/modules/apps.sh"
 source "$HERE/modules/node.sh"
 
 parse_cli "$@"
+resolve_app_profile   # -a <name>: load deploy/apps/<name>.app launch profile
 preflight
 derive_name
 resolve_own_prefix   # --own-prefix: repoint PREFIX before the trap goes live —

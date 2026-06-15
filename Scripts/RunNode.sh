@@ -72,13 +72,16 @@ fi
 if [[ ! -f "$STATE_DIR/state.json" ]]; then
   W="${RES%x*}"; H="${RES#*x}"
   UUID="$(cat /proc/sys/kernel/random/uuid)"
+  # --no-desktop instances pass the game's own window title via SF_WIN_TITLE;
+  # default to the wine virtual-desktop title.
+  TITLE="${SF_WIN_TITLE:-$NAME - Wine Desktop}"
   cat > "$STATE_DIR/state.json" <<EOF
 {
   "version": 1,
   "serverUuid": "$UUID",
   "app": {
     "defaultAppPath": "",
-    "defaultWindowTitle": "$NAME - Wine Desktop",
+    "defaultWindowTitle": "$TITLE",
     "defaultWindowLeft": 0,
     "defaultWindowTop": 0,
     "defaultWindowWidth": $W,

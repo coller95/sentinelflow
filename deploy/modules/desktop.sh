@@ -8,6 +8,8 @@ derive_name(){
   # constrain it once here instead of escaping at every use site.
   [[ "$NAME" =~ ^[A-Za-z0-9._-]+$ ]] || die "bad instance name '$NAME' (use letters/digits/._-)"
   WIN_NAME="$NAME - Wine Desktop"
+  # --no-desktop apps own their own top-level window; target that title instead.
+  [[ -n "${WIN_TITLE:-}" ]] && WIN_NAME="$WIN_TITLE" || true
 }
 
 # wine maps TWO X windows with the SAME title: a wine-internal child (no WM_STATE,

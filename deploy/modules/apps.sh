@@ -20,7 +20,25 @@ run_app(){
   local n="$1" log="${TMPDIR:-/tmp}/wine-${NAME}-${1}.log"
   # append: a relaunch must not wipe the previous run's crash output
   echo "── run $(date '+%F %T') ──" >>"$log"
-  "${NS_RUN[@]}" env "${RUN_ENV[@]}" wine explorer "/desktop=$NAME,$RES" "$APP" >>"$log" 2>&1 &
+  if (( NO_DESKTOP )); then
+    # No virtual desktop: run the app directly so it owns its own window ($WIN_TITLE).
+    # A launcher-style game (war3.exe behind Frozen Throne.exe) detaches — the wine
+    # front-end exits while the engine keeps running. Hold this member alive while
+    # $HOLD_PROC lives so supervision tracks the GAME, not the front-end that quit.
+    if [[ -n "$HOLD_PROC" ]]; then
+      # set +e: the launcher front-end exits non-zero when it hands off to the
+      # engine; under launch.sh's `set -e` that would abort this holder before it
+      # starts babysitting. Disable errexit here — the while-loop alone bounds life.
+      ( set +e
+        "${NS_RUN[@]}" env "${RUN_ENV[@]}" wine "$APP" $APP_ARGS >>"$log" 2>&1
+        for _ in $(seq 1 30); do pgrep -f "$HOLD_PROC" >/dev/null 2>&1 && break; sleep 1; done
+        while pgrep -f "$HOLD_PROC" >/dev/null 2>&1; do sleep 2; done ) &
+    else
+      "${NS_RUN[@]}" env "${RUN_ENV[@]}" wine "$APP" $APP_ARGS >>"$log" 2>&1 &
+    fi
+  else
+    "${NS_RUN[@]}" env "${RUN_ENV[@]}" wine explorer "/desktop=$NAME,$RES" "$APP" >>"$log" 2>&1 &
+  fi
   ALL_PIDS+=("$!")
   echo ">> [$n] $APP (pid=$! log=$log)"
 }

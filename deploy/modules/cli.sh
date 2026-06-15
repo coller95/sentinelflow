@@ -12,6 +12,7 @@ parse_cli(){
   NODE=0; NODE_CMD=""
   OWN_PREFIX=0; OWN_PREFIX_DIR=""
   XVFB=0
+  NO_DESKTOP=0; WIN_TITLE=""; APP_ARGS=""; HOLD_PROC=""
   ENV_KV=()
 
   while (( $# )); do

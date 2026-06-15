@@ -27,7 +27,7 @@ top of `deploy/`.
 ## launch.sh flow
 
 ```
-parse_cli → preflight → derive_name → resolve_own_prefix → install_teardown
+parse_cli → resolve_app_profile → preflight → derive_name → resolve_own_prefix → install_teardown
   → [--xvfb: start_xserver → exports per-instance DISPLAY for everything below]
   → [--net: sudo_init, net_detect_parent, net_create, net_address, NS_RUN=…]
   → build_run_env
@@ -78,6 +78,7 @@ with the same `-p` still share that prefix and its wineserver.
 | `netns.sh` | `--net` network namespace + own LAN IP; sets `NS_RUN`, `LEASE_IP` |
 | `xserver.sh` | `--xvfb` per-instance headless X server; exports `DISPLAY` |
 | `cli.sh` | `usage` (reads launch.sh header), `parse_cli` → shared globals |
+| `profiles.sh` | `resolve_app_profile` — load `deploy/apps/<name>.app` launch profile |
 | `preflight.sh` | dependency + prefix checks, `resolve_own_prefix` (`--own-prefix`) |
 | `desktop.sh` | name derivation, `wait_for_window` (managed-WID resolve), `park_workspace` |
 | `apps.sh` | `build_run_env`, `run_app` |
@@ -113,6 +114,28 @@ unreachable from inside a macvlan/ipvlan netns (no hairpin), so `SF_ORCH_URL`
 only commissions across hosts in `--net` mode. Prefer `--xvfb` for node
 instances: the capture/input paths in `Src/infrastructure/os/linux_handler.py`
 are exact there (own display, no WM fullscreen surprises, focus grabs are free).
+
+## App profiles (deploy/apps/)
+
+`-a <name>` is app-agnostic: if `deploy/apps/<name>.app` exists it is sourced
+(`profiles.sh:resolve_app_profile`, called right after `parse_cli`) to set the
+launch globals; otherwise the `-a` value passes through unchanged (a real wine
+path or builtin like `notepad`). A new app is a **drop-in file** — no core edit.
+
+A profile is a sourced KEY=VAL file. Keys it may set:
+
+| key | meaning |
+|---|---|
+| `APP` | wine exe path to launch |
+| `APP_ARGS` | extra args (word-split; unquoted at the call site) |
+| `NO_DESKTOP` | `1` = run the app directly (own window), not in a wine virtual desktop |
+| `WIN_TITLE` | window title to wait-for / attach / seed to the node |
+| `HOLD_PROC` | engine process to babysit when the launcher front-end detaches |
+| `PROFILE_COUNT` | default instance count (an explicit `-c` overrides) |
+
+`deploy/apps/war3.app` (Warcraft III) is the first profile; `wc3.app` symlinks
+to it. The `apps/` dir is sourced DATA, not an entry-point script — it does not
+violate the "no new top-level scripts" rule.
 
 ## Gotchas
 
